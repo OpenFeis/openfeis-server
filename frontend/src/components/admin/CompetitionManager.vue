@@ -1,0 +1,516 @@
+<script setup lang="ts">
+import { ref, onMounted, computed, watch } from 'vue';
+import type { CompetitionLevel, Gender } from '../../models/types';
+
+interface Competition {
+  id: string;
+  feis_id: string;
+  name: string;
+  min_age: number;
+  max_age: number;
+  level: CompetitionLevel;
+  gender?: Gender;
+  entry_count: number;
+}
+
+const props = defineProps<{
+  feisId: string;
+  feisName: string;
+}>();
+
+const emit = defineEmits<{
+  (e: 'back'): void;
+  (e: 'generateSyllabus'): void;
+}>();
+
+// State
+const competitions = ref<Competition[]>([]);
+const loading = ref(false);
+const error = ref<string | null>(null);
+const successMessage = ref<string | null>(null);
+
+// Filters
+const searchQuery = ref('');
+const filterLevel = ref<string>('all');
+const filterGender = ref<string>('all');
+
+// Edit state
+const editingComp = ref<Competition | null>(null);
+const editForm = ref({
+  name: '',
+  min_age: 0,
+  max_age: 0,
+  level: 'beginner' as CompetitionLevel,
+  gender: null as Gender | null
+});
+
+// Filtered competitions
+const filteredCompetitions = computed(() => {
+  let result = competitions.value;
+  
+  if (filterLevel.value !== 'all') {
+    result = result.filter(c => c.level === filterLevel.value);
+  }
+  
+  if (filterGender.value !== 'all') {
+    if (filterGender.value === 'none') {
+      result = result.filter(c => !c.gender);
+    } else {
+      result = result.filter(c => c.gender === filterGender.value);
+    }
+  }
+  
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase();
+    result = result.filter(c => c.name.toLowerCase().includes(query));
+  }
+  
+  return result;
+});
+
+// Stats
+const stats = computed(() => ({
+  total: competitions.value.length,
+  withEntries: competitions.value.filter(c => c.entry_count > 0).length,
+  empty: competitions.value.filter(c => c.entry_count === 0).length,
+  totalEntries: competitions.value.reduce((sum, c) => sum + c.entry_count, 0)
+}));
+
+// Level options
+const levelOptions = [
+  { value: 'beginner', label: 'Beginner' },
+  { value: 'novice', label: 'Novice' },
+  { value: 'prizewinner', label: 'Prizewinner' },
+  { value: 'championship', label: 'Championship' }
+];
+
+// Gender options
+const genderOptions = [
+  { value: 'male', label: 'Boys' },
+  { value: 'female', label: 'Girls' },
+  { value: 'other', label: 'Open' }
+];
+
+// Fetch competitions
+const fetchCompetitions = async () => {
+  loading.value = true;
+  error.value = null;
+  try {
+    const response = await fetch(`/api/v1/feis/${props.feisId}/competitions`);
+    if (!response.ok) throw new Error('Failed to fetch competitions');
+    competitions.value = await response.json();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'An error occurred';
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Start editing
+const startEdit = (comp: Competition) => {
+  editingComp.value = comp;
+  editForm.value = {
+    name: comp.name,
+    min_age: comp.min_age,
+    max_age: comp.max_age,
+    level: comp.level,
+    gender: comp.gender || null
+  };
+};
+
+// Cancel editing
+const cancelEdit = () => {
+  editingComp.value = null;
+};
+
+// Save edit
+const saveEdit = async () => {
+  if (!editingComp.value) return;
+  
+  loading.value = true;
+  error.value = null;
+  try {
+    const response = await fetch(`/api/v1/competitions/${editingComp.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editForm.value)
+    });
+    if (!response.ok) throw new Error('Failed to update competition');
+    
+    const updated = await response.json();
+    const index = competitions.value.findIndex(c => c.id === updated.id);
+    if (index !== -1) {
+      competitions.value[index] = updated;
+    }
+    
+    successMessage.value = 'Competition updated successfully';
+    cancelEdit();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'An error occurred';
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Delete competition
+const deleteCompetition = async (comp: Competition) => {
+  const message = comp.entry_count > 0
+    ? `Delete "${comp.name}"? This will also delete ${comp.entry_count} entries. This cannot be undone.`
+    : `Delete "${comp.name}"? This cannot be undone.`;
+  
+  if (!confirm(message)) return;
+  
+  loading.value = true;
+  error.value = null;
+  try {
+    const response = await fetch(`/api/v1/competitions/${comp.id}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) throw new Error('Failed to delete competition');
+    
+    competitions.value = competitions.value.filter(c => c.id !== comp.id);
+    successMessage.value = 'Competition deleted successfully';
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'An error occurred';
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Delete all empty competitions
+const deleteEmptyCompetitions = async () => {
+  const emptyComps = competitions.value.filter(c => c.entry_count === 0);
+  if (emptyComps.length === 0) return;
+  
+  if (!confirm(`Delete ${emptyComps.length} empty competitions? This cannot be undone.`)) return;
+  
+  loading.value = true;
+  error.value = null;
+  let deleted = 0;
+  
+  try {
+    for (const comp of emptyComps) {
+      const response = await fetch(`/api/v1/competitions/${comp.id}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        deleted++;
+      }
+    }
+    
+    competitions.value = competitions.value.filter(c => c.entry_count > 0);
+    successMessage.value = `Deleted ${deleted} empty competitions`;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'An error occurred';
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Clear messages
+watch([successMessage, error], () => {
+  if (successMessage.value) {
+    setTimeout(() => successMessage.value = null, 5000);
+  }
+});
+
+// Format level display
+const formatLevel = (level: string) => {
+  return level.charAt(0).toUpperCase() + level.slice(1);
+};
+
+// Format gender display
+const formatGender = (gender?: string) => {
+  if (!gender) return 'Open';
+  if (gender === 'male') return 'Boys';
+  if (gender === 'female') return 'Girls';
+  return gender.charAt(0).toUpperCase() + gender.slice(1);
+};
+
+onMounted(() => {
+  fetchCompetitions();
+});
+</script>
+
+<template>
+  <div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+      <div>
+        <button
+          @click="emit('back')"
+          class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1 mb-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Feis List
+        </button>
+        <h2 class="text-2xl font-bold text-slate-800">{{ feisName }}</h2>
+        <p class="text-slate-600">Manage competitions</p>
+      </div>
+      <button
+        @click="emit('generateSyllabus')"
+        class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Generate More
+      </button>
+    </div>
+
+    <!-- Messages -->
+    <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+      {{ error }}
+    </div>
+    <div v-if="successMessage" class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg">
+      {{ successMessage }}
+    </div>
+
+    <!-- Stats & Actions -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="bg-white rounded-xl shadow p-4 border border-slate-200">
+        <div class="text-3xl font-bold text-slate-800">{{ stats.total }}</div>
+        <div class="text-slate-600 text-sm">Competitions</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 border border-slate-200">
+        <div class="text-3xl font-bold text-emerald-600">{{ stats.withEntries }}</div>
+        <div class="text-slate-600 text-sm">With Entries</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 border border-slate-200">
+        <div class="text-3xl font-bold text-amber-600">{{ stats.empty }}</div>
+        <div class="text-slate-600 text-sm">Empty</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 border border-slate-200">
+        <div class="text-3xl font-bold text-indigo-600">{{ stats.totalEntries }}</div>
+        <div class="text-slate-600 text-sm">Total Entries</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 border border-slate-200 flex items-center">
+        <button
+          @click="deleteEmptyCompetitions"
+          :disabled="stats.empty === 0"
+          class="w-full px-3 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors text-sm"
+        >
+          Delete Empty
+        </button>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-xl shadow p-4 border border-slate-200">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="flex-1 min-w-[200px]">
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search competitions..."
+            class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        
+        <select
+          v-model="filterLevel"
+          class="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="all">All Levels</option>
+          <option v-for="opt in levelOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        
+        <select
+          v-model="filterGender"
+          class="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="all">All Categories</option>
+          <option v-for="opt in genderOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+          <option value="none">Open/Mixed</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div 
+      v-if="editingComp"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="cancelEdit"
+    >
+      <div class="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">Edit Competition</h3>
+        
+        <form @submit.prevent="saveEdit" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+            <input
+              v-model="editForm.name"
+              type="text"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Min Age</label>
+              <input
+                v-model.number="editForm.min_age"
+                type="number"
+                min="4"
+                max="21"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Max Age</label>
+              <input
+                v-model.number="editForm.max_age"
+                type="number"
+                :min="editForm.min_age"
+                max="21"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Level</label>
+            <select
+              v-model="editForm.level"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option v-for="opt in levelOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+            <select
+              v-model="editForm.gender"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option :value="null">Open/Mixed</option>
+              <option v-for="opt in genderOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="flex gap-3 pt-2">
+            <button
+              type="submit"
+              :disabled="loading"
+              class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-slate-300 transition-colors"
+            >
+              Save Changes
+            </button>
+            <button
+              type="button"
+              @click="cancelEdit"
+              class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div v-if="loading && competitions.length === 0" class="flex justify-center py-12">
+      <div class="animate-spin rounded-full h-10 w-10 border-4 border-indigo-200 border-t-indigo-600"></div>
+    </div>
+
+    <!-- Empty State -->
+    <div 
+      v-else-if="competitions.length === 0"
+      class="bg-white rounded-xl shadow p-12 text-center border border-slate-200"
+    >
+      <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>
+      </div>
+      <h3 class="text-lg font-semibold text-slate-700 mb-2">No Competitions Yet</h3>
+      <p class="text-slate-500 mb-4">Generate a syllabus to create competitions.</p>
+      <button
+        @click="emit('generateSyllabus')"
+        class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+      >
+        Generate Syllabus
+      </button>
+    </div>
+
+    <!-- Competition Grid -->
+    <div v-else class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+      <div
+        v-for="comp in filteredCompetitions"
+        :key="comp.id"
+        :class="[
+          'bg-white rounded-lg shadow border p-4 hover:shadow-md transition-shadow',
+          comp.entry_count === 0 ? 'border-amber-200' : 'border-slate-200'
+        ]"
+      >
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <h4 class="font-semibold text-slate-800">{{ comp.name }}</h4>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                {{ formatLevel(comp.level) }}
+              </span>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                Ages {{ comp.min_age }}-{{ comp.max_age }}
+              </span>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                {{ formatGender(comp.gender) }}
+              </span>
+            </div>
+            <div class="mt-2">
+              <span 
+                :class="[
+                  'text-sm font-medium',
+                  comp.entry_count > 0 ? 'text-emerald-600' : 'text-amber-600'
+                ]"
+              >
+                {{ comp.entry_count }} {{ comp.entry_count === 1 ? 'entry' : 'entries' }}
+              </span>
+            </div>
+          </div>
+          
+          <div class="flex gap-1 ml-2">
+            <button
+              @click="startEdit(comp)"
+              class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="Edit"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <button
+              @click="deleteCompetition(comp)"
+              class="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+              title="Delete"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- No Results -->
+    <div 
+      v-if="competitions.length > 0 && filteredCompetitions.length === 0"
+      class="bg-white rounded-xl shadow p-8 text-center border border-slate-200"
+    >
+      <p class="text-slate-500">No competitions match your filters.</p>
+    </div>
+  </div>
+</template>
+
