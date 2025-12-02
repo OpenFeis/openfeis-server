@@ -79,7 +79,8 @@ const entriesByDancer = computed(() => {
         entries: []
       };
     }
-    const group = groups[entry.dancer_id];
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const group = groups[entry.dancer_id]!;
     group.entries.push(entry);
     // Update number if this entry has one
     if (entry.competitor_number) {
@@ -358,7 +359,7 @@ onMounted(() => {
               placeholder="#"
               min="1"
               class="w-20 px-2 py-1 text-sm border border-slate-300 rounded"
-              @keyup.enter="(e) => assignNumber(group.entries[0], parseInt((e.target as HTMLInputElement).value))"
+              @keyup.enter="(e) => group.entries[0] && assignNumber(group.entries[0], parseInt((e.target as HTMLInputElement).value))"
             />
           </div>
         </div>

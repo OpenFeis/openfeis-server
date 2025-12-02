@@ -82,8 +82,8 @@ const groupedCompetitions = computed(() => {
     if (!groups[dance]) {
       groups[dance] = [];
     }
-    const group = groups[dance];
-    group.push(comp);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    groups[dance]!.push(comp);
   });
   
   return groups;

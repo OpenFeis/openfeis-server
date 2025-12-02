@@ -44,7 +44,8 @@ const itemsByDancer = computed(() => {
         items: []
       };
     }
-    const group = groups[item.dancer.id];
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const group = groups[item.dancer.id]!;
     group.items.push(item);
   });
   
