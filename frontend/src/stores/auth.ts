@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { User, RoleType } from '../models/types';
+import type { User } from '../models/types';
 
 const API_URL = '/api/v1';
 const TOKEN_KEY = 'openfeis_token';

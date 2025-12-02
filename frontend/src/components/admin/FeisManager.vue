@@ -32,7 +32,7 @@ const editingFeis = ref<Feis | null>(null);
 // Form state
 const form = ref<FeisForm>({
   name: '',
-  date: new Date().toISOString().split('T')[0],
+  date: new Date().toISOString().split('T')[0] ?? '',
   location: ''
 });
 
@@ -151,7 +151,7 @@ const cancelEdit = () => {
 const resetForm = () => {
   form.value = {
     name: '',
-    date: new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split('T')[0] ?? '',
     location: ''
   };
 };

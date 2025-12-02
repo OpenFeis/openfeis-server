@@ -79,10 +79,11 @@ const entriesByDancer = computed(() => {
         entries: []
       };
     }
-    groups[entry.dancer_id].entries.push(entry);
+    const group = groups[entry.dancer_id];
+    group.entries.push(entry);
     // Update number if this entry has one
     if (entry.competitor_number) {
-      groups[entry.dancer_id].number = entry.competitor_number;
+      group.number = entry.competitor_number;
     }
   }
   

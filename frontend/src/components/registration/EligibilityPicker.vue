@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import type { Competition, Dancer, CompetitionLevel, Gender } from '../../models/types';
+import type { Competition, Dancer, CompetitionLevel } from '../../models/types';
 
 // Props
 const props = defineProps<{
@@ -82,7 +82,8 @@ const groupedCompetitions = computed(() => {
     if (!groups[dance]) {
       groups[dance] = [];
     }
-    groups[dance].push(comp);
+    const group = groups[dance];
+    group.push(comp);
   });
   
   return groups;

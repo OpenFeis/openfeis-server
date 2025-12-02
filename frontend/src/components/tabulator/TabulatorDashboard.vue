@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
-import { useScoringStore } from '../../stores/scoring';
 
 interface RankedResult {
   competitor_id: string;
@@ -35,10 +34,16 @@ const fetchResults = async () => {
 };
 
 // Auto-refresh every 5 seconds for "Real-time" feel
-let interval: number;
+let intervalId: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   fetchResults();
-  interval = setInterval(fetchResults, 5000);
+  intervalId = setInterval(fetchResults, 5000);
+});
+
+onUnmounted(() => {
+  if (intervalId) {
+    clearInterval(intervalId);
+  }
 });
 </script>
 

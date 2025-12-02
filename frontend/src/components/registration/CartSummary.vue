@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { Competition, Dancer, CartItem } from '../../models/types';
+import type { Dancer, CartItem } from '../../models/types';
 
 // Props
 const props = withDefaults(defineProps<{
@@ -44,7 +44,8 @@ const itemsByDancer = computed(() => {
         items: []
       };
     }
-    groups[item.dancer.id].items.push(item);
+    const group = groups[item.dancer.id];
+    group.items.push(item);
   });
   
   return Object.values(groups);
