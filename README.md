@@ -101,7 +101,7 @@ cd openfeis-server
 # Backend setup
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install fastapi uvicorn sqlmodel sqladmin pydantic "passlib[bcrypt]" "python-jose[cryptography]" python-multipart
+pip install -r requirements.txt
 
 # Frontend setup
 cd frontend
