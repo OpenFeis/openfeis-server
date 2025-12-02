@@ -10,9 +10,10 @@ echo "======================="
 # Navigate to project directory
 cd /opt/openfeis
 
-# Pull latest code
+# Pull latest code (reset handles history rewrites)
 echo "📥 Pulling latest code..."
-git pull origin main
+git fetch origin main
+git reset --hard origin/main
 
 # Build and restart containers
 echo "🔨 Building Docker images..."
