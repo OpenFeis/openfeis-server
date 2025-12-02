@@ -1,6 +1,10 @@
 # Database schema version: 3 (added password hashing, authentication)
-from fastapi import FastAPI
+import os
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from backend.api.routes import router as api_router
 from backend.db.database import create_db_and_tables, engine
@@ -70,9 +74,17 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend
+# In production, Caddy handles CORS, but we keep localhost for development
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://openfeis.org",
+    "https://www.openfeis.org",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,3 +98,27 @@ setup_admin(app, engine)
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+# Static file serving for production (when frontend is built)
+# The frontend is built into frontend/dist during Docker build
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIR.exists():
+    # Serve static assets (js, css, images)
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+    
+    # Catch-all route for SPA - must be last!
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        """Serve the Vue SPA for all non-API routes."""
+        # Don't intercept API, admin, docs routes
+        if full_path.startswith(("api/", "admin/", "docs", "redoc", "openapi.json")):
+            return None
+        
+        # Try to serve the exact file first (for favicon.ico, etc.)
+        file_path = FRONTEND_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        
+        # Otherwise, serve index.html for SPA routing
+        return FileResponse(FRONTEND_DIR / "index.html")

@@ -1,0 +1,30 @@
+# Open Feis - Caddy Configuration
+# Automatic HTTPS via Let's Encrypt
+
+openfeis.org {
+    # Proxy everything to FastAPI (handles both API and frontend)
+    reverse_proxy app:8000
+    
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+    
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        # Remove server header
+        -Server
+    }
+    
+    # Compression
+    encode gzip zstd
+}
+
+# Redirect www to non-www
+www.openfeis.org {
+    redir https://openfeis.org{uri} permanent
+}

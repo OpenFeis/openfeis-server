@@ -1,0 +1,45 @@
+# Open Feis - Production Docker Compose
+# Usage: docker compose up -d
+
+services:
+  # Caddy - Reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - openfeis
+
+  # FastAPI Application (serves both API and frontend)
+  app:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - app_data:/data
+    environment:
+      - DB_PATH=/data/openfeis.db
+      - PYTHONUNBUFFERED=1
+    expose:
+      - "8000"
+    networks:
+      - openfeis
+
+volumes:
+  app_data:
+    name: openfeis_data
+  caddy_data:
+    name: openfeis_caddy_data
+  caddy_config:
+    name: openfeis_caddy_config
+
+networks:
+  openfeis:
+    name: openfeis_network
