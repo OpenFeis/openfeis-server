@@ -1,5 +1,10 @@
 # Open Feis - Caddy Configuration
 # Automatic HTTPS via Let's Encrypt
+#
+# For local development, replace openfeis.org with localhost:
+#   localhost {
+#       reverse_proxy app:8000
+#   }
 
 openfeis.org {
     # Proxy everything to FastAPI (handles both API and frontend)

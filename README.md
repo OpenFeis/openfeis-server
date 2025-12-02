@@ -95,8 +95,8 @@ This approach is easy to deploy, debug, and costs under $10/month.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/open-feis.git
-cd open-feis
+git clone https://github.com/OpenFeis/openfeis-server.git
+cd openfeis-server
 
 # Backend setup
 python -m venv venv
@@ -143,7 +143,7 @@ On first run, the database is seeded with:
 ## 📁 Project Structure
 
 ```
-open-feis/
+openfeis-server/
 ├── backend/
 │   ├── main.py                 # FastAPI app entry point
 │   ├── admin.py                # sqladmin configuration
@@ -153,6 +153,8 @@ open-feis/
 │   │   └── schemas.py          # Pydantic request/response models
 │   ├── db/
 │   │   └── database.py         # SQLite connection & session
+│   ├── services/
+│   │   └── number_cards.py     # PDF generation for competitor numbers
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
 │       ├── models.py           # Round, JudgeScore models
@@ -186,7 +188,14 @@ open-feis/
 │   │       ├── auth.ts         # Pinia store for authentication
 │   │       └── scoring.ts      # Pinia store for scores
 │   └── package.json
-└── openfeis.db                 # SQLite database (generated)
+├── tests/
+│   └── test_recall.py          # Unit tests
+├── Dockerfile                  # Multi-stage Docker build
+├── docker-compose.yml          # Container orchestration
+├── Caddyfile                   # Reverse proxy + HTTPS config
+├── deploy.sh                   # Deployment helper script
+├── requirements.txt            # Python dependencies
+└── README.md
 ```
 
 ---
@@ -506,53 +515,179 @@ class JudgeScore:
 
 ## 🚢 Deployment
 
-### Recommended: Google Cloud Platform (Free Tier)
+Open Feis uses Docker with Caddy for production deployment. Caddy provides automatic HTTPS via Let's Encrypt with zero configuration.
 
-```yaml
-# docker-compose.yml
-version: "3.8"
-services:
-  app:
-    build: .
-    restart: always
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/data
-    environment:
-      - DB_PATH=/data/openfeis.db
+### Architecture
 
-  litestream:
-    image: litestream/litestream
-    volumes:
-      - ./data:/data
-      - ./litestream.yml:/etc/litestream.yml
-    environment:
-      - REPLICA_URL=gcs://your-bucket/db
+```
+┌─────────────────────────────────────────────────────────┐
+│                   your-domain.com                       │
+│                         │                               │
+│                    ┌────▼────┐                          │
+│                    │  Caddy  │ ← Auto HTTPS (Let's Encrypt)
+│                    │  :443   │                          │
+│                    └────┬────┘                          │
+│                         │                               │
+│                    ┌────▼────┐                          │
+│                    │ FastAPI │                          │
+│                    │  :8000  │                          │
+│                    └────┬────┘                          │
+│                         │                               │
+│                    ┌────▼────┐                          │
+│                    │ SQLite  │                          │
+│                    │  (WAL)  │                          │
+│                    └─────────┘                          │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Infrastructure
+### Prerequisites
+
+- A Linux server (Debian/Ubuntu recommended)
+- Docker and Docker Compose installed
+- A domain name pointed to your server's IP
+- Ports 80 and 443 open in your firewall
+
+### Step 1: Provision a Server
+
+**Google Cloud Platform (Free Tier):**
+```bash
+# Create an e2-micro instance (free tier eligible)
+gcloud compute instances create openfeis-server \
+  --machine-type=e2-micro \
+  --zone=us-east1-c \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=30GB \
+  --tags=http-server,https-server
+
+# Reserve a static IP
+gcloud compute addresses create openfeis-ip --region=us-east1
+```
+
+**Other options:** DigitalOcean ($4/mo), Hetzner (€3.79/mo), or any VPS provider.
+
+### Step 2: Install Docker
+
+```bash
+# SSH into your server
+gcloud compute ssh openfeis-server --zone=us-east1-c
+
+# Install Docker (Debian/Ubuntu)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Verify installation
+docker --version
+docker compose version
+```
+
+### Step 3: Clone and Configure
+
+```bash
+# Create app directory
+sudo mkdir -p /opt/openfeis
+sudo chown $USER:$USER /opt/openfeis
+cd /opt/openfeis
+
+# Clone the repository
+git clone https://github.com/OpenFeis/openfeis-server.git .
+
+# Edit the Caddyfile to use YOUR domain
+nano Caddyfile
+# Replace "openfeis.org" with your domain name
+```
+
+**Example Caddyfile for your domain:**
+```
+yourdomain.com {
+    reverse_proxy app:8000
+    encode gzip zstd
+}
+
+www.yourdomain.com {
+    redir https://yourdomain.com{uri} permanent
+}
+```
+
+### Step 4: Deploy
+
+```bash
+# Build and start the containers
+docker compose up -d --build
+
+# Check that everything is running
+docker compose ps
+
+# View logs
+docker compose logs -f
+```
+
+### Step 5: Verify
+
+Visit `https://yourdomain.com` — you should see the Open Feis homepage with a valid SSL certificate!
+
+**Default admin credentials:**
+- Email: `admin@openfeis.org`
+- Password: `admin123`
+
+> ⚠️ **Important:** Change the admin password immediately after first login!
+
+### Updating
+
+To deploy updates from GitHub:
+
+```bash
+cd /opt/openfeis
+./deploy.sh
+```
+
+Or manually:
+```bash
+git pull origin main
+docker compose build --no-cache
+docker compose up -d
+docker image prune -f
+```
+
+### Deployment Files
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Multi-stage build (Node for frontend, Python for backend) |
+| `docker-compose.yml` | Orchestrates Caddy + App containers |
+| `Caddyfile` | Reverse proxy config with automatic HTTPS |
+| `.dockerignore` | Excludes unnecessary files from Docker build |
+| `deploy.sh` | One-command deployment script |
+
+### Infrastructure Costs
 
 | Component | Specification | Cost |
 |-----------|--------------|------|
 | Compute | GCP `e2-micro` (2 vCPU, 1GB RAM) | Free tier |
-| Storage | Google Cloud Storage | ~$0.02/mo |
-| SSL | Caddy (automatic HTTPS) | Free |
-| **Total** | | **< $1/month** |
+| Storage | 30GB SSD | Free tier |
+| SSL | Caddy + Let's Encrypt | Free |
+| **Total** | | **$0/month** |
 
 ### Scaling Strategy
 
-1. **Start:** `e2-micro` with 4GB swap file
-2. **If RAM > 80%:** Upgrade to `e2-medium` (4GB RAM, ~$15/mo)
-3. **Downtime:** < 2 minutes for resize
+1. **Start:** `e2-micro` with swap enabled
+2. **If RAM > 80%:** Upgrade to `e2-small` (2GB RAM, ~$13/mo)
+3. **High traffic:** Add Cloudflare for CDN + DDoS protection (free tier)
 
-### Disaster Recovery
+### Backup & Recovery
 
-> **Note:** The following features are planned for near-term development.
+The SQLite database is stored in a Docker volume (`openfeis_data`). To backup:
 
-- **Litestream** streams SQLite WAL to cloud storage in real-time
-- **RPO:** < 1 second (Recovery Point Objective)
-- **Local CSV Export:** Auto-export every 5 minutes as failsafe
+```bash
+# Create a backup
+docker compose exec app cp /data/openfeis.db /data/backup-$(date +%Y%m%d).db
+
+# Copy backup to local machine
+docker cp openfeis-app-1:/data/backup-*.db ./backups/
+```
+
+**Planned:** Litestream integration for real-time streaming backups to cloud storage.
 
 ---
 
@@ -579,6 +714,8 @@ services:
 - [x] **Role-Based Access Control** — Protected routes by user role (super_admin, organizer, adjudicator, parent, teacher)
 - [x] **Number Card PDF** — Generate printable competitor numbers with QR codes for check-in
 - [x] **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
+- [x] **Docker Deployment** — Production-ready containerization with Caddy reverse proxy
+- [x] **Automatic HTTPS** — Let's Encrypt certificates via Caddy
 
 ### 🔜 Coming Soon (Phase 4)
 

@@ -33,4 +33,3 @@ docker compose ps
 echo ""
 echo "🌐 Site: https://openfeis.org"
 echo "📊 Logs: docker compose logs -f"
-
