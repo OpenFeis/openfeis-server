@@ -24,12 +24,9 @@ jobs:
             echo "🍀 Starting Open Feis deployment..."
             cd /opt/openfeis
             
-            # Fix git safe directory issue (required when running as different user)
-            git config --global --add safe.directory /opt/openfeis
-            
             echo "📥 Pulling latest code..."
-            sudo git fetch origin main
-            sudo git reset --hard origin/main
+            git fetch origin main
+            git reset --hard origin/main
             
             echo "🔨 Building Docker images (no cache)..."
             docker compose build --no-cache
