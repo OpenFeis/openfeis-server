@@ -17,19 +17,25 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USERNAME }}
           key: ${{ secrets.VM_SSH_KEY }}
+          script_stop: true
           script: |
+            set -e  # Exit on any error
+            
             echo "🍀 Starting Open Feis deployment..."
             cd /opt/openfeis
+            
+            # Fix git safe directory issue (required when running as different user)
+            git config --global --add safe.directory /opt/openfeis
             
             echo "📥 Pulling latest code..."
             git fetch origin main
             git reset --hard origin/main
             
-            echo "🔨 Building Docker images..."
-            docker compose build
+            echo "🔨 Building Docker images (no cache)..."
+            docker compose build --no-cache
             
             echo "🚀 Restarting services..."
-            docker compose up -d
+            docker compose up -d --force-recreate
             
             echo "🧹 Cleaning up old images..."
             docker image prune -f
