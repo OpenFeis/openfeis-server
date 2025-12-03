@@ -69,6 +69,15 @@ const handleAuthSuccess = () => {
 type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'verify-email';
 const view = ref<ViewType>('home');
 
+// Mobile menu state
+const mobileMenuOpen = ref(false);
+
+// Close mobile menu when navigating
+const navigateTo = (newView: ViewType) => {
+  view.value = newView;
+  mobileMenuOpen.value = false;
+};
+
 // Email verification token from URL
 const verificationToken = ref<string | undefined>(undefined);
 
@@ -164,15 +173,15 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
         <div class="flex justify-between items-center h-16">
           <!-- Logo -->
           <button 
-            @click="view = 'home'"
+            @click="navigateTo('home')"
             class="font-black text-xl tracking-tight flex items-center gap-2 hover:text-emerald-400 transition-colors"
           >
             <span class="text-2xl">☘️</span>
             <span>Open<span class="text-emerald-400">Feis</span></span>
           </button>
 
-          <!-- Navigation Links -->
-          <div class="flex items-center gap-1">
+          <!-- Desktop Navigation Links (hidden on mobile) -->
+          <div class="hidden md:flex items-center gap-1">
             <button 
               @click="view = 'home'"
               :class="[
@@ -271,8 +280,136 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               </button>
             </template>
           </div>
+
+          <!-- Mobile Menu Button -->
+          <button
+            @click="mobileMenuOpen = !mobileMenuOpen"
+            class="md:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-all"
+            :aria-expanded="mobileMenuOpen"
+            aria-label="Toggle navigation menu"
+          >
+            <!-- Hamburger icon (shown when menu is closed) -->
+            <svg v-if="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            <!-- X icon (shown when menu is open) -->
+            <svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      <!-- Mobile Menu Panel -->
+      <Transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div v-if="mobileMenuOpen" class="md:hidden border-t border-white/10">
+          <div class="px-4 py-3 space-y-1">
+            <!-- Navigation Links -->
+            <button 
+              @click="navigateTo('home')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'home' 
+                  ? 'bg-white/10 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Home
+            </button>
+            <button 
+              @click="navigateTo('registration'); registrationStep = 'profile'"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'registration' 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Register
+            </button>
+            <!-- Judge - show for adjudicators or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessJudge"
+              @click="navigateTo('judge')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'judge' 
+                  ? 'bg-amber-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Judge
+            </button>
+            <button 
+              @click="navigateTo('tabulator')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'tabulator' 
+                  ? 'bg-violet-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Tabulator
+            </button>
+            <!-- Admin - show for organizers/admins or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              @click="navigateTo('admin'); adminView = 'feis-list'"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'admin' 
+                  ? 'bg-indigo-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Admin
+            </button>
+
+            <!-- Separator -->
+            <div class="h-px bg-white/10 my-3"></div>
+
+            <!-- Auth Section -->
+            <template v-if="auth.isAuthenticated">
+              <!-- User Info -->
+              <div class="px-4 py-3">
+                <p class="text-sm font-medium text-white">{{ auth.user?.name }}</p>
+                <p class="text-xs text-slate-400 capitalize">{{ auth.user?.role?.replace('_', ' ') }}</p>
+              </div>
+              <button
+                @click="auth.logout(); mobileMenuOpen = false"
+                class="w-full text-left px-4 py-3 rounded-lg font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-all flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sign Out
+              </button>
+            </template>
+            <template v-else>
+              <!-- Login/Register Buttons -->
+              <button
+                @click="openLogin(); mobileMenuOpen = false"
+                class="w-full text-left px-4 py-3 rounded-lg font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+              >
+                Sign In
+              </button>
+              <button
+                @click="openRegister(); mobileMenuOpen = false"
+                class="w-full px-4 py-3 rounded-lg font-medium bg-emerald-500 text-white hover:bg-emerald-600 transition-all text-center"
+              >
+                Create Account
+              </button>
+            </template>
+          </div>
+        </div>
+      </Transition>
     </nav>
 
     <!-- Email Verification Banner -->

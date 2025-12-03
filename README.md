@@ -27,6 +27,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Secure Authentication** — JWT-based login with bcrypt password hashing
 - **Email Verification** — Verify your email address via Resend integration
 - **Role-Based Access** — See only the features relevant to your role
+- **Mobile-Friendly** — Responsive design with hamburger menu navigation on mobile devices
 - **Demo Mode** — Explore the interface before creating an account
 
 ### For Parents & Guardians
@@ -47,6 +48,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Syllabus Generator** — Auto-generate 100+ competitions with one click (Age × Gender × Level × Dance)
 - **Competition Manager** — View, filter, and manage all competitions in a feis
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
+- **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
 - **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
@@ -55,6 +57,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 ### For Tabulators
 - **Live Results** — See scores as judges submit them
 - **Irish Points Engine** — Automatic conversion from raw scores to CLRG Irish Points
+- **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
 - **Tie-Breaking** — Proper "split points" algorithm for tied placements
 - **Drop High/Low** — Support for 5-judge panels with automatic outlier removal
 
@@ -780,32 +783,6 @@ docker cp openfeis-app-1:/data/backup-*.db ./backups/
 ---
 
 ## 🗺️ Roadmap
-
-### ✅ Completed (Phase 1, 2 & 3)
-
-- [x] Irish Points Calculator with tie-breaking
-- [x] Drop High/Low for 5-judge panels
-- [x] Offline-capable Judge Pad
-- [x] Tabulator Dashboard with live results
-- [x] SQLite database with SQLModel
-- [x] Admin panel (sqladmin fallback)
-- [x] Dancer Profile with competition age calculation
-- [x] Eligibility-filtered competition picker
-- [x] Cart with Family Cap logic
-- [x] Syllabus Generator (matrix builder)
-- [x] Frontend Feis Manager (CRUD)
-- [x] Frontend Competition Manager
-- [x] Frontend Entry Manager (number assignment, payment tracking)
-- [x] Full REST API for Feis, Competition, Entry
-- [x] **User Authentication** — JWT-based login/logout with secure password hashing
-- [x] **User Registration** — Self-service account creation (default role: parent)
-- [x] **Role-Based Access Control** — Protected routes by user role (super_admin, organizer, adjudicator, parent, teacher)
-- [x] **Number Card PDF** — Generate printable competitor numbers with QR codes for check-in
-- [x] **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
-- [x] **Docker Deployment** — Production-ready containerization with Caddy reverse proxy
-- [x] **Automatic HTTPS** — Let's Encrypt certificates via Caddy
-- [x] **Email Verification** — Verify email addresses on registration (via Resend)
-- [x] **Site Settings UI** — Admin-configurable email and site settings
 
 ### 🔜 Coming Soon (Phase 4)
 
