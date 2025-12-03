@@ -180,7 +180,7 @@ const getRankClass = (rank: number) => {
           <label class="block text-sm font-medium text-slate-700 mb-2">Feis</label>
           <select
             v-model="selectedFeisId"
-            class="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all"
+            class="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
             :disabled="isLoadingFeiseanna"
           >
             <option :value="null">All Feiseanna</option>
@@ -195,7 +195,7 @@ const getRankClass = (rank: number) => {
           <label class="block text-sm font-medium text-slate-700 mb-2">Competition</label>
           <select
             v-model="selectedCompetitionId"
-            class="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 focus:border-violet-500 focus:ring-2 focus:ring-violet-200 transition-all"
+            class="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
             :disabled="isLoadingCompetitions || filteredCompetitions.length === 0"
           >
             <option :value="null">Select a competition...</option>
@@ -214,14 +214,14 @@ const getRankClass = (rank: number) => {
             <input
               type="checkbox"
               v-model="autoRefresh"
-              class="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              class="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
             />
             <span class="text-sm text-slate-600">Auto-refresh</span>
           </label>
           <button
             @click="fetchResults"
             :disabled="!selectedCompetitionId || isLoadingResults"
-            class="px-4 py-2.5 rounded-lg font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+            class="px-4 py-2.5 rounded-lg font-medium bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
           >
             <svg v-if="isLoadingResults" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -236,28 +236,28 @@ const getRankClass = (rank: number) => {
     <!-- Results Display -->
     <div v-if="results" class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
       <!-- Results Header -->
-      <div class="bg-gradient-to-r from-violet-600 to-purple-600 px-6 py-5">
+      <div class="bg-gradient-to-r from-orange-600 to-amber-700 px-6 py-5">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 class="text-xl font-bold text-white">{{ results.competition_name }}</h2>
-            <p class="text-violet-200 text-sm">{{ results.feis_name }}</p>
+            <p class="text-orange-100 text-sm">{{ results.feis_name }}</p>
           </div>
           <div class="flex items-center gap-6 text-sm">
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.results.length }}</div>
-              <div class="text-violet-200">Ranked</div>
+              <div class="text-orange-100">Ranked</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.judge_count }}</div>
-              <div class="text-violet-200">{{ results.judge_count === 1 ? 'Judge' : 'Judges' }}</div>
+              <div class="text-orange-100">{{ results.judge_count === 1 ? 'Judge' : 'Judges' }}</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.total_scores }}</div>
-              <div class="text-violet-200">Scores</div>
+              <div class="text-orange-100">Scores</div>
             </div>
           </div>
         </div>
-        <div v-if="lastUpdated" class="mt-3 text-violet-200 text-xs">
+        <div v-if="lastUpdated" class="mt-3 text-orange-100 text-xs">
           Last updated: {{ lastUpdated }}
         </div>
       </div>
@@ -362,8 +362,8 @@ const getRankClass = (rank: number) => {
 
     <!-- No Competition Selected State -->
     <div v-else-if="!selectedCompetitionId" class="bg-white rounded-xl shadow-lg border border-slate-200 p-12 text-center">
-      <div class="w-20 h-20 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-6">
-        <svg class="w-10 h-10 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <svg class="w-10 h-10 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       </div>

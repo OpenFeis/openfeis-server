@@ -175,14 +175,14 @@ const getDanceIcon = (dance: string): string => {
 <template>
   <div class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
     <!-- Header -->
-    <div class="bg-gradient-to-r from-violet-600 to-purple-600 px-6 py-5">
+    <div class="bg-gradient-to-r from-orange-600 to-amber-700 px-6 py-5">
       <h2 class="text-xl font-bold text-white flex items-center gap-2">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
         Select Competitions
       </h2>
-      <p class="text-violet-100 text-sm mt-1">
+      <p class="text-orange-100 text-sm mt-1">
         Showing events matching {{ dancer.name }}'s eligibility
       </p>
     </div>
@@ -199,7 +199,7 @@ const getDanceIcon = (dance: string): string => {
         <span v-if="dancer.current_level" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800">
           {{ formatLevel(dancer.current_level) }}
         </span>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-violet-100 text-violet-800">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-orange-100 text-orange-800">
           {{ eligibleCompetitions.length }} eligible
         </span>
       </div>
@@ -208,7 +208,7 @@ const getDanceIcon = (dance: string): string => {
     <div class="p-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
-        <div class="animate-spin rounded-full h-10 w-10 border-4 border-violet-200 border-t-violet-600"></div>
+        <div class="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-600"></div>
       </div>
 
       <!-- No Eligible Competitions -->
@@ -276,7 +276,7 @@ const getDanceIcon = (dance: string): string => {
             <div class="flex gap-2">
               <button 
                 @click="selectAllInGroup(comps)"
-                class="text-xs px-2 py-1 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors font-medium"
+                class="text-xs px-2 py-1 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 transition-colors font-medium"
               >
                 Select All
               </button>
@@ -298,15 +298,15 @@ const getDanceIcon = (dance: string): string => {
               :class="[
                 'w-full p-4 rounded-xl text-left transition-all border-2',
                 isSelected(comp.id)
-                  ? 'bg-violet-50 border-violet-500 ring-2 ring-violet-200'
-                  : 'bg-white border-slate-200 hover:border-violet-300 hover:bg-violet-50/50'
+                  ? 'bg-orange-50 border-orange-500 ring-2 ring-orange-200'
+                  : 'bg-white border-slate-200 hover:border-orange-300 hover:bg-orange-50/50'
               ]"
             >
               <div class="flex items-center justify-between">
                 <div>
                   <div :class="[
                     'font-semibold',
-                    isSelected(comp.id) ? 'text-violet-700' : 'text-slate-700'
+                    isSelected(comp.id) ? 'text-orange-700' : 'text-slate-700'
                   ]">
                     {{ comp.name }}
                   </div>
@@ -318,7 +318,7 @@ const getDanceIcon = (dance: string): string => {
                   :class="[
                     'w-6 h-6 rounded-full flex items-center justify-center transition-all',
                     isSelected(comp.id)
-                      ? 'bg-violet-500'
+                      ? 'bg-orange-500'
                       : 'border-2 border-slate-300'
                   ]"
                 >
@@ -372,16 +372,16 @@ const getDanceIcon = (dance: string): string => {
       <!-- Selection Summary -->
       <div 
         v-if="selectedCompetitionIds.size > 0" 
-        class="mt-6 p-4 bg-gradient-to-r from-violet-50 to-purple-50 rounded-xl border border-violet-200"
+        class="mt-6 p-4 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200"
       >
         <div class="flex items-center justify-between">
           <div>
-            <span class="text-lg font-bold text-violet-700">{{ selectedCompetitionIds.size }}</span>
-            <span class="text-violet-600 ml-1">competition{{ selectedCompetitionIds.size !== 1 ? 's' : '' }} selected</span>
+            <span class="text-lg font-bold text-orange-700">{{ selectedCompetitionIds.size }}</span>
+            <span class="text-orange-600 ml-1">competition{{ selectedCompetitionIds.size !== 1 ? 's' : '' }} selected</span>
           </div>
           <button 
             @click="selectedCompetitionIds = new Set()"
-            class="text-sm text-violet-600 hover:text-violet-800 font-medium"
+            class="text-sm text-orange-600 hover:text-orange-800 font-medium"
           >
             Clear All
           </button>

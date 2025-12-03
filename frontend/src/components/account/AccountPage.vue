@@ -597,7 +597,7 @@ const registrationsByDancer = computed(() => {
                 <h3 class="font-bold text-slate-800 text-lg">{{ dancer.name }}</h3>
                 <div class="flex flex-wrap gap-2 mt-2">
                   <span class="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-800">
-                    Age {{ getCompetitionAge(dancer.dob) }} (U{{ getCompetitionAge(dancer.dob) + 1 }})
+                    U{{ getCompetitionAge(dancer.dob) + 1 }}
                   </span>
                   <span class="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-indigo-100 text-indigo-800 capitalize">
                     {{ dancer.current_level }}
@@ -760,7 +760,7 @@ const registrationsByDancer = computed(() => {
 
     <!-- Registration History Section -->
     <section class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-      <div class="bg-gradient-to-r from-violet-600 to-purple-600 px-6 py-4">
+      <div class="bg-gradient-to-r from-orange-600 to-amber-700 px-6 py-4">
         <h2 class="text-lg font-bold text-white flex items-center gap-2">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -772,13 +772,13 @@ const registrationsByDancer = computed(() => {
       <div class="p-6">
         <!-- Loading -->
         <div v-if="registrationsLoading" class="flex items-center justify-center py-8">
-          <div class="animate-spin rounded-full h-8 w-8 border-4 border-violet-200 border-t-violet-600"></div>
+          <div class="animate-spin rounded-full h-8 w-8 border-4 border-orange-200 border-t-orange-600"></div>
         </div>
         
         <!-- Empty State -->
         <div v-else-if="registrations.length === 0" class="text-center py-12">
-          <div class="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg class="w-8 h-8 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>

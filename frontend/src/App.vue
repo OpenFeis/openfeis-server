@@ -431,7 +431,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
                 view === 'tabulator' 
-                  ? 'bg-violet-500 text-white' 
+                  ? 'bg-orange-500 text-white' 
                   : 'text-slate-300 hover:text-white hover:bg-white/5'
               ]"
             >
@@ -572,7 +572,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
                 view === 'tabulator' 
-                  ? 'bg-violet-500 text-white' 
+                  ? 'bg-orange-500 text-white' 
                   : 'text-slate-300 hover:text-white hover:bg-white/5'
               ]"
             >
@@ -700,9 +700,9 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
           <!-- Tabulator Card - results are public, show to everyone -->
           <button 
             @click="view = 'tabulator'"
-            class="group bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl hover:border-violet-200 transition-all text-left"
+            class="group bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl hover:border-orange-200 transition-all text-left"
           >
-            <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+            <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <span class="text-2xl">📊</span>
             </div>
             <h3 class="text-xl font-bold text-slate-800 mb-2">Tabulator</h3>
@@ -1250,10 +1250,10 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               <!-- Syllabus Generator -->
               <button
                 @click="adminView = 'syllabus'"
-                class="bg-white rounded-xl p-6 shadow-lg border border-slate-200 hover:border-violet-300 hover:shadow-xl transition-all text-left"
+                class="bg-white rounded-xl p-6 shadow-lg border border-slate-200 hover:border-orange-300 hover:shadow-xl transition-all text-left"
               >
-                <div class="w-12 h-12 rounded-lg bg-violet-100 flex items-center justify-center mb-4">
-                  <svg class="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center mb-4">
+                  <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                   </svg>
                 </div>

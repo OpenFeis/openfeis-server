@@ -84,7 +84,7 @@ const toggleDance = (dance: string) => {
 const levelInfo: Record<CompetitionLevel, { label: string; color: string }> = {
   beginner: { label: 'Beginner', color: 'bg-green-100 text-green-700 border-green-300' },
   novice: { label: 'Novice', color: 'bg-blue-100 text-blue-700 border-blue-300' },
-  prizewinner: { label: 'Prizewinner', color: 'bg-purple-100 text-purple-700 border-purple-300' },
+  prizewinner: { label: 'Prizewinner', color: 'bg-orange-100 text-orange-700 border-orange-300' },
   championship: { label: 'Championship', color: 'bg-amber-100 text-amber-700 border-amber-300' },
 };
 
