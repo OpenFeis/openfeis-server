@@ -50,14 +50,6 @@ const lastUpdated = ref<string | null>(null);
 const autoRefresh = ref(true);
 
 // Computed
-const selectedFeis = computed(() => 
-  feiseanna.value.find(f => f.id === selectedFeisId.value)
-);
-
-const selectedCompetition = computed(() =>
-  competitions.value.find(c => c.id === selectedCompetitionId.value)
-);
-
 const filteredCompetitions = computed(() => {
   if (!selectedFeisId.value) return competitions.value;
   return competitions.value.filter(c => c.feis_id === selectedFeisId.value);
