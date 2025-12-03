@@ -20,7 +20,8 @@ from backend.api.schemas import (
     LoginRequest, RegisterRequest, AuthResponse,
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
     SiteSettingsUpdate, SiteSettingsResponse,
-    CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse
+    CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse,
+    TabulatorResultItem, TabulatorResults, CompetitionWithScores
 )
 from backend.api.auth import (
     hash_password, verify_password, create_access_token,
@@ -1585,6 +1586,139 @@ async def get_my_entries(
             ))
     
     return result
+
+
+# ============= Tabulator / Results Display =============
+
+@router.get("/tabulator/competitions", response_model=List[CompetitionWithScores])
+async def list_competitions_with_scores(
+    session: Session = Depends(get_session),
+    feis_id: Optional[str] = None
+):
+    """
+    List competitions that have scores submitted.
+    Used by the tabulator to select which competition to view results for.
+    Optionally filter by feis_id.
+    """
+    # Build query for competitions
+    if feis_id:
+        competitions = session.exec(
+            select(Competition).where(Competition.feis_id == UUID(feis_id))
+        ).all()
+    else:
+        competitions = session.exec(select(Competition)).all()
+    
+    # Get feis info for names
+    feis_ids = list(set(c.feis_id for c in competitions))
+    feiseanna = session.exec(select(Feis).where(Feis.id.in_(feis_ids))).all()
+    feis_map = {f.id: f for f in feiseanna}
+    
+    result = []
+    for comp in competitions:
+        # Count entries
+        entry_count = session.exec(
+            select(func.count(Entry.id)).where(Entry.competition_id == comp.id)
+        ).one()
+        
+        # Count scores (using competition_id as round_id)
+        score_count = session.exec(
+            select(func.count(JudgeScore.id)).where(JudgeScore.round_id == str(comp.id))
+        ).one()
+        
+        # Only include competitions that have scores
+        if score_count > 0:
+            feis = feis_map.get(comp.feis_id)
+            result.append(CompetitionWithScores(
+                id=str(comp.id),
+                name=comp.name,
+                feis_id=str(comp.feis_id),
+                feis_name=feis.name if feis else "Unknown",
+                level=comp.level,
+                entry_count=entry_count,
+                score_count=score_count
+            ))
+    
+    return result
+
+
+@router.get("/competitions/{comp_id}/results", response_model=TabulatorResults)
+async def get_competition_results(
+    comp_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get calculated results for a competition with full competitor details.
+    This is the main endpoint for the Tabulator Dashboard.
+    
+    Returns Irish Points rankings with dancer names, competitor numbers,
+    and recall status (top 50% + tie extension).
+    """
+    competition = session.get(Competition, UUID(comp_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    feis = session.get(Feis, competition.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get all scores for this competition (competition_id is used as round_id)
+    scores = session.exec(
+        select(JudgeScore).where(JudgeScore.round_id == str(competition.id))
+    ).all()
+    
+    # Calculate results using the scoring engine
+    round_result = calculator.calculate_round(str(competition.id), list(scores))
+    
+    # Get unique judge count
+    judge_ids = set(s.judge_id for s in scores)
+    
+    # Calculate recall list
+    recalled_ids = calculator.calculate_recall(round_result.results)
+    recalled_set = set(recalled_ids)
+    
+    # Build rich results with dancer info
+    result_items = []
+    for ranked in round_result.results:
+        # competitor_id is actually entry_id
+        entry = session.get(Entry, UUID(ranked.competitor_id))
+        if not entry:
+            continue
+        
+        dancer = session.get(Dancer, entry.dancer_id)
+        if not dancer:
+            continue
+        
+        # Get school name if available
+        school_name = None
+        if dancer.school_id:
+            teacher = session.get(User, dancer.school_id)
+            school_name = teacher.name if teacher else None
+        
+        result_items.append(TabulatorResultItem(
+            rank=ranked.rank,
+            competitor_number=entry.competitor_number,
+            dancer_name=dancer.name,
+            dancer_school=school_name,
+            irish_points=ranked.irish_points,
+            is_recalled=ranked.competitor_id in recalled_set
+        ))
+    
+    # Count total competitors (entries with numbers in this competition)
+    total_competitors = session.exec(
+        select(func.count(Entry.id))
+        .where(Entry.competition_id == competition.id)
+        .where(Entry.competitor_number.isnot(None))
+    ).one()
+    
+    return TabulatorResults(
+        competition_id=str(competition.id),
+        competition_name=competition.name,
+        feis_name=feis.name,
+        total_competitors=total_competitors,
+        total_scores=len(scores),
+        judge_count=len(judge_ids),
+        results=result_items
+    )
 
 
 # ============= Number Card PDF Generation =============

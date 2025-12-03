@@ -55,6 +55,9 @@ frontend/dist/
 frontend/.vite/
 *.local
 
+# Local machine-specific files
+*.local.md
+
 # Logs
 logs/
 *.log

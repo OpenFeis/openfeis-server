@@ -289,3 +289,46 @@ class ScoreSubmissionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============= Tabulator / Results =============
+
+class TabulatorResultItem(BaseModel):
+    """A single competitor's result for display in the tabulator."""
+    rank: int
+    competitor_number: Optional[int] = None
+    dancer_name: str
+    dancer_school: Optional[str] = None
+    irish_points: float
+    is_recalled: bool = False  # Whether this competitor recalls to next round
+
+    class Config:
+        from_attributes = True
+
+
+class TabulatorResults(BaseModel):
+    """Full results for a competition, ready for tabulator display."""
+    competition_id: str
+    competition_name: str
+    feis_name: str
+    total_competitors: int
+    total_scores: int  # Number of scores submitted
+    judge_count: int  # Number of unique judges who have scored
+    results: List[TabulatorResultItem]
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitionWithScores(BaseModel):
+    """Competition info for tabulator selection - only shows comps with scores."""
+    id: str
+    name: str
+    feis_id: str
+    feis_name: str
+    level: CompetitionLevel
+    entry_count: int
+    score_count: int  # How many scores have been submitted
+
+    class Config:
+        from_attributes = True

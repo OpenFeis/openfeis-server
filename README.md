@@ -58,12 +58,14 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
 - **Protected Operations** — Only organizers can modify their own feiseanna
 
-### For Tabulators
-- **Live Results** — See scores as judges submit them
+### For Tabulators & Public Results
+- **Tabulator Dashboard** — Select feis and competition from dropdowns to view results
+- **Live Results** — Auto-refreshes every 5 seconds as judges submit scores
 - **Irish Points Engine** — Automatic conversion from raw scores to CLRG Irish Points
 - **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
 - **Tie-Breaking** — Proper "split points" algorithm for tied placements
 - **Drop High/Low** — Support for 5-judge panels with automatic outlier removal
+- **Public Access** — Anyone can view results (no login required)
 
 ---
 
@@ -239,6 +241,13 @@ openfeis-server/
 | `POST` | `/api/v1/scores/batch` | Submit multiple scores (for sync) | Adjudicator |
 | `GET` | `/api/v1/rounds` | List all rounds | No |
 | `GET` | `/api/v1/results/{round_id}` | Get calculated results for a round | No |
+
+### Tabulator / Results Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/tabulator/competitions` | List competitions with scores (for dropdown) | No |
+| `GET` | `/api/v1/competitions/{id}/results` | Get full results with dancer names, recall status | No |
 
 ### Feis Management
 
@@ -518,9 +527,16 @@ For local testing, you have two options:
 ### For Tabulators: Viewing Results
 
 1. Click **"Tabulator"** in the navigation
-2. Select a round from the dropdown
-3. View results ranked by **Irish Points**
-4. Results update in real-time as judges submit scores
+2. **Select a Feis** from the dropdown (or leave as "All Feiseanna")
+3. **Select a Competition** — only competitions with submitted scores appear
+4. View results ranked by **Irish Points** with:
+   - Competitor numbers and dancer names
+   - Medal-style rank badges (gold/silver/bronze for top 3)
+   - **Recall** status — green badge shows who advances to finals
+5. Results **auto-refresh every 5 seconds** (toggle on/off)
+6. Click **Refresh** for immediate update
+
+> **Note:** The Tabulator is public — anyone can view results without logging in.
 
 ---
 
@@ -620,6 +636,7 @@ class Entry:
     competition_id: UUID
     competitor_number: Optional[int]
     paid: bool
+    pay_later: bool  # "Pay at Door" registration
 ```
 
 ### Scoring Models
@@ -634,9 +651,10 @@ class Round:
 class JudgeScore:
     id: UUID
     judge_id: str
-    competitor_id: str
-    round_id: str
-    value: float  # Raw score (0-100)
+    competitor_id: str  # Entry ID
+    round_id: str       # Competition ID
+    value: float        # Raw score (0-100)
+    notes: Optional[str]  # Judge comments
     timestamp: datetime
 ```
 
