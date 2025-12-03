@@ -29,7 +29,8 @@ def seed_data():
                 email="admin@openfeis.org",
                 password_hash=hash_password("admin123"),  # Now properly hashed!
                 role=RoleType.SUPER_ADMIN,
-                name="System Administrator"
+                name="System Administrator",
+                email_verified=True  # Admin starts verified
             )
             session.add(admin)
             session.commit()

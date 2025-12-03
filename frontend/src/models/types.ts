@@ -30,6 +30,7 @@ export interface User {
   email: string;
   role: RoleType;
   name: string;
+  email_verified: boolean;
 }
 
 export interface Feis {

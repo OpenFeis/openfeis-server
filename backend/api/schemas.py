@@ -127,6 +127,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: RoleType
+    email_verified: bool = False
 
     class Config:
         from_attributes = True
@@ -151,3 +152,37 @@ class TokenPayload(BaseModel):
     sub: str  # user_id
     role: str
     exp: int  # expiration timestamp
+
+
+# ============= Email Verification =============
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+class VerificationResponse(BaseModel):
+    success: bool
+    message: str
+
+
+# ============= Site Settings (Admin) =============
+
+class SiteSettingsUpdate(BaseModel):
+    resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None
+    site_name: Optional[str] = None
+    site_url: Optional[str] = None
+
+
+class SiteSettingsResponse(BaseModel):
+    resend_configured: bool  # Don't expose actual API key
+    resend_from_email: str
+    site_name: str
+    site_url: str
+
+    class Config:
+        from_attributes = True

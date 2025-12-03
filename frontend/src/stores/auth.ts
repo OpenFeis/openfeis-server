@@ -29,6 +29,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isParent = computed(() => user.value?.role === 'parent');
   const isTeacher = computed(() => user.value?.role === 'teacher');
   
+  // Email verification
+  const isEmailVerified = computed(() => user.value?.email_verified ?? false);
+  
   // Can access admin features
   const canAccessAdmin = computed(() => 
     user.value?.role === 'super_admin' || user.value?.role === 'organizer'
@@ -157,6 +160,69 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(TOKEN_KEY);
   }
 
+  async function verifyEmail(verificationToken: string): Promise<{ success: boolean; message: string }> {
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      const response = await fetch(`${API_URL}/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: verificationToken })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.detail || 'Verification failed');
+      }
+      
+      // Update user's email_verified status if logged in
+      if (user.value) {
+        user.value.email_verified = true;
+      }
+      
+      return { success: true, message: data.message };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Verification failed';
+      error.value = message;
+      return { success: false, message };
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function resendVerification(): Promise<{ success: boolean; message: string }> {
+    if (!user.value?.email) {
+      return { success: false, message: 'No email address found' };
+    }
+    
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      const response = await fetch(`${API_URL}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.value.email })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to resend verification');
+      }
+      
+      return { success: true, message: data.message };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to resend verification';
+      error.value = message;
+      return { success: false, message };
+    } finally {
+      loading.value = false;
+    }
+  }
+
   // Initialize: try to restore session from stored token
   async function initialize() {
     if (token.value) {
@@ -182,6 +248,7 @@ export const useAuthStore = defineStore('auth', () => {
     isTeacher,
     canAccessAdmin,
     canAccessJudge,
+    isEmailVerified,
     
     // Actions
     login,
@@ -189,7 +256,9 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     fetchCurrentUser,
     initialize,
-    authFetch
+    authFetch,
+    verifyEmail,
+    resendVerification
   };
 });
 

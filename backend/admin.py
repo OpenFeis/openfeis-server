@@ -1,6 +1,6 @@
 from sqladmin import Admin, ModelView, BaseView, expose
 from starlette.responses import HTMLResponse
-from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry
+from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, SiteSettings
 import os
 
 # Get the path to templates directory relative to this file
@@ -8,9 +8,18 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
 # --- Standard Model Views ---
 class UserAdmin(ModelView, model=User):
-    column_list = [User.name, User.email, User.role]
+    column_list = [User.name, User.email, User.role, User.email_verified]
     column_searchable_list = [User.name, User.email]
-    column_sortable_list = [User.name, User.email, User.role]
+    column_sortable_list = [User.name, User.email, User.role, User.email_verified]
+
+
+class SiteSettingsAdmin(ModelView, model=SiteSettings):
+    column_list = [SiteSettings.site_name, SiteSettings.site_url, SiteSettings.resend_from_email]
+    can_create = False  # Only one settings row allowed
+    can_delete = False  # Prevent deletion
+    name = "Site Settings"
+    name_plural = "Site Settings"
+    icon = "fa-solid fa-gear"
 
 class FeisAdmin(ModelView, model=Feis):
     column_list = [Feis.name, Feis.date, Feis.location]
@@ -126,6 +135,7 @@ def setup_admin(app, engine):
     admin.add_view(CompetitionAdmin)
     admin.add_view(DancerAdmin)
     admin.add_view(EntryAdmin)
+    admin.add_view(SiteSettingsAdmin)
     
     # Register Custom Views
     admin.add_view(SyllabusGeneratorView)

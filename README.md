@@ -25,6 +25,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 
 ### For Everyone
 - **Secure Authentication** — JWT-based login with bcrypt password hashing
+- **Email Verification** — Verify your email address via Resend integration
 - **Role-Based Access** — See only the features relevant to your role
 - **Demo Mode** — Explore the interface before creating an account
 
@@ -46,6 +47,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Syllabus Generator** — Auto-generate 100+ competitions with one click (Age × Gender × Level × Dance)
 - **Competition Manager** — View, filter, and manage all competitions in a feis
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
+- **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
 - **Protected Operations** — Only organizers can modify their own feiseanna
@@ -66,6 +68,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 | **Database** | SQLite (WAL mode) | Zero network latency, 10k+ reads/sec, single-file simplicity |
 | **ORM** | SQLModel (SQLAlchemy) | Type-safe models with Pydantic validation |
 | **Auth** | JWT + bcrypt (passlib, python-jose) | Stateless auth, secure password hashing |
+| **Email** | Resend | Transactional emails (verification, notifications) |
 | **Admin** | sqladmin | Auto-generated CRUD interface |
 | **Frontend** | Vue 3, TypeScript, Vite | Modern reactivity with Composition API |
 | **Styling** | Tailwind CSS v4 | Utility-first, highly customizable |
@@ -154,6 +157,7 @@ openfeis-server/
 │   ├── db/
 │   │   └── database.py         # SQLite connection & session
 │   ├── services/
+│   │   ├── email.py            # Email service (Resend integration)
 │   │   └── number_cards.py     # PDF generation for competitor numbers
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
@@ -167,11 +171,14 @@ openfeis-server/
 │   │   │   │   ├── FeisManager.vue         # Feis CRUD operations
 │   │   │   │   ├── CompetitionManager.vue  # Competition listing/management
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
-│   │   │   │   └── SyllabusGenerator.vue   # Matrix-based competition generator
+│   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
+│   │   │   │   └── SiteSettings.vue        # Email & site configuration
 │   │   │   ├── auth/
 │   │   │   │   ├── AuthModal.vue           # Login/Register modal wrapper
 │   │   │   │   ├── LoginForm.vue           # Login form component
-│   │   │   │   └── RegisterForm.vue        # Registration form component
+│   │   │   │   ├── RegisterForm.vue        # Registration form component
+│   │   │   │   ├── EmailVerification.vue   # Email verification page
+│   │   │   │   └── EmailVerificationBanner.vue  # Unverified email warning
 │   │   │   ├── judge/
 │   │   │   │   └── JudgePad.vue
 │   │   │   ├── registration/
@@ -209,6 +216,9 @@ openfeis-server/
 | `POST` | `/api/v1/auth/register` | Create new account (default role: parent) | No |
 | `POST` | `/api/v1/auth/login` | Login and receive JWT token | No |
 | `GET` | `/api/v1/auth/me` | Get current user info | Yes |
+| `POST` | `/api/v1/auth/verify-email` | Verify email with token from email link | No |
+| `POST` | `/api/v1/auth/resend-verification` | Resend verification email (rate limited) | No |
+| `GET` | `/api/v1/auth/email-status` | Check verification status | Yes |
 
 ### Scoring Endpoints
 
@@ -256,6 +266,8 @@ openfeis-server/
 | `POST` | `/api/v1/admin/syllabus/generate` | Auto-generate competitions | Organizer/Admin |
 | `PUT` | `/api/v1/users/{id}` | Update a user's name/role | Super Admin |
 | `GET` | `/api/v1/users` | List all users | No |
+| `GET` | `/api/v1/admin/settings` | Get site settings (email config, etc.) | Super Admin |
+| `PUT` | `/api/v1/admin/settings` | Update site settings | Super Admin |
 
 ### Number Card PDF Generation
 
@@ -342,6 +354,71 @@ Open Feis uses JWT (JSON Web Token) authentication with bcrypt password hashing.
 - **JWT Tokens** — Stateless authentication, no server-side sessions
 - **Role Enforcement** — Backend rejects unauthorized requests regardless of frontend
 - **Demo Mode** — Unauthenticated users can explore UI but cannot submit data
+
+---
+
+## 📧 Email Setup (Resend)
+
+Open Feis uses [Resend](https://resend.com) for transactional emails (verification, notifications). Resend offers **3,000 free emails/month** on their free tier.
+
+### Why Resend?
+
+- **Modern API** — Simple, developer-friendly REST API
+- **Free Tier** — 3,000 emails/month at no cost
+- **Works Everywhere** — Same behavior locally and in production
+- **No SMTP** — No need to configure mail servers
+
+### Setup Instructions
+
+#### Step 1: Create a Resend Account
+
+1. Go to [resend.com](https://resend.com) and sign up
+2. Navigate to [API Keys](https://resend.com/api-keys) and create a new key
+3. Copy the API key (starts with `re_`)
+
+#### Step 2: Verify Your Domain
+
+1. Go to [Domains](https://resend.com/domains) in Resend
+2. Click "Add Domain" and enter your sending domain (e.g., `mail.yourdomain.com`)
+3. Add the DNS records Resend provides:
+   - **DKIM** — TXT record for email authentication
+   - **SPF** — MX and TXT records for sender verification
+4. Wait for verification (usually instant to a few minutes)
+
+> **Tip:** Use a subdomain like `mail.yourdomain.com` to keep your main domain's DNS clean.
+
+#### Step 3: Configure Open Feis
+
+1. Log in as a **Super Admin** (e.g., `admin@openfeis.org`)
+2. Go to **Admin** → **Settings**
+3. Enter your configuration:
+   - **Resend API Key:** Your `re_...` API key
+   - **From Email:** Must match your verified domain (e.g., `Open Feis <noreply@mail.yourdomain.com>`)
+   - **Site URL:** Your production URL (e.g., `https://yourdomain.com`) or `http://localhost:5173` for local dev
+4. Click **Save Settings**
+
+The status badge will change from "Not Configured" to "Configured" ✅
+
+### Local Development
+
+For local testing, you have two options:
+
+**Option 1: Use Resend's Test Sender**
+- Set From Email to: `Delivered <onboarding@resend.dev>`
+- Emails will be sent but may go to spam
+
+**Option 2: Skip Email Configuration**
+- Leave the API key empty
+- The app works without email — verification is skipped
+- Users can still register and log in
+
+### How Email Verification Works
+
+1. User registers → verification email is sent (if configured)
+2. User clicks link in email → email is verified
+3. A banner shows for unverified users with a "Resend email" button
+4. Verification links expire after 24 hours
+5. Resending is rate-limited to once per 60 seconds
 
 ---
 
@@ -458,6 +535,16 @@ class User:
     password_hash: str
     role: RoleType  # super_admin, organizer, teacher, parent, adjudicator
     name: str
+    email_verified: bool
+    email_verification_token: Optional[str]
+    email_verification_sent_at: Optional[datetime]
+
+class SiteSettings:  # Singleton for admin-configurable settings
+    id: int  # Always 1
+    resend_api_key: Optional[str]
+    resend_from_email: str
+    site_name: str
+    site_url: str
 
 class Feis:
     id: UUID
@@ -667,6 +754,7 @@ docker image prune -f
 | Compute | GCP `e2-micro` (2 vCPU, 1GB RAM) | Free tier |
 | Storage | 30GB SSD | Free tier |
 | SSL | Caddy + Let's Encrypt | Free |
+| Email | Resend (3,000 emails/month) | Free tier |
 | **Total** | | **$0/month** |
 
 ### Scaling Strategy
@@ -716,10 +804,11 @@ docker cp openfeis-app-1:/data/backup-*.db ./backups/
 - [x] **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
 - [x] **Docker Deployment** — Production-ready containerization with Caddy reverse proxy
 - [x] **Automatic HTTPS** — Let's Encrypt certificates via Caddy
+- [x] **Email Verification** — Verify email addresses on registration (via Resend)
+- [x] **Site Settings UI** — Admin-configurable email and site settings
 
 ### 🔜 Coming Soon (Phase 4)
 
-- [ ] **Email Verification** — Verify email addresses on registration
 - [ ] **Stripe Connect** — Payment processing
 - [ ] **Teacher Portal** — Bulk registration & approval
 - [ ] **Scheduling Matrix** — Drag-and-drop stage assignment

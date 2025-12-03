@@ -6,7 +6,7 @@ from uuid import UUID
 from datetime import date
 from sqlmodel import Session, select, func
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
-from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType
+from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
 from backend.api.schemas import (
@@ -15,7 +15,9 @@ from backend.api.schemas import (
     CompetitionCreate, CompetitionUpdate, CompetitionResponse,
     EntryUpdate, EntryResponse, BulkNumberAssignment, BulkNumberAssignmentResponse,
     DancerResponse, UserUpdate, UserResponse,
-    LoginRequest, RegisterRequest, AuthResponse
+    LoginRequest, RegisterRequest, AuthResponse,
+    VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
+    SiteSettingsUpdate, SiteSettingsResponse
 )
 from backend.api.auth import (
     hash_password, verify_password, create_access_token,
@@ -26,6 +28,13 @@ from backend.services.number_cards import (
     NumberCardData,
     generate_number_cards_pdf,
     generate_single_card_pdf
+)
+from backend.services.email import (
+    send_verification_email,
+    verify_email_token,
+    can_resend_verification,
+    get_site_settings,
+    is_email_configured
 )
 
 router = APIRouter()
@@ -68,7 +77,8 @@ async def login(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            role=user.role
+            role=user.role,
+            email_verified=user.email_verified
         )
     )
 
@@ -108,7 +118,8 @@ async def login_form(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            role=user.role
+            role=user.role,
+            email_verified=user.email_verified
         )
     )
 
@@ -120,6 +131,7 @@ async def register(
     """
     Register a new user account. Default role is 'parent'.
     Auto-logs in the user after registration.
+    Sends verification email if email is configured.
     """
     # Check if email already exists
     statement = select(User).where(User.email == registration.email)
@@ -136,11 +148,15 @@ async def register(
         email=registration.email,
         password_hash=hash_password(registration.password),
         name=registration.name,
-        role=RoleType.PARENT  # Default role
+        role=RoleType.PARENT,  # Default role
+        email_verified=False
     )
     session.add(user)
     session.commit()
     session.refresh(user)
+    
+    # Send verification email (will be skipped if not configured)
+    send_verification_email(session, user)
     
     # Create access token for auto-login
     access_token = create_access_token(user.id, user.role)
@@ -152,7 +168,8 @@ async def register(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            role=user.role
+            role=user.role,
+            email_verified=user.email_verified
         )
     )
 
@@ -167,8 +184,101 @@ async def get_current_user_info(
         id=str(current_user.id),
         email=current_user.email,
         name=current_user.name,
-        role=current_user.role
+        role=current_user.role,
+        email_verified=current_user.email_verified
     )
+
+
+# ============= Email Verification Endpoints =============
+
+@router.post("/auth/verify-email", response_model=VerificationResponse)
+async def verify_email(
+    request: VerifyEmailRequest,
+    session: Session = Depends(get_session)
+):
+    """
+    Verify a user's email address using the token from the verification email.
+    """
+    user = verify_email_token(session, request.token)
+    
+    if not user:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired verification token"
+        )
+    
+    return VerificationResponse(
+        success=True,
+        message="Email verified successfully! You can now access all features."
+    )
+
+
+@router.post("/auth/resend-verification", response_model=VerificationResponse)
+async def resend_verification(
+    request: ResendVerificationRequest,
+    session: Session = Depends(get_session)
+):
+    """
+    Resend the verification email. Rate limited to once per 60 seconds.
+    """
+    # Check if email is configured
+    if not is_email_configured(session):
+        raise HTTPException(
+            status_code=503,
+            detail="Email service is not configured. Please contact the administrator."
+        )
+    
+    # Find user by email
+    statement = select(User).where(User.email == request.email)
+    user = session.exec(statement).first()
+    
+    if not user:
+        # Don't reveal whether email exists
+        return VerificationResponse(
+            success=True,
+            message="If an account exists with this email, a verification link has been sent."
+        )
+    
+    if user.email_verified:
+        return VerificationResponse(
+            success=True,
+            message="This email is already verified."
+        )
+    
+    # Check rate limiting
+    if not can_resend_verification(user):
+        raise HTTPException(
+            status_code=429,
+            detail="Please wait at least 60 seconds before requesting another verification email."
+        )
+    
+    # Send verification email
+    sent = send_verification_email(session, user)
+    
+    if not sent:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send verification email. Please try again later."
+        )
+    
+    return VerificationResponse(
+        success=True,
+        message="Verification email sent! Please check your inbox."
+    )
+
+
+@router.get("/auth/email-status")
+async def get_email_status(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the current user's email verification status and whether email is configured.
+    """
+    return {
+        "email_verified": current_user.email_verified,
+        "email_configured": is_email_configured(session)
+    }
 
 # ============= Scoring Endpoints =============
 
@@ -729,7 +839,56 @@ async def update_user(
         id=str(user.id),
         email=user.email,
         name=user.name,
-        role=user.role
+        role=user.role,
+        email_verified=user.email_verified
+    )
+
+
+# ============= Site Settings (Admin) =============
+
+@router.get("/admin/settings", response_model=SiteSettingsResponse)
+async def get_settings(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin())
+):
+    """Get site settings. Requires super_admin role."""
+    settings = get_site_settings(session)
+    
+    return SiteSettingsResponse(
+        resend_configured=bool(settings.resend_api_key),
+        resend_from_email=settings.resend_from_email,
+        site_name=settings.site_name,
+        site_url=settings.site_url
+    )
+
+
+@router.put("/admin/settings", response_model=SiteSettingsResponse)
+async def update_settings(
+    settings_data: SiteSettingsUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin())
+):
+    """Update site settings. Requires super_admin role."""
+    settings = get_site_settings(session)
+    
+    if settings_data.resend_api_key is not None:
+        settings.resend_api_key = settings_data.resend_api_key
+    if settings_data.resend_from_email is not None:
+        settings.resend_from_email = settings_data.resend_from_email
+    if settings_data.site_name is not None:
+        settings.site_name = settings_data.site_name
+    if settings_data.site_url is not None:
+        settings.site_url = settings_data.site_url
+    
+    session.add(settings)
+    session.commit()
+    session.refresh(settings)
+    
+    return SiteSettingsResponse(
+        resend_configured=bool(settings.resend_api_key),
+        resend_from_email=settings.resend_from_email,
+        site_name=settings.site_name,
+        site_url=settings.site_url
     )
 
 # ============= Dancer Endpoints (for entry management) =============

@@ -9,7 +9,10 @@ import SyllabusGenerator from './components/admin/SyllabusGenerator.vue';
 import FeisManager from './components/admin/FeisManager.vue';
 import EntryManager from './components/admin/EntryManager.vue';
 import CompetitionManager from './components/admin/CompetitionManager.vue';
+import SiteSettings from './components/admin/SiteSettings.vue';
 import AuthModal from './components/auth/AuthModal.vue';
+import EmailVerification from './components/auth/EmailVerification.vue';
+import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
 import { useAuthStore } from './stores/auth';
 import type { Dancer, Competition, CartItem } from './models/types';
 
@@ -20,10 +23,32 @@ const auth = useAuthStore();
 const showAuthModal = ref(false);
 const authModalMode = ref<'login' | 'register'>('login');
 
-// Initialize auth on mount
+// Initialize auth on mount and check for verification token in URL
 onMounted(async () => {
   await auth.initialize();
+  
+  // Check for email verification token in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  const path = window.location.pathname;
+  
+  if (path === '/verify-email' && token) {
+    verificationToken.value = token;
+    view.value = 'verify-email';
+  }
 });
+
+// Handle email verification success
+const handleVerified = () => {
+  // Clear the URL params
+  window.history.replaceState({}, '', '/');
+  view.value = 'home';
+};
+
+const handleVerifyGoHome = () => {
+  window.history.replaceState({}, '', '/');
+  view.value = 'home';
+};
 
 // Auth modal handlers
 const openLogin = () => {
@@ -41,11 +66,14 @@ const handleAuthSuccess = () => {
 };
 
 // Navigation state
-type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin';
+type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'verify-email';
 const view = ref<ViewType>('home');
 
+// Email verification token from URL
+const verificationToken = ref<string | undefined>(undefined);
+
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -246,6 +274,9 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
         </div>
       </div>
     </nav>
+
+    <!-- Email Verification Banner -->
+    <EmailVerificationBanner />
 
     <!-- Auth Modal -->
     <AuthModal 
@@ -495,6 +526,18 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 <h1 class="text-2xl font-bold text-slate-800">Admin Dashboard</h1>
                 <p class="text-slate-600">Manage feiseanna, competitions, and entries</p>
               </div>
+              <div class="flex gap-2">
+              <button
+                v-if="auth.isAdmin"
+                @click="adminView = 'settings'"
+                class="px-4 py-2 rounded-lg bg-emerald-100 text-emerald-700 font-medium hover:bg-emerald-200 transition-colors flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Settings
+              </button>
               <a 
                 href="/admin" 
                 target="_blank"
@@ -505,6 +548,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 </svg>
                 SQLAdmin
               </a>
+            </div>
             </div>
             <FeisManager @select="handleFeisSelect" />
           </div>
@@ -608,6 +652,11 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               @generated="handleSyllabusGenerated"
             />
           </div>
+
+          <!-- Site Settings View (Super Admin Only) -->
+          <div v-else-if="adminView === 'settings'">
+            <SiteSettings @back="adminView = 'feis-list'" />
+          </div>
         </div>
         </template>
         <template v-else>
@@ -633,6 +682,15 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </div>
           </div>
         </template>
+      </div>
+
+      <!-- Email Verification View -->
+      <div v-else-if="view === 'verify-email'" class="py-8">
+        <EmailVerification 
+          :token="verificationToken"
+          @verified="handleVerified"
+          @go-home="handleVerifyGoHome"
+        />
       </div>
     </main>
 
