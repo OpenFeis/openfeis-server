@@ -1,3 +1,4 @@
+import os
 from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import text
@@ -5,7 +6,8 @@ from sqlalchemy import text
 # Using SQLite with WAL mode (as per requirements)
 # For local dev, we use a file-based DB. 
 # check_same_thread=False is needed for SQLite with FastAPI (multiple threads)
-sqlite_file_name = "openfeis.db"
+# In production, DB_PATH points to the persistent volume
+sqlite_file_name = os.environ.get("DB_PATH", "openfeis.db")
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
 engine = create_engine(
