@@ -28,11 +28,11 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
-            echo "🔨 Building Docker images (no cache)..."
-            docker compose build --no-cache
+            echo "🔨 Building Docker images..."
+            docker compose build
             
             echo "🚀 Restarting services..."
-            docker compose up -d --force-recreate
+            docker compose up -d
             
             echo "🧹 Cleaning up old images..."
             docker image prune -f
