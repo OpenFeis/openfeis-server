@@ -31,9 +31,10 @@ class JudgeScore(SQLModel, table=True):
     """
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     judge_id: str = Field(index=True)
-    competitor_id: str = Field(index=True) 
-    round_id: str = Field(index=True)
+    competitor_id: str = Field(index=True)  # Entry ID
+    round_id: str = Field(index=True)  # Competition ID (using round_id for backwards compat)
     value: float = Field(..., description="The raw score given (e.g., 75, 82.5)")
+    notes: Optional[str] = Field(default=None, description="Optional judge notes/comments")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 # --- Response Models (Pydantic only, no table=True) ---

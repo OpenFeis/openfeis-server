@@ -1,87 +1,273 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import type { JudgeScore } from '../models/types';
+import type { 
+  CompetitionForScoring, 
+  CompetitorForScoring, 
+  ScoreSubmission,
+  ScoreSubmissionResponse 
+} from '../models/types';
+import { useAuthStore } from './auth';
 import { dbService } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
-import axios from 'axios';
 
-// Hardcoded for MVP
-const API_URL = 'http://localhost:8000/api/v1';
-const JUDGE_ID = 'judge-01'; // Mock Judge ID
+const API_URL = '/api/v1';
+
+// Local score for offline storage
+interface LocalScore {
+  id: string;
+  entry_id: string;
+  competition_id: string;
+  value: number;
+  notes?: string;
+  timestamp: string;
+  synced: boolean;
+}
 
 export const useScoringStore = defineStore('scoring', () => {
-  const currentRoundId = ref('r1');
-  const scores = ref<JudgeScore[]>([]);
+  // State
+  const competitions = ref<CompetitionForScoring[]>([]);
+  const selectedCompetition = ref<CompetitionForScoring | null>(null);
+  const competitors = ref<CompetitorForScoring[]>([]);
   const isOnline = ref(navigator.onLine);
+  const isLoading = ref(false);
   const isSyncing = ref(false);
+  const error = ref<string | null>(null);
 
   // Listen for network status
   window.addEventListener('online', () => {
     isOnline.value = true;
-    syncScores();
+    syncPendingScores();
   });
   window.addEventListener('offline', () => {
     isOnline.value = false;
   });
 
-  async function loadScores() {
-    scores.value = await dbService.getScoresForRound(currentRoundId.value);
+  // Get auth store for authenticated requests
+  function getAuthFetch() {
+    const auth = useAuthStore();
+    return auth.authFetch;
   }
 
-  async function submitScore(competitorId: string, value: number) {
-    const newScore: JudgeScore = {
-      id: uuidv4(),
-      judge_id: JUDGE_ID,
-      competitor_id: competitorId,
-      round_id: currentRoundId.value,
-      value: value,
-      timestamp: new Date().toISOString(),
-      synced: false,
-    };
-
-    // 1. Save Locally (Always succeeds)
-    await dbService.saveScore(newScore);
-    scores.value.push(newScore);
-
-    // 2. Try to Sync (if online)
-    if (isOnline.value) {
-      try {
-        await axios.post(`${API_URL}/scores`, newScore);
-        await dbService.markSynced([newScore.id]);
-      } catch (e) {
-        console.warn("Sync failed, saved offline.", e);
+  // Fetch competitions available for scoring
+  async function fetchCompetitions() {
+    isLoading.value = true;
+    error.value = null;
+    
+    try {
+      const authFetch = getAuthFetch();
+      const response = await authFetch(`${API_URL}/judge/competitions`);
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to fetch competitions');
       }
+      
+      competitions.value = await response.json();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch competitions';
+      competitions.value = [];
+    } finally {
+      isLoading.value = false;
     }
   }
 
-  async function syncScores() {
-    if (isSyncing.value || !isOnline.value) return;
+  // Select a competition and fetch its competitors
+  async function selectCompetition(competition: CompetitionForScoring) {
+    selectedCompetition.value = competition;
+    await fetchCompetitors(competition.id);
+  }
+
+  // Clear competition selection
+  function clearCompetition() {
+    selectedCompetition.value = null;
+    competitors.value = [];
+  }
+
+  // Fetch competitors for a competition
+  async function fetchCompetitors(competitionId: string) {
+    isLoading.value = true;
+    error.value = null;
     
-    const unsynced = await dbService.getUnsyncedScores();
-    if (unsynced.length === 0) return;
+    try {
+      const authFetch = getAuthFetch();
+      const response = await authFetch(`${API_URL}/judge/competitions/${competitionId}/competitors`);
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to fetch competitors');
+      }
+      
+      competitors.value = await response.json();
+      
+      // Merge any local unsynced scores
+      await mergeLocalScores(competitionId);
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch competitors';
+      competitors.value = [];
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // Merge local unsynced scores with server data
+  async function mergeLocalScores(competitionId: string) {
+    try {
+      const localScores = await dbService.getUnsyncedScores();
+      const competitionScores = localScores.filter(
+        (s: any) => s.competition_id === competitionId || s.round_id === competitionId
+      );
+      
+      for (const localScore of competitionScores) {
+        const competitor = competitors.value.find(
+          c => c.entry_id === localScore.entry_id || c.entry_id === localScore.competitor_id
+        );
+        if (competitor && !competitor.existing_score) {
+          competitor.existing_score = localScore.value;
+          competitor.existing_notes = localScore.notes;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not merge local scores:', e);
+    }
+  }
+
+  // Submit a score
+  async function submitScore(
+    entryId: string, 
+    value: number, 
+    notes?: string
+  ): Promise<boolean> {
+    if (!selectedCompetition.value) {
+      error.value = 'No competition selected';
+      return false;
+    }
+
+    const submission: ScoreSubmission = {
+      entry_id: entryId,
+      competition_id: selectedCompetition.value.id,
+      value,
+      notes
+    };
+
+    // Create local score for offline storage
+    const localScore: LocalScore = {
+      id: uuidv4(),
+      entry_id: entryId,
+      competition_id: selectedCompetition.value.id,
+      value,
+      notes,
+      timestamp: new Date().toISOString(),
+      synced: false
+    };
+
+    // Always save locally first (offline-first)
+    try {
+      await dbService.saveScore({
+        id: localScore.id,
+        judge_id: 'current', // Will be set by server
+        competitor_id: entryId,
+        round_id: selectedCompetition.value.id,
+        value,
+        timestamp: localScore.timestamp,
+        synced: false
+      });
+    } catch (e) {
+      console.warn('Could not save locally:', e);
+    }
+
+    // Update local state immediately
+    const competitor = competitors.value.find(c => c.entry_id === entryId);
+    if (competitor) {
+      competitor.existing_score = value;
+      competitor.existing_notes = notes;
+    }
+
+    // Try to sync with server
+    if (isOnline.value) {
+      try {
+        const authFetch = getAuthFetch();
+        const response = await authFetch(`${API_URL}/judge/scores`, {
+          method: 'POST',
+          body: JSON.stringify(submission)
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.detail || 'Failed to submit score');
+        }
+
+        // Mark as synced
+        await dbService.markSynced([localScore.id]);
+        return true;
+      } catch (e) {
+        console.warn('Could not sync score, saved offline:', e);
+        // Score is saved locally, will sync later
+        return true;
+      }
+    }
+
+    // Offline - score is saved locally
+    return true;
+  }
+
+  // Sync pending scores when back online
+  async function syncPendingScores() {
+    if (isSyncing.value || !isOnline.value) return;
 
     isSyncing.value = true;
+    
     try {
-      // Batch upload could be implemented here, sending one-by-one for MVP simplicity or use the batch endpoint
-      await axios.post(`${API_URL}/scores/batch`, unsynced);
+      const unsynced = await dbService.getUnsyncedScores();
+      if (unsynced.length === 0) return;
+
+      const authFetch = getAuthFetch();
       
-      const ids = unsynced.map(s => s.id);
-      await dbService.markSynced(ids);
-      console.log(`Synced ${ids.length} scores.`);
+      for (const score of unsynced) {
+        try {
+          const submission: ScoreSubmission = {
+            entry_id: score.competitor_id,
+            competition_id: score.round_id,
+            value: score.value,
+            notes: undefined // Local scores don't have notes in old format
+          };
+
+          const response = await authFetch(`${API_URL}/judge/scores`, {
+            method: 'POST',
+            body: JSON.stringify(submission)
+          });
+
+          if (response.ok) {
+            await dbService.markSynced([score.id]);
+          }
+        } catch (e) {
+          console.warn(`Could not sync score ${score.id}:`, e);
+        }
+      }
+
+      console.log(`Synced ${unsynced.length} pending scores`);
     } catch (e) {
-      console.error("Batch sync failed", e);
+      console.error('Sync failed:', e);
     } finally {
       isSyncing.value = false;
     }
   }
 
   return {
-    currentRoundId,
-    scores,
+    // State
+    competitions,
+    selectedCompetition,
+    competitors,
     isOnline,
+    isLoading,
+    isSyncing,
+    error,
+    
+    // Actions
+    fetchCompetitions,
+    selectCompetition,
+    clearCompetition,
+    fetchCompetitors,
     submitScore,
-    loadScores,
-    syncScores
+    syncPendingScores
   };
 });
-

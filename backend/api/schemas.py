@@ -186,3 +186,52 @@ class SiteSettingsResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============= Scoring / Judge Pad =============
+
+class CompetitorForScoring(BaseModel):
+    """A competitor (entry) ready to be scored by a judge."""
+    entry_id: str
+    competitor_number: int
+    dancer_name: str
+    dancer_school: Optional[str] = None
+    existing_score: Optional[float] = None
+    existing_notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitionForScoring(BaseModel):
+    """Competition info for the judge's scoring interface."""
+    id: str
+    name: str
+    feis_id: str
+    feis_name: str
+    level: CompetitionLevel
+    competitor_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class ScoreSubmission(BaseModel):
+    """Request to submit a score for a competitor."""
+    entry_id: str  # The Entry ID (competitor in this competition)
+    competition_id: str  # The Competition being scored
+    value: float  # Score 0-100
+    notes: Optional[str] = None  # Optional judge notes
+
+
+class ScoreSubmissionResponse(BaseModel):
+    """Response after submitting a score."""
+    id: str
+    entry_id: str
+    competition_id: str
+    value: float
+    notes: Optional[str] = None
+    timestamp: str
+
+    class Config:
+        from_attributes = True

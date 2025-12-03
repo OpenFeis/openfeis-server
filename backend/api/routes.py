@@ -17,7 +17,8 @@ from backend.api.schemas import (
     DancerResponse, UserUpdate, UserResponse,
     LoginRequest, RegisterRequest, AuthResponse,
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
-    SiteSettingsUpdate, SiteSettingsResponse
+    SiteSettingsUpdate, SiteSettingsResponse,
+    CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse
 )
 from backend.api.auth import (
     hash_password, verify_password, create_access_token,
@@ -316,6 +317,184 @@ async def get_round_results(round_id: str, session: Session = Depends(get_sessio
     statement = select(JudgeScore).where(JudgeScore.round_id == round_id)
     round_scores = session.exec(statement).all()
     return calculator.calculate_round(round_id, list(round_scores))
+
+
+# ============= Judge Pad Endpoints =============
+
+@router.get("/judge/competitions", response_model=List[CompetitionForScoring])
+async def get_competitions_for_scoring(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_adjudicator())
+):
+    """
+    Get all competitions available for scoring.
+    Only shows competitions that have entries with assigned competitor numbers.
+    """
+    # Get all feiseanna
+    feiseanna = session.exec(select(Feis)).all()
+    feis_map = {f.id: f for f in feiseanna}
+    
+    # Get all competitions
+    competitions = session.exec(select(Competition)).all()
+    
+    result = []
+    for comp in competitions:
+        # Count entries with assigned numbers (ready for scoring)
+        entry_count = session.exec(
+            select(func.count(Entry.id))
+            .where(Entry.competition_id == comp.id)
+            .where(Entry.competitor_number.isnot(None))
+        ).one()
+        
+        # Only include competitions with scorable entries
+        if entry_count > 0:
+            feis = feis_map.get(comp.feis_id)
+            result.append(CompetitionForScoring(
+                id=str(comp.id),
+                name=comp.name,
+                feis_id=str(comp.feis_id),
+                feis_name=feis.name if feis else "Unknown",
+                level=comp.level,
+                competitor_count=entry_count
+            ))
+    
+    return result
+
+
+@router.get("/judge/competitions/{comp_id}/competitors", response_model=List[CompetitorForScoring])
+async def get_competitors_for_scoring(
+    comp_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_adjudicator())
+):
+    """
+    Get all competitors in a competition ready to be scored.
+    Returns entries with assigned competitor numbers, along with any existing scores
+    from this judge.
+    """
+    competition = session.get(Competition, UUID(comp_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    # Get entries with assigned numbers
+    entries = session.exec(
+        select(Entry)
+        .where(Entry.competition_id == competition.id)
+        .where(Entry.competitor_number.isnot(None))
+        .order_by(Entry.competitor_number)
+    ).all()
+    
+    result = []
+    for entry in entries:
+        dancer = session.get(Dancer, entry.dancer_id)
+        if not dancer:
+            continue
+        
+        # Check for existing score from this judge
+        # Using competition_id as round_id for simplicity
+        existing_score = session.exec(
+            select(JudgeScore)
+            .where(JudgeScore.judge_id == str(current_user.id))
+            .where(JudgeScore.competitor_id == str(entry.id))
+            .where(JudgeScore.round_id == str(competition.id))
+        ).first()
+        
+        # Get school name if available
+        school_name = None
+        if dancer.school_id:
+            teacher = session.get(User, dancer.school_id)
+            school_name = teacher.name if teacher else None
+        
+        result.append(CompetitorForScoring(
+            entry_id=str(entry.id),
+            competitor_number=entry.competitor_number,
+            dancer_name=dancer.name,
+            dancer_school=school_name,
+            existing_score=existing_score.value if existing_score else None,
+            existing_notes=existing_score.notes if existing_score else None
+        ))
+    
+    return result
+
+
+@router.post("/judge/scores", response_model=ScoreSubmissionResponse)
+async def submit_judge_score(
+    score_data: ScoreSubmission,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_adjudicator())
+):
+    """
+    Submit or update a score for a competitor.
+    If the judge has already scored this competitor in this competition,
+    the existing score is updated.
+    """
+    # Validate entry exists
+    entry = session.get(Entry, UUID(score_data.entry_id))
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    # Validate competition exists
+    competition = session.get(Competition, UUID(score_data.competition_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    # Validate entry belongs to competition
+    if str(entry.competition_id) != score_data.competition_id:
+        raise HTTPException(status_code=400, detail="Entry does not belong to this competition")
+    
+    # Validate score range
+    if score_data.value < 0 or score_data.value > 100:
+        raise HTTPException(status_code=400, detail="Score must be between 0 and 100")
+    
+    # Check for existing score from this judge
+    existing_score = session.exec(
+        select(JudgeScore)
+        .where(JudgeScore.judge_id == str(current_user.id))
+        .where(JudgeScore.competitor_id == str(entry.id))
+        .where(JudgeScore.round_id == str(competition.id))
+    ).first()
+    
+    from datetime import datetime
+    
+    if existing_score:
+        # Update existing score
+        existing_score.value = score_data.value
+        existing_score.notes = score_data.notes
+        existing_score.timestamp = datetime.utcnow()
+        session.add(existing_score)
+        session.commit()
+        session.refresh(existing_score)
+        
+        return ScoreSubmissionResponse(
+            id=str(existing_score.id),
+            entry_id=score_data.entry_id,
+            competition_id=score_data.competition_id,
+            value=existing_score.value,
+            notes=existing_score.notes,
+            timestamp=existing_score.timestamp.isoformat()
+        )
+    else:
+        # Create new score
+        new_score = JudgeScore(
+            judge_id=str(current_user.id),
+            competitor_id=str(entry.id),
+            round_id=str(competition.id),  # Using competition_id as round_id
+            value=score_data.value,
+            notes=score_data.notes
+        )
+        session.add(new_score)
+        session.commit()
+        session.refresh(new_score)
+        
+        return ScoreSubmissionResponse(
+            id=str(new_score.id),
+            entry_id=score_data.entry_id,
+            competition_id=score_data.competition_id,
+            value=new_score.value,
+            notes=new_score.notes,
+            timestamp=new_score.timestamp.isoformat()
+        )
+
 
 # ============= Feis CRUD Endpoints =============
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { CompetitionLevel, Gender, SyllabusGenerationRequest, SyllabusGenerationResponse } from '../../models/types';
+import { useAuthStore } from '../../stores/auth';
 
 // Props
 const props = defineProps<{
@@ -104,6 +105,9 @@ const danceIcons: Record<string, string> = {
   'Set Dance': '🌟',
 };
 
+// Auth store for authenticated requests
+const auth = useAuthStore();
+
 // Generate syllabus
 const generateSyllabus = async () => {
   if (estimatedCount.value === 0) {
@@ -125,16 +129,14 @@ const generateSyllabus = async () => {
   };
 
   try {
-    const response = await fetch('/api/v1/admin/syllabus/generate', {
+    const response = await auth.authFetch('/api/v1/admin/syllabus/generate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(request),
     });
 
     if (!response.ok) {
-      throw new Error('Failed to generate syllabus');
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to generate syllabus');
     }
 
     const result: SyllabusGenerationResponse = await response.json();

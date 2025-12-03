@@ -102,3 +102,39 @@ export interface SyllabusGenerationResponse {
   generated_count: number;
   message: string;
 }
+
+// ============= Judge Pad / Scoring Types =============
+
+export interface CompetitionForScoring {
+  id: string;
+  name: string;
+  feis_id: string;
+  feis_name: string;
+  level: CompetitionLevel;
+  competitor_count: number;
+}
+
+export interface CompetitorForScoring {
+  entry_id: string;
+  competitor_number: number;
+  dancer_name: string;
+  dancer_school?: string;
+  existing_score?: number;
+  existing_notes?: string;
+}
+
+export interface ScoreSubmission {
+  entry_id: string;
+  competition_id: string;
+  value: number;
+  notes?: string;
+}
+
+export interface ScoreSubmissionResponse {
+  id: string;
+  entry_id: string;
+  competition_id: string;
+  value: number;
+  notes?: string;
+  timestamp: string;
+}

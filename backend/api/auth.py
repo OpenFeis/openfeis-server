@@ -147,6 +147,6 @@ def require_organizer_or_admin():
     return require_role(RoleType.SUPER_ADMIN, RoleType.ORGANIZER)
 
 def require_adjudicator():
-    """Shortcut for requiring adjudicator role."""
-    return require_role(RoleType.ADJUDICATOR)
+    """Shortcut for requiring adjudicator or super_admin role."""
+    return require_role(RoleType.ADJUDICATOR, RoleType.SUPER_ADMIN)
 
