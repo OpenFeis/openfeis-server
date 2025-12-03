@@ -115,7 +115,7 @@ const fetchFeiseanna = async () => {
     if (response.ok) {
       availableFeiseanna.value = await response.json();
       // Auto-select if only one feis
-      if (availableFeiseanna.value.length === 1) {
+      if (availableFeiseanna.value.length === 1 && availableFeiseanna.value[0]) {
         await selectRegistrationFeis(availableFeiseanna.value[0]);
       }
     }

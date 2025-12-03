@@ -25,7 +25,7 @@ const competitionsByFeis = computed(() => {
         competitions: []
       };
     }
-    grouped[comp.feis_id].competitions.push(comp);
+    grouped[comp.feis_id]!.competitions.push(comp);
   }
   
   return grouped;

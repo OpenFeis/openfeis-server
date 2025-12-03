@@ -3,8 +3,7 @@ import { ref } from 'vue';
 import type { 
   CompetitionForScoring, 
   CompetitorForScoring, 
-  ScoreSubmission,
-  ScoreSubmissionResponse 
+  ScoreSubmission 
 } from '../models/types';
 import { useAuthStore } from './auth';
 import { dbService } from '../services/db';
@@ -119,11 +118,11 @@ export const useScoringStore = defineStore('scoring', () => {
       
       for (const localScore of competitionScores) {
         const competitor = competitors.value.find(
-          c => c.entry_id === localScore.entry_id || c.entry_id === localScore.competitor_id
+          c => c.entry_id === localScore.competitor_id
         );
         if (competitor && !competitor.existing_score) {
           competitor.existing_score = localScore.value;
-          competitor.existing_notes = localScore.notes;
+          // Notes are stored separately in LocalScore format
         }
       }
     } catch (e) {
