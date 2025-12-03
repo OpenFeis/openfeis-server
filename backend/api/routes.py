@@ -13,8 +13,9 @@ from backend.api.schemas import (
     SyllabusGenerationRequest, SyllabusGenerationResponse,
     FeisCreate, FeisUpdate, FeisResponse,
     CompetitionCreate, CompetitionUpdate, CompetitionResponse,
+    EntryCreate, BulkEntryCreate, BulkEntryResponse,
     EntryUpdate, EntryResponse, BulkNumberAssignment, BulkNumberAssignmentResponse,
-    DancerResponse, UserUpdate, UserResponse,
+    DancerCreate, DancerResponse, UserUpdate, UserResponse,
     LoginRequest, RegisterRequest, AuthResponse,
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
     SiteSettingsUpdate, SiteSettingsResponse,
@@ -792,6 +793,48 @@ async def delete_competition(comp_id: str, session: Session = Depends(get_sessio
     
     return {"message": f"Competition '{comp.name}' deleted"}
 
+
+@router.delete("/feis/{feis_id}/competitions/empty")
+async def delete_empty_competitions(
+    feis_id: str, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Delete all competitions with zero entries for a feis.
+    This is more reliable than deleting one-by-one from the frontend.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only manage your own feis")
+    
+    # Get all competitions for this feis
+    competitions = session.exec(
+        select(Competition).where(Competition.feis_id == feis.id)
+    ).all()
+    
+    deleted_count = 0
+    for comp in competitions:
+        # Check if competition has any entries
+        entry_count = session.exec(
+            select(func.count(Entry.id)).where(Entry.competition_id == comp.id)
+        ).one()
+        
+        if entry_count == 0:
+            session.delete(comp)
+            deleted_count += 1
+    
+    session.commit()
+    
+    return {
+        "deleted_count": deleted_count,
+        "message": f"Deleted {deleted_count} empty competitions from {feis.name}"
+    }
+
 # ============= Syllabus Generation =============
 
 @router.post("/admin/syllabus/generate", response_model=SyllabusGenerationResponse)
@@ -890,7 +933,8 @@ async def list_entries(
                 competition_id=str(entry.competition_id),
                 competition_name=comp.name,
                 competitor_number=entry.competitor_number,
-                paid=entry.paid
+                paid=entry.paid,
+                pay_later=entry.pay_later
             ))
     
     return result
@@ -922,7 +966,8 @@ async def update_entry(entry_id: str, entry_data: EntryUpdate, session: Session 
         competition_id=str(entry.competition_id),
         competition_name=comp.name if comp else "Unknown",
         competitor_number=entry.competitor_number,
-        paid=entry.paid
+        paid=entry.paid,
+        pay_later=entry.pay_later
     )
 
 @router.post("/feis/{feis_id}/assign-numbers", response_model=BulkNumberAssignmentResponse)
@@ -969,6 +1014,216 @@ async def bulk_assign_numbers(feis_id: str, data: BulkNumberAssignment, session:
         assigned_count=len(dancer_ids),
         message=f"Assigned numbers {data.start_number} to {current_number - 1} to {len(dancer_ids)} dancers"
     )
+
+
+# ============= Entry Creation Endpoints =============
+
+@router.post("/entries", response_model=EntryResponse)
+async def create_entry(
+    entry_data: EntryCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a single entry (register a dancer for a competition).
+    
+    Parents can only create entries for their own dancers.
+    The pay_later option allows "Pay at Door" registration.
+    """
+    # Validate dancer exists and belongs to current user (if parent)
+    dancer = session.get(Dancer, UUID(entry_data.dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Parents can only register their own dancers
+    if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only register your own dancers")
+    
+    # Validate competition exists
+    competition = session.get(Competition, UUID(entry_data.competition_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    # Check if entry already exists
+    existing = session.exec(
+        select(Entry)
+        .where(Entry.dancer_id == dancer.id)
+        .where(Entry.competition_id == competition.id)
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Dancer is already registered for this competition")
+    
+    # Create entry
+    entry = Entry(
+        dancer_id=dancer.id,
+        competition_id=competition.id,
+        paid=False,  # Will be set to True after payment (or by admin)
+        pay_later=entry_data.pay_later
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    
+    return EntryResponse(
+        id=str(entry.id),
+        dancer_id=str(entry.dancer_id),
+        dancer_name=dancer.name,
+        dancer_school=None,
+        competition_id=str(entry.competition_id),
+        competition_name=competition.name,
+        competitor_number=entry.competitor_number,
+        paid=entry.paid,
+        pay_later=entry.pay_later
+    )
+
+
+@router.post("/entries/batch", response_model=BulkEntryResponse)
+async def create_entries_batch(
+    entry_data: BulkEntryCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create multiple entries at once (registration checkout).
+    
+    This is the main endpoint for completing a registration.
+    Parents can only create entries for their own dancers.
+    The pay_later option allows "Pay at Door" registration.
+    """
+    # Validate dancer exists and belongs to current user (if parent)
+    dancer = session.get(Dancer, UUID(entry_data.dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Parents can only register their own dancers
+    if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only register your own dancers")
+    
+    created_entries = []
+    skipped_count = 0
+    
+    for comp_id in entry_data.competition_ids:
+        # Validate competition exists
+        competition = session.get(Competition, UUID(comp_id))
+        if not competition:
+            continue  # Skip invalid competition IDs
+        
+        # Check if entry already exists
+        existing = session.exec(
+            select(Entry)
+            .where(Entry.dancer_id == dancer.id)
+            .where(Entry.competition_id == competition.id)
+        ).first()
+        
+        if existing:
+            skipped_count += 1
+            continue  # Skip duplicates
+        
+        # Create entry
+        entry = Entry(
+            dancer_id=dancer.id,
+            competition_id=competition.id,
+            paid=False,
+            pay_later=entry_data.pay_later
+        )
+        session.add(entry)
+        session.flush()  # Get the ID without committing
+        
+        created_entries.append(EntryResponse(
+            id=str(entry.id),
+            dancer_id=str(entry.dancer_id),
+            dancer_name=dancer.name,
+            dancer_school=None,
+            competition_id=str(entry.competition_id),
+            competition_name=competition.name,
+            competitor_number=entry.competitor_number,
+            paid=entry.paid,
+            pay_later=entry.pay_later
+        ))
+    
+    session.commit()
+    
+    message = f"Successfully registered {dancer.name} for {len(created_entries)} competition(s)"
+    if skipped_count > 0:
+        message += f" ({skipped_count} already registered)"
+    if entry_data.pay_later:
+        message += ". Payment to be collected at check-in."
+    
+    return BulkEntryResponse(
+        created_count=len(created_entries),
+        entries=created_entries,
+        message=message
+    )
+
+
+@router.get("/entries", response_model=List[EntryResponse])
+async def list_all_entries(
+    session: Session = Depends(get_session),
+    dancer_id: Optional[str] = None,
+    competition_id: Optional[str] = None,
+    paid: Optional[bool] = None
+):
+    """List all entries with optional filters."""
+    statement = select(Entry)
+    
+    if dancer_id:
+        statement = statement.where(Entry.dancer_id == UUID(dancer_id))
+    if competition_id:
+        statement = statement.where(Entry.competition_id == UUID(competition_id))
+    if paid is not None:
+        statement = statement.where(Entry.paid == paid)
+    
+    entries = session.exec(statement).all()
+    
+    result = []
+    for entry in entries:
+        dancer = session.get(Dancer, entry.dancer_id)
+        competition = session.get(Competition, entry.competition_id)
+        if dancer and competition:
+            result.append(EntryResponse(
+                id=str(entry.id),
+                dancer_id=str(entry.dancer_id),
+                dancer_name=dancer.name,
+                dancer_school=None,
+                competition_id=str(entry.competition_id),
+                competition_name=competition.name,
+                competitor_number=entry.competitor_number,
+                paid=entry.paid,
+                pay_later=entry.pay_later
+            ))
+    
+    return result
+
+
+@router.delete("/entries/{entry_id}")
+async def delete_entry(
+    entry_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete an entry. Parents can only delete entries for their own dancers.
+    Organizers/admins can delete any entry.
+    """
+    entry = session.get(Entry, UUID(entry_id))
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    # Check ownership
+    dancer = session.get(Dancer, entry.dancer_id)
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Parents can only delete their own dancers' entries
+    if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete entries for your own dancers")
+    
+    session.delete(entry)
+    session.commit()
+    
+    return {"message": "Entry deleted successfully"}
+
 
 # ============= User Management Endpoints =============
 
@@ -1070,7 +1325,7 @@ async def update_settings(
         site_url=settings.site_url
     )
 
-# ============= Dancer Endpoints (for entry management) =============
+# ============= Dancer Endpoints =============
 
 @router.get("/dancers", response_model=List[DancerResponse])
 async def list_dancers(session: Session = Depends(get_session)):
@@ -1084,10 +1339,70 @@ async def list_dancers(session: Session = Depends(get_session)):
             current_level=d.current_level,
             gender=d.gender,
             clrg_number=d.clrg_number,
-            parent_id=str(d.parent_id)
+            parent_id=str(d.parent_id),
+            school_id=str(d.school_id) if d.school_id else None
         )
         for d in dancers
     ]
+
+
+@router.get("/dancers/mine", response_model=List[DancerResponse])
+async def list_my_dancers(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """List dancers belonging to the current logged-in parent."""
+    dancers = session.exec(
+        select(Dancer).where(Dancer.parent_id == current_user.id)
+    ).all()
+    return [
+        DancerResponse(
+            id=str(d.id),
+            name=d.name,
+            dob=d.dob,
+            current_level=d.current_level,
+            gender=d.gender,
+            clrg_number=d.clrg_number,
+            parent_id=str(d.parent_id),
+            school_id=str(d.school_id) if d.school_id else None
+        )
+        for d in dancers
+    ]
+
+
+@router.post("/dancers", response_model=DancerResponse)
+async def create_dancer(
+    dancer_data: DancerCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a new dancer profile. The dancer is automatically linked to the 
+    current logged-in user as the parent.
+    """
+    dancer = Dancer(
+        parent_id=current_user.id,
+        name=dancer_data.name,
+        dob=dancer_data.dob,
+        gender=dancer_data.gender,
+        current_level=dancer_data.current_level,
+        clrg_number=dancer_data.clrg_number,
+        school_id=UUID(dancer_data.school_id) if dancer_data.school_id else None
+    )
+    session.add(dancer)
+    session.commit()
+    session.refresh(dancer)
+    
+    return DancerResponse(
+        id=str(dancer.id),
+        name=dancer.name,
+        dob=dancer.dob,
+        current_level=dancer.current_level,
+        gender=dancer.gender,
+        clrg_number=dancer.clrg_number,
+        parent_id=str(dancer.parent_id),
+        school_id=str(dancer.school_id) if dancer.school_id else None
+    )
 
 
 # ============= Number Card PDF Generation =============

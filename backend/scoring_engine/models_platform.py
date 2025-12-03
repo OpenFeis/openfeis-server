@@ -104,6 +104,7 @@ class Entry(SQLModel, table=True):
     competition_id: UUID = Field(foreign_key="competition.id")
     competitor_number: Optional[int] = None
     paid: bool = Field(default=False)
+    pay_later: bool = Field(default=False)  # "Pay at Door" option - permanent feature
     
     # Relationships
     dancer: Dancer = Relationship(back_populates="entries")

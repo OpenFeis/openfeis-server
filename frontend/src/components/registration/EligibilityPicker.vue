@@ -19,6 +19,13 @@ const selectedCompetitionIds = ref<Set<string>>(new Set());
 const loading = ref(false);
 const showIneligible = ref(false);
 
+// Watch for changes to competitions prop
+watch(() => props.competitions, (newComps) => {
+  if (newComps && newComps.length > 0) {
+    allCompetitions.value = newComps;
+  }
+}, { immediate: true });
+
 // Compute dancer's competition age from DOB
 const computeCompetitionAge = (dob: string): number => {
   const birthDate = new Date(dob);
@@ -205,15 +212,54 @@ const getDanceIcon = (dance: string): string => {
       </div>
 
       <!-- No Eligible Competitions -->
-      <div v-else-if="eligibleCompetitions.length === 0" class="text-center py-12">
-        <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <div v-else-if="eligibleCompetitions.length === 0" class="text-center py-8">
+        <div class="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
         <h3 class="text-lg font-semibold text-slate-700 mb-2">No Eligible Competitions</h3>
-        <p class="text-slate-500 text-sm">
-          There are no competitions matching this dancer's profile. Check the dancer's age, level, and category.
+        
+        <!-- Debug Info -->
+        <div class="bg-slate-50 rounded-xl p-4 text-left max-w-sm mx-auto mt-4">
+          <p class="text-xs font-semibold text-slate-500 mb-2 uppercase">Debug Info:</p>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between">
+              <span class="text-slate-500">Total competitions:</span>
+              <span class="font-medium text-slate-700">{{ allCompetitions.length }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Dancer age:</span>
+              <span class="font-medium text-slate-700">{{ dancerAge ?? 'Not set' }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Dancer level:</span>
+              <span class="font-medium text-slate-700">{{ dancer.current_level ?? 'Not set' }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Dancer category:</span>
+              <span class="font-medium text-slate-700">{{ dancer.gender ?? 'Not set' }}</span>
+            </div>
+          </div>
+          
+          <div v-if="allCompetitions.length > 0" class="mt-3 pt-3 border-t border-slate-200">
+            <p class="text-xs text-slate-500 mb-1">Sample competition age ranges:</p>
+            <div class="text-xs text-slate-600">
+              <div v-for="comp in allCompetitions.slice(0, 3)" :key="comp.id">
+                {{ comp.name.substring(0, 30) }}... (ages {{ comp.min_age }}-{{ comp.max_age }})
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <p class="text-slate-500 text-sm mt-4">
+          <template v-if="allCompetitions.length === 0">
+            No competitions have been created for this feis yet.
+          </template>
+          <template v-else>
+            The dancer's profile doesn't match any available competitions.
+            Try adjusting age, level, or check if competitions exist for their category.
+          </template>
         </p>
       </div>
 

@@ -77,9 +77,31 @@ class CompetitionResponse(BaseModel):
 
 # ============= Entry Management =============
 
+class EntryCreate(BaseModel):
+    """Request to create a single entry (dancer registering for a competition)."""
+    dancer_id: str
+    competition_id: str
+    pay_later: bool = False  # If True, entry is created with paid=False
+
+
+class BulkEntryCreate(BaseModel):
+    """Request to create multiple entries at once (registration checkout)."""
+    dancer_id: str
+    competition_ids: List[str]
+    pay_later: bool = False  # "Pay at Door" option
+
+
+class BulkEntryResponse(BaseModel):
+    """Response after creating multiple entries."""
+    created_count: int
+    entries: List["EntryResponse"]
+    message: str
+
+
 class EntryUpdate(BaseModel):
     competitor_number: Optional[int] = None
     paid: Optional[bool] = None
+
 
 class EntryResponse(BaseModel):
     id: str
@@ -90,6 +112,7 @@ class EntryResponse(BaseModel):
     competition_name: str
     competitor_number: Optional[int] = None
     paid: bool
+    pay_later: bool = False  # Indicates if this was a "pay at door" registration
 
     class Config:
         from_attributes = True
@@ -102,7 +125,17 @@ class BulkNumberAssignmentResponse(BaseModel):
     assigned_count: int
     message: str
 
-# ============= Dancer Read (for entry management) =============
+# ============= Dancer CRUD =============
+
+class DancerCreate(BaseModel):
+    """Request to create a new dancer profile."""
+    name: str
+    dob: date
+    gender: Gender
+    current_level: CompetitionLevel
+    clrg_number: Optional[str] = None
+    school_id: Optional[str] = None
+
 
 class DancerResponse(BaseModel):
     id: str
@@ -112,6 +145,7 @@ class DancerResponse(BaseModel):
     gender: Gender
     clrg_number: Optional[str] = None
     parent_id: str
+    school_id: Optional[str] = None
 
     class Config:
         from_attributes = True

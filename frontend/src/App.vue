@@ -88,37 +88,112 @@ const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
 // Registration flow state
 const currentDancer = ref<Partial<Dancer>>({});
+const savedDancer = ref<Dancer | null>(null); // Dancer after saving to API
 const selectedCompetitions = ref<Competition[]>([]);
-const registrationStep = ref<'profile' | 'select' | 'cart'>('profile');
+const registrationStep = ref<'feis' | 'profile' | 'select' | 'cart' | 'success'>('feis');
+const registrationError = ref<string | null>(null);
+const registrationLoading = ref(false);
 
-// Mock data for demo
-const mockFeisId = 'feis-001';
-const mockCompetitions: Competition[] = [
-  { id: 'c1', feis_id: mockFeisId, name: 'Girls U8 Reel (Beginner)', min_age: 6, max_age: 8, level: 'beginner', gender: 'female' },
-  { id: 'c2', feis_id: mockFeisId, name: 'Girls U8 Light Jig (Beginner)', min_age: 6, max_age: 8, level: 'beginner', gender: 'female' },
-  { id: 'c3', feis_id: mockFeisId, name: 'Girls U8 Slip Jig (Beginner)', min_age: 6, max_age: 8, level: 'beginner', gender: 'female' },
-  { id: 'c4', feis_id: mockFeisId, name: 'Girls U10 Reel (Novice)', min_age: 8, max_age: 10, level: 'novice', gender: 'female' },
-  { id: 'c5', feis_id: mockFeisId, name: 'Girls U10 Light Jig (Novice)', min_age: 8, max_age: 10, level: 'novice', gender: 'female' },
-  { id: 'c6', feis_id: mockFeisId, name: 'Boys U10 Reel (Beginner)', min_age: 8, max_age: 10, level: 'beginner', gender: 'male' },
-  { id: 'c7', feis_id: mockFeisId, name: 'Boys U10 Light Jig (Beginner)', min_age: 8, max_age: 10, level: 'beginner', gender: 'male' },
-  { id: 'c8', feis_id: mockFeisId, name: 'Girls U12 Reel (Prizewinner)', min_age: 10, max_age: 12, level: 'prizewinner', gender: 'female' },
-  { id: 'c9', feis_id: mockFeisId, name: 'Girls U12 Hornpipe (Prizewinner)', min_age: 10, max_age: 12, level: 'prizewinner', gender: 'female' },
-  { id: 'c10', feis_id: mockFeisId, name: 'Boys U12 Championship', min_age: 10, max_age: 12, level: 'championship', gender: 'male' },
-];
+// Feis selection for registration
+interface FeisOption {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+  competition_count: number;
+}
+const availableFeiseanna = ref<FeisOption[]>([]);
+const selectedRegistrationFeis = ref<FeisOption | null>(null);
+const feisCompetitions = ref<Competition[]>([]);
+const feisLoading = ref(false);
+
+// Fetch available feiseanna for registration
+const fetchFeiseanna = async () => {
+  feisLoading.value = true;
+  try {
+    const response = await fetch('/api/v1/feis');
+    if (response.ok) {
+      availableFeiseanna.value = await response.json();
+      // Auto-select if only one feis
+      if (availableFeiseanna.value.length === 1) {
+        await selectRegistrationFeis(availableFeiseanna.value[0]);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to fetch feiseanna:', error);
+  } finally {
+    feisLoading.value = false;
+  }
+};
+
+// Select a feis and load its competitions
+const selectRegistrationFeis = async (feis: FeisOption) => {
+  selectedRegistrationFeis.value = feis;
+  feisLoading.value = true;
+  try {
+    const response = await fetch(`/api/v1/feis/${feis.id}/competitions`);
+    if (response.ok) {
+      feisCompetitions.value = await response.json();
+      registrationStep.value = 'profile';
+    }
+  } catch (error) {
+    console.error('Failed to fetch competitions:', error);
+  } finally {
+    feisLoading.value = false;
+  }
+};
 
 // Cart items
 const cartItems = computed<CartItem[]>(() => {
+  const dancer = savedDancer.value || currentDancer.value as Dancer;
   return selectedCompetitions.value.map(comp => ({
     competition: comp,
-    dancer: currentDancer.value as Dancer,
+    dancer: dancer,
     fee: 10
   }));
 });
 
+// Cart summary ref for resetting processing state
+const cartSummaryRef = ref<{ resetProcessing: () => void } | null>(null);
+
 // Handlers
-const handleDancerSubmit = (dancer: Partial<Dancer>) => {
+const handleDancerSubmit = async (dancer: Partial<Dancer>) => {
   currentDancer.value = dancer;
-  registrationStep.value = 'select';
+  
+  // If logged in, save dancer to API immediately
+  if (auth.isAuthenticated) {
+    registrationLoading.value = true;
+    registrationError.value = null;
+    try {
+      const response = await auth.authFetch('/api/v1/dancers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: dancer.name,
+          dob: dancer.dob,
+          gender: dancer.gender,
+          current_level: dancer.current_level,
+          clrg_number: dancer.clrg_number || null
+        })
+      });
+      
+      if (response.ok) {
+        savedDancer.value = await response.json();
+        registrationStep.value = 'select';
+      } else {
+        const error = await response.json();
+        registrationError.value = error.detail || 'Failed to save dancer profile';
+      }
+    } catch (error) {
+      registrationError.value = 'Network error. Please try again.';
+      console.error('Failed to create dancer:', error);
+    } finally {
+      registrationLoading.value = false;
+    }
+  } else {
+    // Not logged in - proceed to selection (will prompt for login at checkout)
+    registrationStep.value = 'select';
+  }
 };
 
 const handleCompetitionSelect = (comps: Competition[]) => {
@@ -131,12 +206,88 @@ const handleCartRemove = (item: CartItem) => {
   );
 };
 
-const handleCheckout = () => {
-  alert('Checkout flow would open Stripe here!');
+const handleCheckout = async (payLater: boolean) => {
+  if (!auth.isAuthenticated) {
+    // Prompt login
+    openLogin();
+    cartSummaryRef.value?.resetProcessing();
+    return;
+  }
+  
+  // If dancer wasn't saved yet (edge case), save now
+  if (!savedDancer.value) {
+    registrationLoading.value = true;
+    try {
+      const response = await auth.authFetch('/api/v1/dancers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: currentDancer.value.name,
+          dob: currentDancer.value.dob,
+          gender: currentDancer.value.gender,
+          current_level: currentDancer.value.current_level,
+          clrg_number: currentDancer.value.clrg_number || null
+        })
+      });
+      
+      if (response.ok) {
+        savedDancer.value = await response.json();
+      } else {
+        const error = await response.json();
+        registrationError.value = error.detail || 'Failed to save dancer profile';
+        cartSummaryRef.value?.resetProcessing();
+        registrationLoading.value = false;
+        return;
+      }
+    } catch (error) {
+      registrationError.value = 'Network error. Please try again.';
+      cartSummaryRef.value?.resetProcessing();
+      registrationLoading.value = false;
+      return;
+    }
+  }
+  
+  // Create entries
+  registrationError.value = null;
+  try {
+    const response = await auth.authFetch('/api/v1/entries/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dancer_id: savedDancer.value!.id,
+        competition_ids: selectedCompetitions.value.map(c => c.id),
+        pay_later: payLater
+      })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('Registration complete:', result);
+      registrationStep.value = 'success';
+    } else {
+      const error = await response.json();
+      registrationError.value = error.detail || 'Failed to complete registration';
+      cartSummaryRef.value?.resetProcessing();
+    }
+  } catch (error) {
+    registrationError.value = 'Network error. Please try again.';
+    cartSummaryRef.value?.resetProcessing();
+    console.error('Failed to create entries:', error);
+  } finally {
+    registrationLoading.value = false;
+  }
+};
+
+const handleLoginRequired = () => {
+  openLogin();
 };
 
 const goToCart = () => {
   registrationStep.value = 'cart';
+};
+
+const backToFeis = () => {
+  registrationStep.value = 'feis';
 };
 
 const backToProfile = () => {
@@ -145,6 +296,16 @@ const backToProfile = () => {
 
 const backToSelect = () => {
   registrationStep.value = 'select';
+};
+
+const startNewRegistration = () => {
+  // Reset registration state
+  currentDancer.value = {};
+  savedDancer.value = null;
+  selectedCompetitions.value = [];
+  registrationError.value = null;
+  registrationStep.value = 'feis';
+  fetchFeiseanna();
 };
 
 // Admin handlers
@@ -194,7 +355,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               Home
             </button>
             <button 
-              @click="view = 'registration'; registrationStep = 'profile'"
+              @click="view = 'registration'; startNewRegistration()"
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
                 view === 'registration' 
@@ -324,7 +485,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               Home
             </button>
             <button 
-              @click="navigateTo('registration'); registrationStep = 'profile'"
+              @click="navigateTo('registration'); startNewRegistration()"
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
                 view === 'registration' 
@@ -440,7 +601,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
         <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           <!-- Register Card -->
           <button 
-            @click="view = 'registration'"
+            @click="view = 'registration'; startNewRegistration()"
             class="group bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl hover:border-emerald-200 transition-all text-left"
           >
             <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
@@ -519,35 +680,52 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
       <div v-else-if="view === 'registration'" class="py-8">
         <!-- Progress Steps -->
         <div class="flex items-center justify-center mb-8">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap justify-center">
             <button 
-              @click="registrationStep = 'profile'"
+              @click="registrationStep = 'feis'"
+              :class="[
+                'flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all',
+                registrationStep === 'feis'
+                  ? 'bg-emerald-600 text-white'
+                  : selectedRegistrationFeis
+                    ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                    : 'bg-slate-100 text-slate-400'
+              ]"
+            >
+              <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">1</span>
+              <span class="hidden sm:inline">Feis</span>
+            </button>
+            <div class="w-4 sm:w-8 h-0.5 bg-slate-300"></div>
+            <button 
+              @click="selectedRegistrationFeis ? registrationStep = 'profile' : null"
               :class="[
                 'flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all',
                 registrationStep === 'profile'
                   ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-              ]"
-            >
-              <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">1</span>
-              Profile
-            </button>
-            <div class="w-8 h-0.5 bg-slate-300"></div>
-            <button 
-              @click="currentDancer.name ? registrationStep = 'select' : null"
-              :class="[
-                'flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all',
-                registrationStep === 'select'
-                  ? 'bg-emerald-600 text-white'
-                  : currentDancer.name
+                  : selectedRegistrationFeis
                     ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'
               ]"
             >
               <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">2</span>
-              Select
+              <span class="hidden sm:inline">Profile</span>
             </button>
-            <div class="w-8 h-0.5 bg-slate-300"></div>
+            <div class="w-4 sm:w-8 h-0.5 bg-slate-300"></div>
+            <button 
+              @click="(savedDancer || currentDancer.name) ? registrationStep = 'select' : null"
+              :class="[
+                'flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all',
+                registrationStep === 'select'
+                  ? 'bg-emerald-600 text-white'
+                  : (savedDancer || currentDancer.name)
+                    ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              ]"
+            >
+              <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">3</span>
+              <span class="hidden sm:inline">Select</span>
+            </button>
+            <div class="w-4 sm:w-8 h-0.5 bg-slate-300"></div>
             <button 
               @click="selectedCompetitions.length > 0 ? registrationStep = 'cart' : null"
               :class="[
@@ -559,20 +737,105 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'
               ]"
             >
-              <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">3</span>
-              Checkout
+              <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">4</span>
+              <span class="hidden sm:inline">Checkout</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error Banner -->
+        <div v-if="registrationError" class="max-w-xl mx-auto mb-6">
+          <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+            <svg class="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-red-700 text-sm font-medium">{{ registrationError }}</p>
+            <button @click="registrationError = null" class="ml-auto text-red-400 hover:text-red-600">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         </div>
 
         <!-- Step Content -->
         <div class="max-w-xl mx-auto">
+          <!-- Step 0: Select Feis -->
+          <div v-if="registrationStep === 'feis'" class="space-y-4">
+            <div class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+              <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Select a Feis
+                </h2>
+                <p class="text-emerald-100 text-sm mt-1">Choose the feis you want to register for</p>
+              </div>
+              
+              <div class="p-6">
+                <div v-if="feisLoading" class="flex items-center justify-center py-12">
+                  <div class="animate-spin rounded-full h-10 w-10 border-4 border-emerald-200 border-t-emerald-600"></div>
+                </div>
+                
+                <div v-else-if="availableFeiseanna.length === 0" class="text-center py-12">
+                  <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-semibold text-slate-700 mb-2">No Feiseanna Available</h3>
+                  <p class="text-slate-500 text-sm">
+                    There are no feiseanna open for registration at this time.
+                  </p>
+                </div>
+                
+                <div v-else class="space-y-3">
+                  <button
+                    v-for="feis in availableFeiseanna"
+                    :key="feis.id"
+                    @click="selectRegistrationFeis(feis)"
+                    class="w-full p-4 rounded-xl border-2 border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition-all text-left"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h3 class="font-bold text-slate-800">{{ feis.name }}</h3>
+                        <p class="text-sm text-slate-500">{{ feis.location }} • {{ feis.date }}</p>
+                        <p class="text-xs text-emerald-600 mt-1">{{ feis.competition_count }} competitions</p>
+                      </div>
+                      <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Step 1: Dancer Profile -->
-          <div v-if="registrationStep === 'profile'">
+          <div v-else-if="registrationStep === 'profile'" class="space-y-4">
+            <button 
+              @click="backToFeis"
+              class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1"
+            >
+              ← Back to Feis Selection
+            </button>
+            <div v-if="selectedRegistrationFeis" class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
+              <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span class="text-sm font-medium text-emerald-700">Registering for: {{ selectedRegistrationFeis.name }}</span>
+            </div>
             <DancerProfileForm 
               v-model="currentDancer"
+              :feis-date="selectedRegistrationFeis?.date"
               @submit="handleDancerSubmit"
             />
+            <div v-if="registrationLoading" class="flex items-center justify-center py-4">
+              <div class="animate-spin rounded-full h-6 w-6 border-2 border-emerald-200 border-t-emerald-600 mr-2"></div>
+              <span class="text-slate-600">Saving dancer profile...</span>
+            </div>
           </div>
 
           <!-- Step 2: Competition Selection -->
@@ -584,9 +847,9 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               ← Back to Profile
             </button>
             <EligibilityPicker
-              :dancer="currentDancer"
-              :feis-id="mockFeisId"
-              :competitions="mockCompetitions"
+              :dancer="savedDancer || currentDancer"
+              :feis-id="selectedRegistrationFeis?.id || ''"
+              :competitions="feisCompetitions"
               @select="handleCompetitionSelect"
             />
             <button
@@ -607,10 +870,71 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               ← Back to Selection
             </button>
             <CartSummary
+              ref="cartSummaryRef"
               :items="cartItems"
+              :is-logged-in="auth.isAuthenticated"
               @remove="handleCartRemove"
               @checkout="handleCheckout"
+              @login-required="handleLoginRequired"
             />
+          </div>
+
+          <!-- Step 4: Success -->
+          <div v-else-if="registrationStep === 'success'" class="space-y-4">
+            <div class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+              <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-8 text-center">
+                <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-white mb-2">Registration Complete! 🎉</h2>
+                <p class="text-emerald-100">{{ savedDancer?.name }} is registered for {{ selectedRegistrationFeis?.name }}</p>
+              </div>
+              
+              <div class="p-6 space-y-4">
+                <div class="bg-slate-50 rounded-xl p-4">
+                  <h3 class="font-semibold text-slate-700 mb-2">Registered Competitions:</h3>
+                  <ul class="space-y-1">
+                    <li v-for="comp in selectedCompetitions" :key="comp.id" class="text-sm text-slate-600 flex items-center gap-2">
+                      <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                      {{ comp.name }}
+                    </li>
+                  </ul>
+                </div>
+                
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <div class="flex items-start gap-3">
+                    <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p class="font-medium text-amber-800">Next Steps</p>
+                      <p class="text-sm text-amber-700 mt-1">
+                        Your competitor number will be assigned by the organizer. You'll receive it at check-in on the day of the feis.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="flex gap-3">
+                  <button
+                    @click="startNewRegistration"
+                    class="flex-1 py-3 rounded-xl font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  >
+                    Register Another Dancer
+                  </button>
+                  <button
+                    @click="view = 'home'"
+                    class="flex-1 py-3 rounded-xl font-semibold bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors"
+                  >
+                    Return Home
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

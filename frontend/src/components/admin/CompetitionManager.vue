@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import type { CompetitionLevel, Gender } from '../../models/types';
+import { useAuthStore } from '../../stores/auth';
 
 interface Competition {
   id: string;
@@ -22,6 +23,9 @@ const emit = defineEmits<{
   (e: 'back'): void;
   (e: 'generateSyllabus'): void;
 }>();
+
+// Auth store for authenticated requests
+const auth = useAuthStore();
 
 // State
 const competitions = ref<Competition[]>([]);
@@ -177,31 +181,38 @@ const deleteCompetition = async (comp: Competition) => {
   }
 };
 
-// Delete all empty competitions
+// Delete all empty competitions using bulk endpoint
 const deleteEmptyCompetitions = async () => {
-  const emptyComps = competitions.value.filter(c => c.entry_count === 0);
-  if (emptyComps.length === 0) return;
+  const emptyCount = competitions.value.filter(c => c.entry_count === 0).length;
+  if (emptyCount === 0) {
+    successMessage.value = 'No empty competitions to delete';
+    return;
+  }
   
-  if (!confirm(`Delete ${emptyComps.length} empty competitions? This cannot be undone.`)) return;
+  if (!confirm(`Delete ${emptyCount} empty competitions? This cannot be undone.`)) return;
   
   loading.value = true;
   error.value = null;
-  let deleted = 0;
   
   try {
-    for (const comp of emptyComps) {
-      const response = await fetch(`/api/v1/competitions/${comp.id}`, {
-        method: 'DELETE'
-      });
-      if (response.ok) {
-        deleted++;
-      }
+    // Use the bulk delete endpoint
+    const response = await auth.authFetch(`/api/v1/feis/${props.feisId}/competitions/empty`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to delete empty competitions');
     }
     
-    competitions.value = competitions.value.filter(c => c.entry_count > 0);
-    successMessage.value = `Deleted ${deleted} empty competitions`;
+    const result = await response.json();
+    successMessage.value = result.message || `Deleted ${result.deleted_count} empty competitions`;
+    
+    // Refresh the list
+    await fetchCompetitions();
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'An error occurred';
+    console.error('Delete empty competitions error:', err);
   } finally {
     loading.value = false;
   }

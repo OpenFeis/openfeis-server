@@ -34,6 +34,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Self-Service Registration** — Create your own account instantly
 - **Dancer Profiles** — Store your children's info with automatic competition age calculation (January 1st rule)
 - **Smart Registration** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
+- **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
 - **Family Cap** — Never pay more than $150 per feis, no matter how many competitions
 - **Multi-Dancer Support** — Register siblings in one transaction
 
@@ -254,13 +255,22 @@ openfeis-server/
 
 ### Entry Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/v1/entries` | Create an entry |
-| `GET` | `/api/v1/entries` | List all entries |
-| `GET` | `/api/v1/entries/{id}` | Get a single entry |
-| `PUT` | `/api/v1/entries/{id}` | Update an entry (set number, mark paid) |
-| `DELETE` | `/api/v1/entries/{id}` | Delete an entry |
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/entries` | Create an entry (with pay_later option) | Yes |
+| `POST` | `/api/v1/entries/batch` | Create multiple entries (checkout) | Yes |
+| `GET` | `/api/v1/entries` | List all entries | No |
+| `PUT` | `/api/v1/entries/{id}` | Update an entry (set number, mark paid) | No |
+| `DELETE` | `/api/v1/entries/{id}` | Delete an entry | Yes |
+| `DELETE` | `/api/v1/feis/{id}/competitions/empty` | Delete all empty competitions | Organizer/Admin |
+
+### Dancer Management
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/dancers` | Create a dancer profile | Yes |
+| `GET` | `/api/v1/dancers` | List all dancers | No |
+| `GET` | `/api/v1/dancers/mine` | List current user's dancers | Yes |
 
 ### Admin Endpoints
 
@@ -432,19 +442,22 @@ For local testing, you have two options:
 1. **Create an account** by clicking **"Register"** in the navigation
 2. **Log in** with your email and password
 3. **Navigate to the app** and click **"Register"** to add dancers
-2. **Create a Dancer Profile:**
+4. **Select a Feis** to register for
+5. **Create a Dancer Profile:**
    - Enter your dancer's name
    - Enter their date of birth — the system automatically calculates their **competition age** (age as of January 1st)
    - Select their category (Girl/Boy)
    - Select their current level (Beginner, Novice, Prizewinner, Championship)
-3. **Select Competitions:**
+6. **Select Competitions:**
    - The system only shows competitions your dancer is **eligible** for
    - Competitions are grouped by dance type (Reel, Light Jig, etc.)
    - Click to select/deselect
-4. **Review Cart:**
+7. **Review Cart:**
    - See itemized fee breakdown
    - **Family Cap** automatically applies if you exceed $150
-5. **Checkout** (Stripe integration coming soon)
+8. **Checkout** — Choose your payment method:
+   - **Pay Now** — Complete payment online via Stripe
+   - **Pay at Door** — Reserve your spot and pay at check-in on feis day
 
 ### For Judges: Scoring a Round
 

@@ -69,6 +69,7 @@ export interface Entry {
   competition_id: string;
   competitor_number?: number;
   paid: boolean;
+  pay_later: boolean;  // "Pay at Door" option
 }
 
 // ============= Registration Flow Types =============

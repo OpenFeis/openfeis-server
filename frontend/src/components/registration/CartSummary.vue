@@ -9,16 +9,19 @@ const props = withDefaults(defineProps<{
   baseEntryFee?: number;
   perCompetitionFee?: number;
   currency?: 'USD' | 'EUR' | 'GBP';
+  isLoggedIn?: boolean;
 }>(), {
   familyCap: 150,
   baseEntryFee: 25,
   perCompetitionFee: 10,
-  currency: 'USD'
+  currency: 'USD',
+  isLoggedIn: false
 });
 
 const emit = defineEmits<{
   (e: 'remove', item: CartItem): void;
-  (e: 'checkout'): void;
+  (e: 'checkout', payLater: boolean): void;
+  (e: 'login-required'): void;
 }>();
 
 // Currency formatting
@@ -88,13 +91,38 @@ const savingsPercent = computed(() => {
 
 // Processing state
 const isProcessing = ref(false);
+const processingType = ref<'stripe' | 'pay_later' | null>(null);
 
 const handleCheckout = () => {
   if (props.items.length === 0) return;
+  if (!props.isLoggedIn) {
+    emit('login-required');
+    return;
+  }
   isProcessing.value = true;
-  emit('checkout');
-  // In real app, would await Stripe checkout completion
+  processingType.value = 'stripe';
+  emit('checkout', false);  // payLater = false
 };
+
+const handlePayLater = () => {
+  if (props.items.length === 0) return;
+  if (!props.isLoggedIn) {
+    emit('login-required');
+    return;
+  }
+  isProcessing.value = true;
+  processingType.value = 'pay_later';
+  emit('checkout', true);  // payLater = true
+};
+
+// Reset processing state (called from parent after API call completes)
+const resetProcessing = () => {
+  isProcessing.value = false;
+  processingType.value = null;
+};
+
+// Expose reset function to parent
+defineExpose({ resetProcessing });
 
 // Get dancer's total competitions
 const getDancerTotal = (dancerId: string): number => {
@@ -256,35 +284,88 @@ const getDancerTotal = (dancerId: string): number => {
           </div>
         </div>
 
-        <!-- Checkout Button -->
-        <button
-          @click="handleCheckout"
-          :disabled="isProcessing || items.length === 0"
-          :class="[
-            'w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2',
-            isProcessing || items.length === 0
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-lg shadow-rose-200 hover:shadow-xl hover:shadow-rose-300 transform hover:-translate-y-0.5'
-          ]"
-        >
-          <template v-if="isProcessing">
-            <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-            Processing...
-          </template>
-          <template v-else>
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            Proceed to Payment
-          </template>
-        </button>
+        <!-- Login Required Message -->
+        <div v-if="!isLoggedIn" class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <div>
+              <p class="font-semibold text-amber-800">Sign in to complete registration</p>
+              <p class="text-sm text-amber-600">Create an account or sign in to register your dancer</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Checkout Buttons -->
+        <div class="space-y-3">
+          <!-- Pay Now Button (Stripe - Coming Soon) -->
+          <button
+            @click="handleCheckout"
+            :disabled="isProcessing || items.length === 0"
+            :class="[
+              'w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2',
+              isProcessing || items.length === 0
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-lg shadow-rose-200 hover:shadow-xl hover:shadow-rose-300 transform hover:-translate-y-0.5'
+            ]"
+          >
+            <template v-if="isProcessing && processingType === 'stripe'">
+              <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+              Processing...
+            </template>
+            <template v-else>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              Pay Now {{ formatCurrency(total) }}
+            </template>
+          </button>
+
+          <!-- Divider -->
+          <div class="flex items-center gap-4">
+            <div class="flex-1 h-px bg-slate-200"></div>
+            <span class="text-sm text-slate-400 font-medium">or</span>
+            <div class="flex-1 h-px bg-slate-200"></div>
+          </div>
+
+          <!-- Pay at Door Button -->
+          <button
+            @click="handlePayLater"
+            :disabled="isProcessing || items.length === 0"
+            :class="[
+              'w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 border-2',
+              isProcessing || items.length === 0
+                ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'bg-white text-emerald-700 border-emerald-500 hover:bg-emerald-50 hover:border-emerald-600'
+            ]"
+          >
+            <template v-if="isProcessing && processingType === 'pay_later'">
+              <div class="animate-spin rounded-full h-5 w-5 border-2 border-emerald-600 border-t-transparent"></div>
+              Registering...
+            </template>
+            <template v-else>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Pay at Door (Check-in)
+            </template>
+          </button>
+
+          <p class="text-xs text-slate-500 text-center">
+            Choose "Pay at Door" to complete registration now and pay at the event check-in.
+          </p>
+        </div>
 
         <!-- Security Badge -->
-        <div class="flex items-center justify-center gap-2 text-xs text-slate-500">
+        <div class="flex items-center justify-center gap-2 text-xs text-slate-500 mt-4">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
-          <span>Secure payment via Stripe</span>
+          <span>Your registration is secure</span>
         </div>
       </div>
     </div>

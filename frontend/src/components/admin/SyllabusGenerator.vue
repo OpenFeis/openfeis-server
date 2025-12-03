@@ -13,8 +13,8 @@ const emit = defineEmits<{
   (e: 'generated', response: SyllabusGenerationResponse): void;
 }>();
 
-// Form State
-const minAge = ref(5);
+// Form State - Use even ages (U6, U8, U10...) which is standard in Irish dancing
+const minAge = ref(6);
 const maxAge = ref(18);
 
 // Level selection (multi-select)
