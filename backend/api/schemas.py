@@ -137,6 +137,16 @@ class DancerCreate(BaseModel):
     school_id: Optional[str] = None
 
 
+class DancerUpdate(BaseModel):
+    """Request to update an existing dancer profile."""
+    name: Optional[str] = None
+    dob: Optional[date] = None
+    gender: Optional[Gender] = None
+    current_level: Optional[CompetitionLevel] = None
+    clrg_number: Optional[str] = None
+    school_id: Optional[str] = None
+
+
 class DancerResponse(BaseModel):
     id: str
     name: str
@@ -151,6 +161,16 @@ class DancerResponse(BaseModel):
         from_attributes = True
 
 # ============= User Management =============
+
+class ProfileUpdate(BaseModel):
+    """Request to update current user's own profile."""
+    name: Optional[str] = None
+
+
+class PasswordChangeRequest(BaseModel):
+    """Request to change current user's password."""
+    current_password: str
+    new_password: str
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None

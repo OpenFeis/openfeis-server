@@ -15,7 +15,8 @@ from backend.api.schemas import (
     CompetitionCreate, CompetitionUpdate, CompetitionResponse,
     EntryCreate, BulkEntryCreate, BulkEntryResponse,
     EntryUpdate, EntryResponse, BulkNumberAssignment, BulkNumberAssignmentResponse,
-    DancerCreate, DancerResponse, UserUpdate, UserResponse,
+    DancerCreate, DancerUpdate, DancerResponse, UserUpdate, UserResponse,
+    ProfileUpdate, PasswordChangeRequest,
     LoginRequest, RegisterRequest, AuthResponse,
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
     SiteSettingsUpdate, SiteSettingsResponse,
@@ -1403,6 +1404,187 @@ async def create_dancer(
         parent_id=str(dancer.parent_id),
         school_id=str(dancer.school_id) if dancer.school_id else None
     )
+
+
+@router.put("/dancers/{dancer_id}", response_model=DancerResponse)
+async def update_dancer(
+    dancer_id: str,
+    dancer_data: DancerUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a dancer profile. Parents can only update their own dancers.
+    """
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Parents can only update their own dancers
+    if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update your own dancers")
+    
+    # Apply updates
+    if dancer_data.name is not None:
+        dancer.name = dancer_data.name
+    if dancer_data.dob is not None:
+        dancer.dob = dancer_data.dob
+    if dancer_data.gender is not None:
+        dancer.gender = dancer_data.gender
+    if dancer_data.current_level is not None:
+        dancer.current_level = dancer_data.current_level
+    if dancer_data.clrg_number is not None:
+        dancer.clrg_number = dancer_data.clrg_number
+    if dancer_data.school_id is not None:
+        dancer.school_id = UUID(dancer_data.school_id) if dancer_data.school_id else None
+    
+    session.add(dancer)
+    session.commit()
+    session.refresh(dancer)
+    
+    return DancerResponse(
+        id=str(dancer.id),
+        name=dancer.name,
+        dob=dancer.dob,
+        current_level=dancer.current_level,
+        gender=dancer.gender,
+        clrg_number=dancer.clrg_number,
+        parent_id=str(dancer.parent_id),
+        school_id=str(dancer.school_id) if dancer.school_id else None
+    )
+
+
+@router.delete("/dancers/{dancer_id}")
+async def delete_dancer(
+    dancer_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a dancer profile. Parents can only delete their own dancers.
+    Will fail if the dancer has any existing entries.
+    """
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Parents can only delete their own dancers
+    if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own dancers")
+    
+    # Check if dancer has any entries
+    entry_count = session.exec(
+        select(func.count(Entry.id)).where(Entry.dancer_id == dancer.id)
+    ).one()
+    
+    if entry_count > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete dancer with {entry_count} existing registration(s). Please delete entries first."
+        )
+    
+    session.delete(dancer)
+    session.commit()
+    
+    return {"message": f"Dancer '{dancer.name}' deleted successfully"}
+
+
+# ============= Profile & Password Management =============
+
+@router.put("/auth/profile", response_model=UserResponse)
+async def update_profile(
+    profile_data: ProfileUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update the current user's profile (name only).
+    """
+    if profile_data.name is not None:
+        current_user.name = profile_data.name
+    
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        name=current_user.name,
+        role=current_user.role,
+        email_verified=current_user.email_verified
+    )
+
+
+@router.put("/auth/password")
+async def change_password(
+    password_data: PasswordChangeRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Change the current user's password.
+    Requires the current password for verification.
+    """
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Validate new password
+    if len(password_data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    
+    # Update password
+    current_user.password_hash = hash_password(password_data.new_password)
+    session.add(current_user)
+    session.commit()
+    
+    return {"message": "Password changed successfully"}
+
+
+@router.get("/me/entries", response_model=List[EntryResponse])
+async def get_my_entries(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all entries for all dancers belonging to the current user.
+    This is the user's registration history across all feiseanna.
+    """
+    # Get all dancers belonging to this user
+    dancers = session.exec(
+        select(Dancer).where(Dancer.parent_id == current_user.id)
+    ).all()
+    
+    if not dancers:
+        return []
+    
+    dancer_ids = [d.id for d in dancers]
+    dancer_map = {d.id: d for d in dancers}
+    
+    # Get all entries for these dancers
+    entries = session.exec(
+        select(Entry).where(Entry.dancer_id.in_(dancer_ids))
+    ).all()
+    
+    result = []
+    for entry in entries:
+        dancer = dancer_map.get(entry.dancer_id)
+        competition = session.get(Competition, entry.competition_id)
+        if dancer and competition:
+            result.append(EntryResponse(
+                id=str(entry.id),
+                dancer_id=str(entry.dancer_id),
+                dancer_name=dancer.name,
+                dancer_school=None,
+                competition_id=str(entry.competition_id),
+                competition_name=competition.name,
+                competitor_number=entry.competitor_number,
+                paid=entry.paid,
+                pay_later=entry.pay_later
+            ))
+    
+    return result
 
 
 # ============= Number Card PDF Generation =============

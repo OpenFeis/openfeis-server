@@ -32,11 +32,14 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 
 ### For Parents & Guardians
 - **Self-Service Registration** — Create your own account instantly
-- **Dancer Profiles** — Store your children's info with automatic competition age calculation (January 1st rule)
-- **Smart Registration** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
+- **My Account Dashboard** — Manage your profile, change password, view registration history
+- **Persistent Dancer Profiles** — Save dancer profiles once, reuse them across multiple feiseanna
+- **Dancer Management** — Add, edit, and delete dancer profiles from your account
+- **Smart Registration** — Select from saved dancers or create new ones when registering
+- **Eligibility Filtering** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
 - **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
 - **Family Cap** — Never pay more than $150 per feis, no matter how many competitions
-- **Multi-Dancer Support** — Register siblings in one transaction
+- **Registration History** — View all past registrations grouped by dancer
 
 ### For Judges (Adjudicators)
 - **Offline Scoring** — Score dancers even when WiFi drops; syncs when connectivity returns
@@ -177,6 +180,8 @@ openfeis-server/
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
 │   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
 │   │   │   │   └── SiteSettings.vue        # Email & site configuration
+│   │   │   ├── account/
+│   │   │   │   └── AccountPage.vue         # User account management (profile, dancers, history)
 │   │   │   ├── auth/
 │   │   │   │   ├── AuthModal.vue           # Login/Register modal wrapper
 │   │   │   │   ├── LoginForm.vue           # Login form component
@@ -220,6 +225,8 @@ openfeis-server/
 | `POST` | `/api/v1/auth/register` | Create new account (default role: parent) | No |
 | `POST` | `/api/v1/auth/login` | Login and receive JWT token | No |
 | `GET` | `/api/v1/auth/me` | Get current user info | Yes |
+| `PUT` | `/api/v1/auth/profile` | Update current user's name | Yes |
+| `PUT` | `/api/v1/auth/password` | Change password (requires current password) | Yes |
 | `POST` | `/api/v1/auth/verify-email` | Verify email with token from email link | No |
 | `POST` | `/api/v1/auth/resend-verification` | Resend verification email (rate limited) | No |
 | `GET` | `/api/v1/auth/email-status` | Check verification status | Yes |
@@ -271,6 +278,9 @@ openfeis-server/
 | `POST` | `/api/v1/dancers` | Create a dancer profile | Yes |
 | `GET` | `/api/v1/dancers` | List all dancers | No |
 | `GET` | `/api/v1/dancers/mine` | List current user's dancers | Yes |
+| `PUT` | `/api/v1/dancers/{id}` | Update a dancer profile | Yes (owner) |
+| `DELETE` | `/api/v1/dancers/{id}` | Delete a dancer (if no entries) | Yes (owner) |
+| `GET` | `/api/v1/me/entries` | Get all entries for current user's dancers | Yes |
 
 ### Admin Endpoints
 
@@ -437,27 +447,43 @@ For local testing, you have two options:
 
 ## 📖 User Guides
 
-### For Parents: Registering Your Dancer
+### For Parents: Managing Your Account
 
 1. **Create an account** by clicking **"Register"** in the navigation
 2. **Log in** with your email and password
-3. **Navigate to the app** and click **"Register"** to add dancers
-4. **Select a Feis** to register for
-5. **Create a Dancer Profile:**
+3. **Access your account** by clicking your name in the navigation bar
+4. **Manage your profile:**
+   - Edit your name
+   - Change your password
+   - View email verification status
+5. **Add dancer profiles:**
+   - Click **"Add Dancer"** in the My Dancers section
+   - These profiles persist and can be used across multiple feiseanna
+
+### For Parents: Registering Your Dancer
+
+1. Click **"Register"** in the navigation
+2. **Select a Feis** to register for
+3. **Select a Dancer:**
+   - Choose from your saved dancers, OR
+   - Click **"Add a New Dancer"** to create a new profile
+4. **Create a Dancer Profile** (if adding new):
    - Enter your dancer's name
    - Enter their date of birth — the system automatically calculates their **competition age** (age as of January 1st)
    - Select their category (Girl/Boy)
    - Select their current level (Beginner, Novice, Prizewinner, Championship)
-6. **Select Competitions:**
+5. **Select Competitions:**
    - The system only shows competitions your dancer is **eligible** for
    - Competitions are grouped by dance type (Reel, Light Jig, etc.)
    - Click to select/deselect
-7. **Review Cart:**
+6. **Review Cart:**
    - See itemized fee breakdown
    - **Family Cap** automatically applies if you exceed $150
-8. **Checkout** — Choose your payment method:
+7. **Checkout** — Choose your payment method:
    - **Pay Now** — Complete payment online via Stripe
    - **Pay at Door** — Reserve your spot and pay at check-in on feis day
+
+> **Tip:** Dancer profiles are saved to your account! When registering for future feiseanna, you can simply select your saved dancers instead of re-entering their information.
 
 ### For Judges: Scoring a Round
 
