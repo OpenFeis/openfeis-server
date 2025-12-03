@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Run TypeScript type-checking on frontend before commit
+echo "🔍 Running TypeScript check..."
+cd frontend && npm run build
+
+if [ $? -ne 0 ]; then
+  echo "❌ TypeScript build failed. Fix errors before committing."
+  exit 1
+fi
+
+echo "✅ TypeScript check passed!"
