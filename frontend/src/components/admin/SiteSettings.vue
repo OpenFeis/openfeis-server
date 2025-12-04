@@ -21,6 +21,14 @@ const error = ref<string | null>(null);
 const success = ref<string | null>(null);
 const resendConfigured = ref(false);
 
+// Demo data state
+const hasDemoData = ref(false);
+const demoLoading = ref(false);
+const demoPopulating = ref(false);
+const demoDeleting = ref(false);
+const demoMessage = ref<string | null>(null);
+const demoError = ref<string | null>(null);
+
 // Fetch current settings
 const fetchSettings = async () => {
   loading.value = true;
@@ -95,8 +103,99 @@ const saveSettings = async () => {
   }
 };
 
+// Fetch demo data status
+const fetchDemoStatus = async () => {
+  demoLoading.value = true;
+  try {
+    const response = await auth.authFetch('/api/v1/admin/demo-data/status');
+    if (response.ok) {
+      const data = await response.json();
+      hasDemoData.value = data.has_demo_data;
+    }
+  } catch (e) {
+    console.error('Failed to check demo data status:', e);
+  } finally {
+    demoLoading.value = false;
+  }
+};
+
+// Populate demo data
+const populateDemoData = async () => {
+  if (!confirm(
+    'This will create demo data including:\n\n' +
+    '• 3 feiseanna (2 future, 1 past with results)\n' +
+    '• ~450 dancers across the events\n' +
+    '• Demo teachers, adjudicators, and parents\n' +
+    '• Full competition schedules\n\n' +
+    'Proceed?'
+  )) {
+    return;
+  }
+  
+  demoPopulating.value = true;
+  demoMessage.value = null;
+  demoError.value = null;
+  
+  try {
+    const response = await auth.authFetch('/api/v1/admin/demo-data/populate', {
+      method: 'POST'
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok && data.success) {
+      demoMessage.value = data.message;
+      hasDemoData.value = true;
+    } else {
+      demoError.value = data.message || data.detail || 'Failed to populate demo data';
+    }
+  } catch (e) {
+    demoError.value = e instanceof Error ? e.message : 'Failed to populate demo data';
+  } finally {
+    demoPopulating.value = false;
+  }
+};
+
+// Delete demo data
+const deleteDemoData = async () => {
+  if (!confirm(
+    '⚠️ This will DELETE all demo data:\n\n' +
+    '• All demo users (organizers, teachers, parents, judges)\n' +
+    '• All demo feiseanna and their competitions\n' +
+    '• All demo dancers and their entries\n' +
+    '• All demo scores and results\n\n' +
+    'This cannot be undone. Proceed?'
+  )) {
+    return;
+  }
+  
+  demoDeleting.value = true;
+  demoMessage.value = null;
+  demoError.value = null;
+  
+  try {
+    const response = await auth.authFetch('/api/v1/admin/demo-data', {
+      method: 'DELETE'
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok && data.success) {
+      demoMessage.value = data.message;
+      hasDemoData.value = false;
+    } else {
+      demoError.value = data.message || data.detail || 'Failed to delete demo data';
+    }
+  } catch (e) {
+    demoError.value = e instanceof Error ? e.message : 'Failed to delete demo data';
+  } finally {
+    demoDeleting.value = false;
+  }
+};
+
 onMounted(() => {
   fetchSettings();
+  fetchDemoStatus();
 });
 </script>
 
@@ -274,6 +373,127 @@ onMounted(() => {
           </svg>
           {{ saving ? 'Saving...' : 'Save Settings' }}
         </button>
+      </div>
+
+      <!-- Demo Data Card (Super Admin Only) -->
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-dashed border-amber-300">
+        <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+            Demo Data (Development)
+          </h2>
+          <p class="text-amber-100 text-sm">Populate with realistic test data for development and demos</p>
+        </div>
+        
+        <div class="p-6 space-y-4">
+          <!-- Status -->
+          <div v-if="demoLoading" class="flex items-center gap-2 text-slate-500">
+            <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-amber-500 rounded-full"></div>
+            Checking demo data status...
+          </div>
+          
+          <div v-else class="flex items-center gap-2">
+            <span class="text-sm font-medium text-slate-700">Status:</span>
+            <span
+              v-if="hasDemoData"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700"
+            >
+              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
+                <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z" />
+                <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z" />
+              </svg>
+              Demo Data Present
+            </span>
+            <span
+              v-else
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600"
+            >
+              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clip-rule="evenodd" />
+              </svg>
+              No Demo Data
+            </span>
+          </div>
+
+          <!-- Description -->
+          <div class="bg-amber-50 rounded-lg p-4 text-sm text-amber-800">
+            <p class="font-medium mb-2">Demo data includes:</p>
+            <ul class="space-y-1 text-amber-700">
+              <li class="flex items-center gap-2">
+                <span class="text-amber-500">☘️</span>
+                <strong>Shamrock Classic Feis</strong> — 60 days out, ~250 dancers
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="text-amber-500">🏆</span>
+                <strong>Celtic Pride Championships</strong> — 90 days out, ~103 dancers
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="text-amber-500">📊</span>
+                <strong>Emerald Isle Fall Feis</strong> — 7 days ago, ~100 dancers with complete results
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="text-amber-500">👥</span>
+                Demo teachers, adjudicators, parents, and dancers with realistic Irish names
+              </li>
+            </ul>
+            <p class="mt-3 text-xs text-amber-600">
+              All demo accounts use password: <code class="bg-amber-100 px-1.5 py-0.5 rounded font-mono">demo123</code>
+            </p>
+          </div>
+
+          <!-- Messages -->
+          <div v-if="demoError" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+            <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+            {{ demoError }}
+          </div>
+
+          <div v-if="demoMessage" class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg flex items-center gap-2">
+            <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            {{ demoMessage }}
+          </div>
+
+          <!-- Buttons -->
+          <div class="flex flex-wrap gap-3">
+            <button
+              v-if="!hasDemoData"
+              @click="populateDemoData"
+              :disabled="demoPopulating"
+              class="px-5 py-2.5 rounded-lg font-semibold bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <svg v-if="demoPopulating" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              {{ demoPopulating ? 'Populating... (this may take a moment)' : 'Populate Demo Data' }}
+            </button>
+
+            <button
+              v-if="hasDemoData"
+              @click="deleteDemoData"
+              :disabled="demoDeleting"
+              class="px-5 py-2.5 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <svg v-if="demoDeleting" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              {{ demoDeleting ? 'Deleting...' : 'Delete Demo Data' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

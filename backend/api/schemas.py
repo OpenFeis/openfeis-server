@@ -1116,3 +1116,26 @@ class FeisCapacityStatus(BaseModel):
     is_full: bool
     waitlist_enabled: bool
     waitlist_count: int
+
+
+# ============= Demo Data (Super Admin Only) =============
+
+class DemoDataSummary(BaseModel):
+    """Summary of demo data operations."""
+    success: bool
+    message: str
+    organizers: int = 0
+    teachers: int = 0
+    parents: int = 0
+    adjudicators: int = 0
+    dancers: int = 0
+    feiseanna: int = 0
+    competitions: int = 0
+    entries: int = 0
+    scores: int = 0
+
+
+class DemoDataStatus(BaseModel):
+    """Status of demo data in the system."""
+    has_demo_data: bool
+    message: str

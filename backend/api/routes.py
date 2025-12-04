@@ -4738,3 +4738,106 @@ async def get_feis_refund_statistics(
         raise HTTPException(status_code=404, detail="Feis not found")
     
     return get_feis_refund_stats(session, UUID(feis_id))
+
+
+# ============= Demo Data Endpoints (Super Admin Only) =============
+
+from backend.api.schemas import DemoDataSummary, DemoDataStatus
+from backend.services.demo_data import populate_demo_data, delete_demo_data, has_demo_data
+
+
+@router.get("/admin/demo-data/status", response_model=DemoDataStatus)
+async def get_demo_data_status(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Check if demo data exists in the system.
+    Super Admin only.
+    """
+    has_data = has_demo_data(session)
+    return DemoDataStatus(
+        has_demo_data=has_data,
+        message="Demo data is present in the database." if has_data else "No demo data found."
+    )
+
+
+@router.post("/admin/demo-data/populate", response_model=DemoDataSummary)
+async def populate_demo_data_endpoint(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Populate the database with comprehensive demo data.
+    
+    Creates:
+    - 1 demo organizer, 8 teachers, 6 adjudicators
+    - 3 feiseanna:
+      - Shamrock Classic Feis (60 days out, ~250 dancers)
+      - Celtic Pride Championships (90 days out, ~103 dancers)  
+      - Emerald Isle Fall Feis (7 days ago, ~100 dancers, with complete results)
+    - Full syllabus with competitions for each feis
+    - Realistic registrations, schedules, and (for past feis) scores
+    
+    Super Admin only.
+    """
+    if has_demo_data(session):
+        return DemoDataSummary(
+            success=False,
+            message="Demo data already exists. Delete existing demo data first."
+        )
+    
+    try:
+        summary = populate_demo_data(session)
+        return DemoDataSummary(
+            success=True,
+            message=f"Successfully created demo data: {summary['feiseanna']} feiseanna, {summary['dancers']} dancers, {summary['entries']} entries.",
+            **summary
+        )
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to populate demo data: {str(e)}"
+        )
+
+
+@router.delete("/admin/demo-data", response_model=DemoDataSummary)
+async def delete_demo_data_endpoint(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Delete all demo data from the database.
+    
+    Identifies demo data by email patterns (demo_*@openfeis.demo).
+    This will delete:
+    - All demo users (organizers, teachers, parents, adjudicators)
+    - All feiseanna created by demo organizers
+    - All dancers belonging to demo parents
+    - All associated entries, scores, etc.
+    
+    Super Admin only.
+    """
+    if not has_demo_data(session):
+        return DemoDataSummary(
+            success=False,
+            message="No demo data found to delete."
+        )
+    
+    try:
+        summary = delete_demo_data(session)
+        return DemoDataSummary(
+            success=True,
+            message=f"Successfully deleted demo data: {summary['users_deleted']} users, {summary['feiseanna_deleted']} feiseanna, {summary['dancers_deleted']} dancers.",
+            feiseanna=summary["feiseanna_deleted"],
+            dancers=summary["dancers_deleted"],
+            entries=summary["entries_deleted"],
+            scores=summary["scores_deleted"]
+        )
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete demo data: {str(e)}"
+        )
