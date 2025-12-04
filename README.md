@@ -60,12 +60,22 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 
 ### For Tabulators & Public Results
 - **Tabulator Dashboard** — Select feis and competition from dropdowns to view results
-- **Live Results** — Auto-refreshes every 5 seconds as judges submit scores
+- **Live Results** — Real-time updates via WebSocket as judges submit scores
 - **Irish Points Engine** — Automatic conversion from raw scores to CLRG Irish Points
 - **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
 - **Tie-Breaking** — Proper "split points" algorithm for tied placements
 - **Drop High/Low** — Support for 5-judge panels with automatic outlier removal
 - **Public Access** — Anyone can view results (no login required)
+- **Local Mode** — Calculate results client-side when offline (toggle in UI)
+
+### Local-First / Venue Mode 🆕
+- **Offline Operation** — Run an entire feis without internet connectivity
+- **Local Server Deployment** — Single Docker command starts everything on a laptop
+- **WebSocket Broadcasting** — Scores propagate to all tabulators in under 1 second
+- **Automatic Fallback** — If API is unreachable, Tabulator calculates results locally
+- **Cloud Sync** — Batch upload all local scores to cloud server after the event
+- **Conflict Resolution** — UI to resolve score conflicts when syncing
+- **Network Resilience** — Graceful degradation during WiFi interruptions
 
 ---
 
@@ -83,6 +93,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 | **Styling** | Tailwind CSS v4 | Utility-first, highly customizable |
 | **State** | Pinia | Official Vue state management |
 | **Offline** | IndexedDB (idb) | Local-first architecture for judge scoring |
+| **Real-time** | WebSocket | Instant score broadcasting without polling |
 
 ### Architecture Philosophy: "The Monolith on a Stick"
 
@@ -162,7 +173,8 @@ openfeis-server/
 │   ├── api/
 │   │   ├── auth.py             # Authentication utilities (JWT, password hashing)
 │   │   ├── routes.py           # API endpoints
-│   │   └── schemas.py          # Pydantic request/response models
+│   │   ├── schemas.py          # Pydantic request/response models
+│   │   └── websocket.py        # WebSocket connection manager
 │   ├── db/
 │   │   └── database.py         # SQLite connection & session
 │   ├── services/
@@ -181,7 +193,8 @@ openfeis-server/
 │   │   │   │   ├── CompetitionManager.vue  # Competition listing/management
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
 │   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
-│   │   │   │   └── SiteSettings.vue        # Email & site configuration
+│   │   │   │   ├── SiteSettings.vue        # Email & site configuration
+│   │   │   │   └── CloudSync.vue           # Offline-to-cloud sync UI
 │   │   │   ├── account/
 │   │   │   │   └── AccountPage.vue         # User account management (profile, dancers, history)
 │   │   │   ├── auth/
@@ -201,16 +214,23 @@ openfeis-server/
 │   │   ├── models/
 │   │   │   └── types.ts        # TypeScript interfaces
 │   │   ├── services/
-│   │   │   └── db.ts           # IndexedDB for offline storage
+│   │   │   ├── db.ts           # IndexedDB for offline storage
+│   │   │   ├── localCalculator.ts  # Client-side Irish Points calculator
+│   │   │   ├── scoreSocket.ts  # WebSocket client for real-time updates
+│   │   │   └── syncService.ts  # Cloud sync service
 │   │   └── stores/
 │   │       ├── auth.ts         # Pinia store for authentication
-│   │       └── scoring.ts      # Pinia store for scores
+│   │       ├── scoring.ts      # Pinia store for scores
+│   │       └── localResults.ts # Pinia store for offline results
 │   └── package.json
 ├── tests/
 │   └── test_recall.py          # Unit tests
 ├── Dockerfile                  # Multi-stage Docker build
-├── docker-compose.yml          # Container orchestration
+├── docker-compose.yml          # Production container orchestration
+├── docker-compose.local.yml    # Venue/offline deployment config
 ├── Caddyfile                   # Reverse proxy + HTTPS config
+├── docs/
+│   └── venue-deployment.md     # Offline deployment guide
 ├── deploy.sh                   # Deployment helper script
 ├── requirements.txt            # Python dependencies
 └── README.md
@@ -836,6 +856,26 @@ docker cp openfeis-app-1:/data/backup-*.db ./backups/
 ```
 
 **Planned:** Litestream integration for real-time streaming backups to cloud storage.
+
+---
+
+## 🏟️ Venue Deployment (Offline Mode)
+
+For feiseanna with unreliable WiFi, Open Feis can run entirely on a local laptop:
+
+```bash
+# Start the local server (no internet required)
+docker compose -f docker-compose.local.yml up
+```
+
+**How it works:**
+1. Laptop runs Open Feis server on the venue WiFi network
+2. Judges connect their tablets to the same network
+3. Scores save locally and broadcast via WebSocket
+4. Tabulator calculates results in real-time
+5. After the event, sync everything to the cloud
+
+See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup instructions.
 
 ---
 

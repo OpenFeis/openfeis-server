@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useLocalResultsStore } from '../../stores/localResults';
+import { scoreSocket, type ScoreMessage, type ResultsUpdatedMessage } from '../../services/scoreSocket';
+import { storeToRefs } from 'pinia';
 
 interface FeisOption {
   id: string;
@@ -37,6 +40,10 @@ interface TabulatorResults {
   results: TabulatorResultItem[];
 }
 
+// Local results store for offline mode
+const localResultsStore = useLocalResultsStore();
+const { isLocalMode, currentResults: localResults, isCalculating } = storeToRefs(localResultsStore);
+
 // State
 const feiseanna = ref<FeisOption[]>([]);
 const selectedFeisId = ref<string | null>(null);
@@ -48,6 +55,19 @@ const isLoadingCompetitions = ref(false);
 const isLoadingResults = ref(false);
 const lastUpdated = ref<string | null>(null);
 const autoRefresh = ref(true);
+const isOnline = ref(navigator.onLine);
+
+// Listen for network status changes
+window.addEventListener('online', () => {
+  isOnline.value = true;
+});
+window.addEventListener('offline', () => {
+  isOnline.value = false;
+  // Auto-switch to local mode when offline
+  if (!isLocalMode.value) {
+    localResultsStore.enableLocalMode();
+  }
+});
 
 // Computed
 const filteredCompetitions = computed(() => {
@@ -92,7 +112,7 @@ const fetchCompetitions = async () => {
   }
 };
 
-// Fetch results for selected competition
+// Fetch results for selected competition (API or local)
 const fetchResults = async () => {
   if (!selectedCompetitionId.value) {
     results.value = null;
@@ -100,6 +120,32 @@ const fetchResults = async () => {
   }
   
   isLoadingResults.value = true;
+  
+  // Use local calculation if in local mode
+  if (isLocalMode.value) {
+    try {
+      const localResult = await localResultsStore.calculateResults(selectedCompetitionId.value);
+      if (localResult) {
+        results.value = {
+          competition_id: localResult.competition_id,
+          competition_name: localResult.competition_name,
+          feis_name: localResult.feis_name,
+          total_competitors: localResult.total_competitors,
+          total_scores: localResult.total_scores,
+          judge_count: localResult.judge_count,
+          results: localResult.results,
+        };
+        lastUpdated.value = new Date().toLocaleTimeString() + ' (local)';
+      }
+    } catch (e) {
+      console.error("Failed to calculate local results", e);
+    } finally {
+      isLoadingResults.value = false;
+    }
+    return;
+  }
+  
+  // Online mode - fetch from API
   try {
     const response = await fetch(`/api/v1/competitions/${selectedCompetitionId.value}/results`);
     if (response.ok) {
@@ -108,6 +154,12 @@ const fetchResults = async () => {
     }
   } catch (e) {
     console.error("Failed to fetch results", e);
+    // If API fails, try local calculation as fallback
+    if (!isLocalMode.value) {
+      console.log('API unavailable, falling back to local calculation...');
+      localResultsStore.enableLocalMode();
+      await fetchResults(); // Retry with local mode
+    }
   } finally {
     isLoadingResults.value = false;
   }
@@ -121,8 +173,15 @@ watch(selectedFeisId, () => {
 });
 
 // Watch for competition selection changes
-watch(selectedCompetitionId, () => {
-  if (selectedCompetitionId.value) {
+watch(selectedCompetitionId, (newId, oldId) => {
+  // Unsubscribe from old competition WebSocket
+  if (oldId) {
+    scoreSocket.unsubscribeFromCompetition(oldId);
+  }
+  
+  if (newId) {
+    // Subscribe to WebSocket for real-time score updates
+    scoreSocket.subscribeToCompetition(newId);
     fetchResults();
   } else {
     results.value = null;
@@ -141,15 +200,52 @@ const startAutoRefresh = () => {
   }, 5000);
 };
 
+// WebSocket handlers for real-time updates
+let unsubscribeScore: (() => void) | null = null;
+let unsubscribeResults: (() => void) | null = null;
+
 onMounted(() => {
   fetchFeiseanna();
   fetchCompetitions();
   startAutoRefresh();
+  
+  // Connect to WebSocket for real-time updates
+  scoreSocket.connect();
+  
+  // Refresh results when a new score is received
+  unsubscribeScore = scoreSocket.onScore((msg: ScoreMessage) => {
+    if (selectedCompetitionId.value === msg.competition_id) {
+      // Debounce rapid updates - fetch after short delay
+      setTimeout(() => {
+        fetchResults();
+      }, 500);
+    }
+  });
+  
+  // Refresh when results are explicitly updated
+  unsubscribeResults = scoreSocket.onResultsUpdated((msg: ResultsUpdatedMessage) => {
+    if (selectedCompetitionId.value === msg.competition_id) {
+      fetchResults();
+    }
+  });
 });
 
 onUnmounted(() => {
   if (intervalId) {
     clearInterval(intervalId);
+  }
+  
+  // Clean up WebSocket subscriptions
+  if (unsubscribeScore) {
+    unsubscribeScore();
+  }
+  if (unsubscribeResults) {
+    unsubscribeResults();
+  }
+  
+  // Disconnect from competition if subscribed
+  if (selectedCompetitionId.value) {
+    scoreSocket.unsubscribeFromCompetition(selectedCompetitionId.value);
   }
 });
 
@@ -168,8 +264,91 @@ const getRankClass = (rank: number) => {
   <div class="py-8">
     <!-- Header -->
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-slate-800 mb-2">Tabulator Dashboard</h1>
-      <p class="text-slate-600">Live results with Irish Points calculation</p>
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 class="text-3xl font-bold text-slate-800 mb-2">Tabulator Dashboard</h1>
+          <p class="text-slate-600">Live results with Irish Points calculation</p>
+        </div>
+        
+        <!-- Network Status & Local Mode Toggle -->
+        <div class="flex items-center gap-4">
+          <!-- WebSocket Status Badge -->
+          <div 
+            v-if="scoreSocket.isConnected.value && !isLocalMode"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800"
+            title="Real-time updates via WebSocket"
+          >
+            <span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+            Live
+          </div>
+          
+          <!-- Network Status Badge -->
+          <div 
+            :class="[
+              'flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium',
+              isOnline ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+            ]"
+          >
+            <span 
+              :class="[
+                'w-2 h-2 rounded-full',
+                isOnline ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+              ]"
+            ></span>
+            {{ isOnline ? 'Online' : 'Offline' }}
+          </div>
+          
+          <!-- Local Mode Toggle -->
+          <button
+            @click="localResultsStore.toggleLocalMode()"
+            :class="[
+              'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all',
+              isLocalMode 
+                ? 'bg-violet-600 text-white hover:bg-violet-700' 
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            ]"
+          >
+            <svg 
+              v-if="isLocalMode" 
+              class="w-4 h-4" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+            <svg 
+              v-else 
+              class="w-4 h-4" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            {{ isLocalMode ? 'Local Mode' : 'Cloud Mode' }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- Local Mode Info Banner -->
+      <div 
+        v-if="isLocalMode"
+        class="mt-4 p-4 bg-violet-50 border border-violet-200 rounded-lg"
+      >
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 text-violet-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p class="font-medium text-violet-800">Local Mode Active</p>
+            <p class="text-sm text-violet-600">
+              Results are being calculated locally from scores stored on this device. 
+              No internet connection required. Irish Points calculation matches the official CLRG algorithm.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Filters Row -->
@@ -236,28 +415,43 @@ const getRankClass = (rank: number) => {
     <!-- Results Display -->
     <div v-if="results" class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
       <!-- Results Header -->
-      <div class="bg-gradient-to-r from-orange-600 to-amber-700 px-6 py-5">
+      <div 
+        :class="[
+          'px-6 py-5',
+          isLocalMode 
+            ? 'bg-gradient-to-r from-violet-600 to-purple-700' 
+            : 'bg-gradient-to-r from-orange-600 to-amber-700'
+        ]"
+      >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 class="text-xl font-bold text-white">{{ results.competition_name }}</h2>
-            <p class="text-orange-100 text-sm">{{ results.feis_name }}</p>
+            <div class="flex items-center gap-3">
+              <h2 class="text-xl font-bold text-white">{{ results.competition_name }}</h2>
+              <span 
+                v-if="isLocalMode"
+                class="px-2 py-0.5 text-xs font-semibold bg-white/20 rounded-full text-white"
+              >
+                LOCAL
+              </span>
+            </div>
+            <p :class="isLocalMode ? 'text-violet-100' : 'text-orange-100'" class="text-sm">{{ results.feis_name }}</p>
           </div>
           <div class="flex items-center gap-6 text-sm">
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.results.length }}</div>
-              <div class="text-orange-100">Ranked</div>
+              <div :class="isLocalMode ? 'text-violet-100' : 'text-orange-100'">Ranked</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.judge_count }}</div>
-              <div class="text-orange-100">{{ results.judge_count === 1 ? 'Judge' : 'Judges' }}</div>
+              <div :class="isLocalMode ? 'text-violet-100' : 'text-orange-100'">{{ results.judge_count === 1 ? 'Judge' : 'Judges' }}</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-white">{{ results.total_scores }}</div>
-              <div class="text-orange-100">Scores</div>
+              <div :class="isLocalMode ? 'text-violet-100' : 'text-orange-100'">Scores</div>
             </div>
           </div>
         </div>
-        <div v-if="lastUpdated" class="mt-3 text-orange-100 text-xs">
+        <div v-if="lastUpdated" :class="['mt-3 text-xs', isLocalMode ? 'text-violet-100' : 'text-orange-100']">
           Last updated: {{ lastUpdated }}
         </div>
       </div>

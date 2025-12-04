@@ -1,0 +1,41 @@
+# Open Feis - Local/Venue Deployment
+# Usage: docker compose -f docker-compose.local.yml up
+#
+# This configuration runs OpenFeis entirely offline at a venue.
+# No internet connection required - perfect for competition day.
+#
+# Network Setup:
+#   1. Connect venue laptop to local WiFi router
+#   2. Note the laptop's IP address (e.g., 192.168.1.100)
+#   3. Judges connect their tablets to same WiFi
+#   4. Access OpenFeis at http://<laptop-ip>:8000
+#
+# See docs/venue-deployment.md for detailed setup instructions.
+
+services:
+  # FastAPI Application (serves both API and built frontend)
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      # Expose directly on port 8000 - no need for Caddy/HTTPS locally
+      - "8000:8000"
+    volumes:
+      # Persist database on host machine
+      - ./data:/data
+    environment:
+      - DB_PATH=/data/openfeis.db
+      - PYTHONUNBUFFERED=1
+      # Local mode flag - disables external API calls
+      - OPENFEIS_LOCAL_MODE=true
+      # Allow connections from any IP on the local network
+      - OPENFEIS_ALLOWED_HOSTS=*
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+
+# No external volumes needed - using bind mount for easy backup
+

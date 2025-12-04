@@ -1,0 +1,9 @@
+# Ignore database files (they contain local data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Keep this .gitignore
+!.gitignore
+

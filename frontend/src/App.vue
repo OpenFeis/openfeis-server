@@ -10,6 +10,7 @@ import FeisManager from './components/admin/FeisManager.vue';
 import EntryManager from './components/admin/EntryManager.vue';
 import CompetitionManager from './components/admin/CompetitionManager.vue';
 import SiteSettings from './components/admin/SiteSettings.vue';
+import CloudSync from './components/admin/CloudSync.vue';
 import AuthModal from './components/auth/AuthModal.vue';
 import EmailVerification from './components/auth/EmailVerification.vue';
 import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
@@ -83,7 +84,7 @@ const navigateTo = (newView: ViewType) => {
 const verificationToken = ref<string | undefined>(undefined);
 
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -1176,6 +1177,16 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 <p class="text-slate-600">Manage feiseanna, competitions, and entries</p>
               </div>
               <div class="flex gap-2">
+              <!-- Cloud Sync Button -->
+              <button
+                @click="adminView = 'cloud-sync'"
+                class="px-4 py-2 rounded-lg bg-blue-100 text-blue-700 font-medium hover:bg-blue-200 transition-colors flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Cloud Sync
+              </button>
               <button
                 v-if="auth.isAdmin"
                 @click="adminView = 'settings'"
@@ -1305,6 +1316,22 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
           <!-- Site Settings View (Super Admin Only) -->
           <div v-else-if="adminView === 'settings'">
             <SiteSettings @back="adminView = 'feis-list'" />
+          </div>
+
+          <!-- Cloud Sync View -->
+          <div v-else-if="adminView === 'cloud-sync'">
+            <div class="mb-6">
+              <button
+                @click="adminView = 'feis-list'"
+                class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1 mb-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to Admin Dashboard
+              </button>
+            </div>
+            <CloudSync />
           </div>
         </div>
         </template>

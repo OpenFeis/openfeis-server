@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import type { 
   CompetitionForScoring, 
   CompetitorForScoring, 
   ScoreSubmission 
 } from '../models/types';
 import { useAuthStore } from './auth';
+import { useLocalResultsStore } from './localResults';
 import { dbService } from '../services/db';
+import { scoreSocket, type ScoreMessage } from '../services/scoreSocket';
 import { v4 as uuidv4 } from 'uuid';
 
 const API_URL = '/api/v1';
@@ -32,13 +34,39 @@ export const useScoringStore = defineStore('scoring', () => {
   const isSyncing = ref(false);
   const error = ref<string | null>(null);
 
+  // Local results store reference
+  const localResultsStore = useLocalResultsStore();
+
   // Listen for network status
   window.addEventListener('online', () => {
     isOnline.value = true;
     syncPendingScores();
+    // Reconnect WebSocket
+    if (selectedCompetition.value) {
+      scoreSocket.connect(selectedCompetition.value.id);
+    }
   });
   window.addEventListener('offline', () => {
     isOnline.value = false;
+    // Auto-enable local mode when offline
+    localResultsStore.enableLocalMode();
+  });
+
+  // WebSocket score handler - update local state when other judges submit
+  const unsubscribeScore = scoreSocket.onScore((scoreMsg: ScoreMessage) => {
+    // If we're viewing this competition, we might want to update the UI
+    // For now, just notify the local results store
+    if (selectedCompetition.value?.id === scoreMsg.competition_id) {
+      localResultsStore.onScoreReceived({
+        id: uuidv4(),
+        judge_id: scoreMsg.judge_id,
+        competitor_id: scoreMsg.entry_id,
+        round_id: scoreMsg.competition_id,
+        value: scoreMsg.value,
+        timestamp: scoreMsg.timestamp,
+        synced: true,
+      });
+    }
   });
 
   // Get auth store for authenticated requests
@@ -73,11 +101,27 @@ export const useScoringStore = defineStore('scoring', () => {
   // Select a competition and fetch its competitors
   async function selectCompetition(competition: CompetitionForScoring) {
     selectedCompetition.value = competition;
+    
+    // Register competition with local results store
+    localResultsStore.registerCompetition({
+      id: competition.id,
+      name: competition.name,
+      feis_id: competition.feis_id,
+      feis_name: competition.feis_name,
+    });
+    
+    // Connect/subscribe to WebSocket for real-time updates
+    scoreSocket.connect(competition.id);
+    
     await fetchCompetitors(competition.id);
   }
 
   // Clear competition selection
   function clearCompetition() {
+    // Unsubscribe from WebSocket
+    if (selectedCompetition.value) {
+      scoreSocket.unsubscribeFromCompetition(selectedCompetition.value.id);
+    }
     selectedCompetition.value = null;
     competitors.value = [];
   }
@@ -97,6 +141,16 @@ export const useScoringStore = defineStore('scoring', () => {
       }
       
       competitors.value = await response.json();
+      
+      // Register competitors with local results store for offline calculation
+      localResultsStore.registerCompetitors(
+        competitors.value.map(c => ({
+          entry_id: c.entry_id,
+          competitor_number: c.competitor_number,
+          dancer_name: c.dancer_name,
+          dancer_school: c.dancer_school ?? null,
+        }))
+      );
       
       // Merge any local unsynced scores
       await mergeLocalScores(competitionId);
