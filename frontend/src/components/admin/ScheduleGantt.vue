@@ -207,8 +207,15 @@ const onDrop = async (stageId: string, event: DragEvent) => {
   // Update local state optimistically
   const compIndex = competitions.value.findIndex(c => c.id === draggedComp.value!.id);
   if (compIndex !== -1) {
+    const existing = competitions.value[compIndex];
     competitions.value[compIndex] = {
-      ...competitions.value[compIndex],
+      id: existing.id,
+      name: existing.name,
+      estimated_duration_minutes: existing.estimated_duration_minutes,
+      entry_count: existing.entry_count,
+      level: existing.level,
+      has_conflicts: existing.has_conflicts,
+      dance_type: existing.dance_type,
       stage_id: stageId,
       stage_name: stages.value.find(s => s.id === stageId)?.name,
       scheduled_time: baseDate.toISOString()
@@ -279,8 +286,15 @@ const saveSchedule = async () => {
 const unscheduleCompetition = (comp: ScheduledCompetition) => {
   const index = competitions.value.findIndex(c => c.id === comp.id);
   if (index !== -1) {
+    const existing = competitions.value[index];
     competitions.value[index] = {
-      ...competitions.value[index],
+      id: existing.id,
+      name: existing.name,
+      estimated_duration_minutes: existing.estimated_duration_minutes,
+      entry_count: existing.entry_count,
+      level: existing.level,
+      has_conflicts: existing.has_conflicts,
+      dance_type: existing.dance_type,
       stage_id: undefined,
       stage_name: undefined,
       scheduled_time: undefined
