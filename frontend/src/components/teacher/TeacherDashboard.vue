@@ -4,10 +4,9 @@ import { useAuthStore } from '../../stores/auth';
 import type { 
   TeacherDashboard, 
   TeacherStudentEntry,
-  AdvancementNotice,
   Feis
 } from '../../models/types';
-import { getLevelBadgeColor, formatCents } from '../../models/types';
+import { getLevelBadgeColor } from '../../models/types';
 import SchoolRoster from './SchoolRoster.vue';
 
 const auth = useAuthStore();
@@ -120,23 +119,6 @@ const exportEntries = async (format: 'csv' | 'json') => {
     console.error('Failed to export entries:', e);
   }
 };
-
-// Computed: entries grouped by feis
-const entriesByFeis = computed(() => {
-  const grouped: Record<string, { feis_name: string; entries: TeacherStudentEntry[] }> = {};
-  
-  for (const entry of entries.value) {
-    if (!grouped[entry.feis_id]) {
-      grouped[entry.feis_id] = {
-        feis_name: entry.feis_name,
-        entries: []
-      };
-    }
-    grouped[entry.feis_id].entries.push(entry);
-  }
-  
-  return grouped;
-});
 
 // Computed: flagged entries count
 const flaggedEntriesCount = computed(() => {
