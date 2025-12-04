@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth';
-import type { Dancer, CartItem, CartCalculationResponse, CheckoutResponse, RegistrationStatus } from '../../models/types';
+import type { Dancer, CartItem, CartCalculationResponse, CheckoutResponse, RegistrationStatus, FeeItem } from '../../models/types';
 
 // Props
 const props = withDefaults(defineProps<{
@@ -25,6 +25,8 @@ const authStore = useAuthStore();
 // State
 const cartData = ref<CartCalculationResponse | null>(null);
 const registrationStatus = ref<RegistrationStatus | null>(null);
+const feeItems = ref<FeeItem[]>([]);
+const selectedFeeItems = ref<Record<string, number>>({}); // {fee_item_id: quantity}
 const loading = ref(false);
 const checkoutLoading = ref(false);
 const checkoutError = ref<string | null>(null);
@@ -76,6 +78,51 @@ async function fetchRegistrationStatus() {
   }
 }
 
+async function fetchFeeItems() {
+  if (!props.feisId) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/feis/${props.feisId}/fee-items`);
+    if (res.ok) {
+      feeItems.value = await res.json();
+    }
+  } catch (err) {
+    console.error('Failed to fetch fee items:', err);
+  }
+}
+
+// Optional fee items (not required, available for selection)
+const optionalFeeItems = computed(() => 
+  feeItems.value.filter(item => !item.required && item.active)
+);
+
+// Check if a fee item is selected
+const isFeeItemSelected = (itemId: string) => (selectedFeeItems.value[itemId] || 0) > 0;
+
+// Toggle fee item selection
+function toggleFeeItem(item: FeeItem) {
+  if (selectedFeeItems.value[item.id]) {
+    delete selectedFeeItems.value[item.id];
+  } else {
+    selectedFeeItems.value[item.id] = 1;
+  }
+  // Trigger recalculation
+  calculateCart();
+}
+
+// Update fee item quantity
+function updateFeeItemQuantity(itemId: string, quantity: number) {
+  if (quantity <= 0) {
+    delete selectedFeeItems.value[itemId];
+  } else {
+    const item = feeItems.value.find(i => i.id === itemId);
+    if (item) {
+      selectedFeeItems.value[itemId] = Math.min(quantity, item.max_quantity);
+    }
+  }
+  calculateCart();
+}
+
 async function calculateCart() {
   if (props.items.length === 0 || !props.isLoggedIn || !props.feisId) {
     cartData.value = null;
@@ -85,6 +132,14 @@ async function calculateCart() {
   loading.value = true;
   
   try {
+    // Build fee_items object, filtering out zero quantities
+    const feeItemsPayload: Record<string, number> = {};
+    for (const [id, qty] of Object.entries(selectedFeeItems.value)) {
+      if (qty > 0) {
+        feeItemsPayload[id] = qty;
+      }
+    }
+    
     const res = await fetch(`${API_BASE}/cart/calculate`, {
       method: 'POST',
       headers: {
@@ -96,7 +151,8 @@ async function calculateCart() {
         items: props.items.map(item => ({
           competition_id: item.competition.id,
           dancer_id: item.dancer.id
-        }))
+        })),
+        fee_items: Object.keys(feeItemsPayload).length > 0 ? feeItemsPayload : undefined
       })
     });
     
@@ -126,6 +182,14 @@ async function handleCheckout(payAtDoor: boolean) {
   processingType.value = payAtDoor ? 'pay_later' : 'stripe';
   
   try {
+    // Build fee_items object, filtering out zero quantities
+    const feeItemsPayload: Record<string, number> = {};
+    for (const [id, qty] of Object.entries(selectedFeeItems.value)) {
+      if (qty > 0) {
+        feeItemsPayload[id] = qty;
+      }
+    }
+    
     const res = await fetch(`${API_BASE}/checkout`, {
       method: 'POST',
       headers: {
@@ -138,6 +202,7 @@ async function handleCheckout(payAtDoor: boolean) {
           competition_id: item.competition.id,
           dancer_id: item.dancer.id
         })),
+        fee_items: Object.keys(feeItemsPayload).length > 0 ? feeItemsPayload : undefined,
         pay_at_door: payAtDoor
       })
     });
@@ -172,9 +237,16 @@ watch(() => props.items, calculateCart, { deep: true });
 // Also watch for login state changes
 watch(() => props.isLoggedIn, calculateCart);
 
+// Watch for feis changes to refetch fee items
+watch(() => props.feisId, () => {
+  selectedFeeItems.value = {}; // Reset selections
+  fetchFeeItems();
+});
+
 // Fetch on mount
 onMounted(() => {
   fetchRegistrationStatus();
+  fetchFeeItems();
   if (props.isLoggedIn && props.items.length > 0) {
     calculateCart();
   }
@@ -332,6 +404,79 @@ defineExpose({ resetProcessing });
           </div>
         </div>
 
+        <!-- Optional Add-Ons -->
+        <div v-if="optionalFeeItems.length > 0" class="border border-slate-200 rounded-xl overflow-hidden">
+          <div class="bg-gradient-to-r from-violet-50 to-purple-50 px-4 py-3 border-b border-slate-200">
+            <div class="flex items-center gap-2">
+              <svg class="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              <h3 class="font-semibold text-slate-800">Optional Add-Ons</h3>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Additional items available for purchase</p>
+          </div>
+          
+          <div class="divide-y divide-slate-100">
+            <div 
+              v-for="feeItem in optionalFeeItems" 
+              :key="feeItem.id"
+              class="px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"
+            >
+              <div class="flex items-center gap-3 flex-1">
+                <button 
+                  @click="toggleFeeItem(feeItem)"
+                  :class="[
+                    'w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all',
+                    isFeeItemSelected(feeItem.id) 
+                      ? 'bg-violet-600 border-violet-600 text-white' 
+                      : 'border-slate-300 hover:border-violet-400'
+                  ]"
+                >
+                  <svg v-if="isFeeItemSelected(feeItem.id)" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                </button>
+                <div class="flex-1">
+                  <div class="font-medium text-slate-700 text-sm">{{ feeItem.name }}</div>
+                  <div v-if="feeItem.description" class="text-xs text-slate-500">{{ feeItem.description }}</div>
+                  <div class="text-xs text-slate-400 mt-0.5">
+                    <span v-if="feeItem.category === 'non_qualifying'" class="inline-flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Does not count toward family cap
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <!-- Quantity selector (if max_quantity > 1 and selected) -->
+                <div v-if="feeItem.max_quantity > 1 && isFeeItemSelected(feeItem.id)" class="flex items-center gap-1">
+                  <button
+                    @click="updateFeeItemQuantity(feeItem.id, (selectedFeeItems[feeItem.id] || 1) - 1)"
+                    class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                    </svg>
+                  </button>
+                  <span class="w-6 text-center text-sm font-medium">{{ selectedFeeItems[feeItem.id] || 1 }}</span>
+                  <button
+                    @click="updateFeeItemQuantity(feeItem.id, (selectedFeeItems[feeItem.id] || 1) + 1)"
+                    :disabled="(selectedFeeItems[feeItem.id] || 1) >= feeItem.max_quantity"
+                    class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </button>
+                </div>
+                <span class="text-sm font-medium text-slate-700">{{ formatCurrency(feeItem.amount_cents) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Fee Breakdown -->
         <div class="border-t border-slate-200 pt-4 space-y-3">
           <!-- Loading indicator -->
@@ -356,6 +501,13 @@ defineExpose({ resetProcessing });
               <span>{{ cartData.competition_count }} competition{{ cartData.competition_count !== 1 ? 's' : '' }}</span>
               <span>{{ formatCurrency(cartData.line_items.filter(li => li.type === 'competition').reduce((sum, li) => sum + li.total_cents, 0)) }}</span>
             </div>
+            <!-- Add-ons breakdown -->
+            <template v-for="feeItemLine in cartData.line_items.filter(li => li.type === 'fee_item')" :key="feeItemLine.id">
+              <div class="flex justify-between text-xs text-violet-600">
+                <span>{{ feeItemLine.name }} {{ feeItemLine.quantity > 1 ? `×${feeItemLine.quantity}` : '' }}</span>
+                <span>{{ formatCurrency(feeItemLine.total_cents) }}</span>
+              </div>
+            </template>
 
             <!-- Family Cap Discount -->
             <div 

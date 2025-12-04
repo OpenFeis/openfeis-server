@@ -120,14 +120,6 @@ async function handleSubmit() {
       </p>
     </div>
 
-    <!-- Demo Credentials -->
-    <div class="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200">
-      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Demo Account</p>
-      <div class="text-sm text-slate-600 space-y-1">
-        <p><span class="text-slate-400">Email:</span> admin@openfeis.org</p>
-        <p><span class="text-slate-400">Password:</span> admin123</p>
-      </div>
-    </div>
   </div>
 </template>
 
