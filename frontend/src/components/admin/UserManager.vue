@@ -95,8 +95,8 @@ const saveRoleChange = async () => {
     if (response.ok) {
       // Update local list
       const idx = users.value.findIndex(u => u.id === editingUser.value!.id);
-      if (idx !== -1 && newRole.value) {
-        const existingUser = users.value[idx];
+      const existingUser = users.value[idx];
+      if (idx !== -1 && newRole.value && existingUser) {
         users.value[idx] = { 
           id: existingUser.id,
           email: existingUser.email,
