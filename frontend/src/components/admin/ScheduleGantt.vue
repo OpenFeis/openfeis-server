@@ -205,9 +205,9 @@ const onDrop = async (stageId: string, event: DragEvent) => {
   baseDate.setMinutes(baseDate.getMinutes() + dragOverTime.value);
   
   // Update local state optimistically
-  const compIndex = competitions.value.findIndex(c => c.id === draggedComp.value!.id);
-  if (compIndex !== -1) {
-    const existing = competitions.value[compIndex];
+  const existing = competitions.value.find(c => c.id === draggedComp.value!.id);
+  if (existing) {
+    const compIndex = competitions.value.indexOf(existing);
     competitions.value[compIndex] = {
       id: existing.id,
       name: existing.name,
@@ -284,9 +284,9 @@ const saveSchedule = async () => {
 
 // Remove a competition from the schedule
 const unscheduleCompetition = (comp: ScheduledCompetition) => {
-  const index = competitions.value.findIndex(c => c.id === comp.id);
-  if (index !== -1) {
-    const existing = competitions.value[index];
+  const existing = competitions.value.find(c => c.id === comp.id);
+  if (existing) {
+    const index = competitions.value.indexOf(existing);
     competitions.value[index] = {
       id: existing.id,
       name: existing.name,
