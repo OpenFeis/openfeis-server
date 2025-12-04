@@ -18,6 +18,13 @@ const allCompetitions = ref<Competition[]>(props.competitions || []);
 const selectedCompetitionIds = ref<Set<string>>(new Set());
 const loading = ref(false);
 const showIneligible = ref(false);
+const showAdjacentLevels = ref(false);
+
+// Level hierarchy for filtering
+const levelHierarchy: CompetitionLevel[] = [
+  'first_feis', 'beginner_1', 'beginner_2', 'novice', 
+  'prizewinner', 'preliminary_championship', 'open_championship'
+];
 
 // Watch for changes to competitions prop
 watch(() => props.competitions, (newComps) => {
@@ -43,30 +50,72 @@ const dancerAge = computed(() => {
   return computeCompetitionAge(props.dancer.dob);
 });
 
-// Filter competitions by eligibility
-const eligibleCompetitions = computed(() => {
+// Get dancer's level index
+const dancerLevelIndex = computed(() => {
+  if (!props.dancer.current_level) return -1;
+  return levelHierarchy.indexOf(props.dancer.current_level);
+});
+
+// Get adjacent level names for display
+const adjacentLevelNames = computed(() => {
+  const idx = dancerLevelIndex.value;
+  const names: string[] = [];
+  if (idx > 0) {
+    names.push(formatLevel(levelHierarchy[idx - 1]!));
+  }
+  if (idx < levelHierarchy.length - 1) {
+    names.push(formatLevel(levelHierarchy[idx + 1]!));
+  }
+  return names;
+});
+
+// Helper to check age and gender match
+const matchesAgeAndGender = (comp: Competition): boolean => {
+  if (!dancerAge.value || !props.dancer.gender) return false;
+  const ageMatch = dancerAge.value >= comp.min_age && dancerAge.value <= comp.max_age;
+  const genderMatch = !comp.gender || comp.gender === props.dancer.gender;
+  return ageMatch && genderMatch;
+};
+
+// Filter competitions by eligibility - EXACT level match only
+const exactLevelCompetitions = computed(() => {
   if (!dancerAge.value || !props.dancer.gender || !props.dancer.current_level) {
     return [];
   }
   
   return allCompetitions.value.filter(comp => {
-    // Age check
-    const ageMatch = dancerAge.value! >= comp.min_age && dancerAge.value! <= comp.max_age;
-    
-    // Gender check (null means open to all)
-    const genderMatch = !comp.gender || comp.gender === props.dancer.gender;
-    
-    // Level check - dancers can only enter at or below their level
-    const levelHierarchy: CompetitionLevel[] = [
-      'first_feis', 'beginner_1', 'beginner_2', 'novice', 
-      'prizewinner', 'preliminary_championship', 'open_championship'
-    ];
-    const dancerLevelIndex = levelHierarchy.indexOf(props.dancer.current_level!);
-    const compLevelIndex = levelHierarchy.indexOf(comp.level);
-    const levelMatch = compLevelIndex <= dancerLevelIndex;
-    
-    return ageMatch && genderMatch && levelMatch;
+    const levelMatch = comp.level === props.dancer.current_level;
+    return matchesAgeAndGender(comp) && levelMatch;
   });
+});
+
+// Adjacent level competitions (one above and one below)
+const adjacentLevelCompetitions = computed(() => {
+  if (!dancerAge.value || !props.dancer.gender || !props.dancer.current_level) {
+    return [];
+  }
+  
+  const idx = dancerLevelIndex.value;
+  const adjacentLevels: CompetitionLevel[] = [];
+  
+  // One level below (if exists)
+  if (idx > 0) {
+    adjacentLevels.push(levelHierarchy[idx - 1]!);
+  }
+  // One level above (if exists)
+  if (idx < levelHierarchy.length - 1) {
+    adjacentLevels.push(levelHierarchy[idx + 1]!);
+  }
+  
+  return allCompetitions.value.filter(comp => {
+    const levelMatch = adjacentLevels.includes(comp.level);
+    return matchesAgeAndGender(comp) && levelMatch;
+  });
+});
+
+// Combined eligible competitions (for selection purposes)
+const eligibleCompetitions = computed(() => {
+  return [...exactLevelCompetitions.value, ...adjacentLevelCompetitions.value];
 });
 
 const ineligibleCompetitions = computed(() => {
@@ -74,13 +123,12 @@ const ineligibleCompetitions = computed(() => {
   return allCompetitions.value.filter(c => !eligibleIds.has(c.id));
 });
 
-// Group competitions by dance type for better UX
-const groupedCompetitions = computed(() => {
+// Helper to group competitions by dance type
+const groupByDance = (competitions: Competition[]): Record<string, Competition[]> => {
   const groups: Record<string, Competition[]> = {};
+  const danceTypes = ['Reel', 'Light Jig', 'Slip Jig', 'Treble Jig', 'Hornpipe', 'Set Dance'];
   
-  eligibleCompetitions.value.forEach(comp => {
-    // Extract dance type from name (e.g., "Boys U10 Reel (Novice)" -> "Reel")
-    const danceTypes = ['Reel', 'Light Jig', 'Slip Jig', 'Treble Jig', 'Hornpipe', 'Set Dance'];
+  competitions.forEach(comp => {
     let dance = 'Other';
     for (const type of danceTypes) {
       if (comp.name.includes(type)) {
@@ -92,11 +140,20 @@ const groupedCompetitions = computed(() => {
     if (!groups[dance]) {
       groups[dance] = [];
     }
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     groups[dance]!.push(comp);
   });
   
   return groups;
+};
+
+// Group exact level competitions by dance type (primary view)
+const groupedCompetitions = computed(() => {
+  return groupByDance(exactLevelCompetitions.value);
+});
+
+// Group adjacent level competitions by dance type (expandable)
+const groupedAdjacentCompetitions = computed(() => {
+  return groupByDance(adjacentLevelCompetitions.value);
 });
 
 // Toggle selection
@@ -111,20 +168,6 @@ const toggleSelection = (compId: string) => {
 };
 
 const isSelected = (compId: string) => selectedCompetitionIds.value.has(compId);
-
-// Select all in a group
-const selectAllInGroup = (competitions: Competition[]) => {
-  const newSet = new Set(selectedCompetitionIds.value);
-  competitions.forEach(c => newSet.add(c.id));
-  selectedCompetitionIds.value = newSet;
-};
-
-// Clear all in a group
-const clearGroup = (competitions: Competition[]) => {
-  const newSet = new Set(selectedCompetitionIds.value);
-  competitions.forEach(c => newSet.delete(c.id));
-  selectedCompetitionIds.value = newSet;
-};
 
 // Emit selected competitions
 watch(selectedCompetitionIds, () => {
@@ -155,9 +198,18 @@ onMounted(() => {
   }
 });
 
-// Format level display
+// Format level display - convert snake_case to Title Case
 const formatLevel = (level: CompetitionLevel): string => {
-  return level.charAt(0).toUpperCase() + level.slice(1);
+  const levelNames: Record<CompetitionLevel, string> = {
+    'first_feis': 'First Feis',
+    'beginner_1': 'Beginner 1',
+    'beginner_2': 'Beginner 2',
+    'novice': 'Novice',
+    'prizewinner': 'Prizewinner',
+    'preliminary_championship': 'Preliminary Championship',
+    'open_championship': 'Open Championship',
+  };
+  return levelNames[level] || level.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
 
 // Get icon for dance type
@@ -186,7 +238,7 @@ const getDanceIcon = (dance: string): string => {
         Select Competitions
       </h2>
       <p class="text-orange-100 text-sm mt-1">
-        Showing events matching {{ dancer.name }}'s eligibility
+        Showing {{ formatLevel(dancer.current_level!) }} events for {{ dancer.name }}
       </p>
     </div>
 
@@ -203,7 +255,7 @@ const getDanceIcon = (dance: string): string => {
           {{ formatLevel(dancer.current_level) }}
         </span>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-orange-100 text-orange-800">
-          {{ eligibleCompetitions.length }} eligible
+          {{ exactLevelCompetitions.length }} at level
         </span>
       </div>
     </div>
@@ -214,14 +266,25 @@ const getDanceIcon = (dance: string): string => {
         <div class="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-600"></div>
       </div>
 
-      <!-- No Eligible Competitions -->
-      <div v-else-if="eligibleCompetitions.length === 0" class="text-center py-8">
+      <!-- No Competitions at Exact Level -->
+      <div v-else-if="exactLevelCompetitions.length === 0" class="text-center py-8">
         <div class="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-slate-700 mb-2">No Eligible Competitions</h3>
+        <h3 class="text-lg font-semibold text-slate-700 mb-2">No {{ formatLevel(dancer.current_level!) }} Competitions</h3>
+        <p class="text-slate-500 text-sm">
+          <template v-if="allCompetitions.length === 0">
+            No competitions have been created for this feis yet.
+          </template>
+          <template v-else-if="adjacentLevelCompetitions.length > 0">
+            No competitions at this level match the dancer's age/gender, but there are {{ adjacentLevelCompetitions.length }} at adjacent levels.
+          </template>
+          <template v-else>
+            The dancer's profile doesn't match any available competitions.
+          </template>
+        </p>
         
         <!-- Debug Info -->
         <div class="bg-slate-50 rounded-xl p-4 text-left max-w-sm mx-auto mt-4">
@@ -244,52 +307,19 @@ const getDanceIcon = (dance: string): string => {
               <span class="font-medium text-slate-700">{{ dancer.gender ?? 'Not set' }}</span>
             </div>
           </div>
-          
-          <div v-if="allCompetitions.length > 0" class="mt-3 pt-3 border-t border-slate-200">
-            <p class="text-xs text-slate-500 mb-1">Sample competition age ranges:</p>
-            <div class="text-xs text-slate-600">
-              <div v-for="comp in allCompetitions.slice(0, 3)" :key="comp.id">
-                {{ comp.name.substring(0, 30) }}... (ages {{ comp.min_age }}-{{ comp.max_age }})
-              </div>
-            </div>
-          </div>
         </div>
-        
-        <p class="text-slate-500 text-sm mt-4">
-          <template v-if="allCompetitions.length === 0">
-            No competitions have been created for this feis yet.
-          </template>
-          <template v-else>
-            The dancer's profile doesn't match any available competitions.
-            Try adjusting age, level, or check if competitions exist for their category.
-          </template>
-        </p>
       </div>
 
       <!-- Competition Groups -->
       <div v-else class="space-y-6">
         <div v-for="(comps, dance) in groupedCompetitions" :key="dance">
           <!-- Group Header -->
-          <div class="flex items-center justify-between mb-3">
+          <div class="mb-3">
             <h3 class="text-lg font-bold text-slate-700 flex items-center gap-2">
               <span class="text-xl">{{ getDanceIcon(dance) }}</span>
               {{ dance }}
-              <span class="text-sm font-normal text-slate-400">({{ comps.length }})</span>
+              <span v-if="comps.length > 1" class="text-sm font-normal text-slate-400">({{ comps.length }})</span>
             </h3>
-            <div class="flex gap-2">
-              <button 
-                @click="selectAllInGroup(comps)"
-                class="text-xs px-2 py-1 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 transition-colors font-medium"
-              >
-                Select All
-              </button>
-              <button 
-                @click="clearGroup(comps)"
-                class="text-xs px-2 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors font-medium"
-              >
-                Clear
-              </button>
-            </div>
           </div>
 
           <!-- Competition Cards -->
@@ -341,11 +371,111 @@ const getDanceIcon = (dance: string): string => {
         </div>
       </div>
 
+      <!-- Adjacent Levels Section -->
+      <div v-if="adjacentLevelCompetitions.length > 0" class="mt-6 pt-6 border-t border-slate-200">
+        <button
+          @click="showAdjacentLevels = !showAdjacentLevels"
+          class="flex items-center gap-2 text-slate-600 hover:text-slate-800 text-sm font-medium transition-colors"
+        >
+          <svg 
+            :class="['w-4 h-4 transition-transform', showAdjacentLevels ? 'rotate-90' : '']" 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
+          {{ showAdjacentLevels ? 'Hide' : 'Show' }} {{ adjacentLevelCompetitions.length }} competitions at other levels
+          <span class="text-slate-400 font-normal">({{ adjacentLevelNames.join(', ') }})</span>
+        </button>
+        
+        <div v-if="showAdjacentLevels" class="mt-4">
+          <!-- Info Banner -->
+          <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <p class="text-sm text-blue-700">
+              <strong>Per-dance levels:</strong> Some dancers compete at different levels for different dances 
+              (e.g., Prizewinner in Reel but Novice in Hornpipe). Select these if applicable.
+            </p>
+          </div>
+
+          <!-- Adjacent Level Competition Groups -->
+          <div class="space-y-6">
+            <div v-for="(comps, dance) in groupedAdjacentCompetitions" :key="'adj-' + dance">
+              <!-- Group Header -->
+              <div class="mb-3">
+                <h3 class="text-lg font-bold text-slate-600 flex items-center gap-2">
+                  <span class="text-xl">{{ getDanceIcon(dance) }}</span>
+                  {{ dance }}
+                  <span v-if="comps.length > 1" class="text-sm font-normal text-slate-400">({{ comps.length }})</span>
+                </h3>
+              </div>
+
+              <!-- Competition Cards -->
+              <div class="grid gap-2">
+                <button
+                  v-for="comp in comps"
+                  :key="comp.id"
+                  @click="toggleSelection(comp.id)"
+                  :class="[
+                    'w-full p-4 rounded-xl text-left transition-all border-2',
+                    isSelected(comp.id)
+                      ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200'
+                      : 'bg-white border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
+                  ]"
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span :class="[
+                          'font-semibold',
+                          isSelected(comp.id) ? 'text-blue-700' : 'text-slate-700'
+                        ]">
+                          {{ comp.name }}
+                        </span>
+                        <span :class="[
+                          'text-xs px-1.5 py-0.5 rounded font-medium',
+                          comp.level === levelHierarchy[dancerLevelIndex - 1]
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        ]">
+                          {{ comp.level === levelHierarchy[dancerLevelIndex - 1] ? '↓ Below' : '↑ Above' }}
+                        </span>
+                      </div>
+                      <div class="text-xs text-slate-500 mt-0.5">
+                        Ages {{ comp.min_age }}-{{ comp.max_age }} • {{ formatLevel(comp.level) }}
+                      </div>
+                    </div>
+                    <div 
+                      :class="[
+                        'w-6 h-6 rounded-full flex items-center justify-center transition-all',
+                        isSelected(comp.id)
+                          ? 'bg-blue-500'
+                          : 'border-2 border-slate-300'
+                      ]"
+                    >
+                      <svg 
+                        v-if="isSelected(comp.id)" 
+                        class="w-4 h-4 text-white" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Show Ineligible Toggle -->
       <div v-if="ineligibleCompetitions.length > 0" class="mt-6 pt-6 border-t border-slate-200">
         <button
           @click="showIneligible = !showIneligible"
-          class="flex items-center gap-2 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors"
+          class="flex items-center gap-2 text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors"
         >
           <svg 
             :class="['w-4 h-4 transition-transform', showIneligible ? 'rotate-90' : '']" 

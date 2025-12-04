@@ -940,6 +940,21 @@ async def delete_empty_competitions(
 
 # ============= Syllabus Generation =============
 
+# Helper to format level names for display
+def format_level_name(level_value: str) -> str:
+    """Convert snake_case level to proper display name."""
+    level_names = {
+        'first_feis': 'First Feis',
+        'beginner_1': 'Beginner 1',
+        'beginner_2': 'Beginner 2',
+        'novice': 'Novice',
+        'prizewinner': 'Prizewinner',
+        'preliminary_championship': 'Preliminary Championship',
+        'open_championship': 'Open Championship',
+    }
+    return level_names.get(level_value, level_value.replace('_', ' ').title())
+
+
 @router.post("/admin/syllabus/generate", response_model=SyllabusGenerationResponse)
 async def generate_syllabus(
     request: SyllabusGenerationRequest, 
@@ -964,7 +979,7 @@ async def generate_syllabus(
         for gender in request.genders:
             for level in request.levels:
                 for dance in request.dances:
-                    comp_name = f"{gender.value.title()} {age_group} {dance} ({level.value.title()})"
+                    comp_name = f"{gender.value.title()} {age_group} {dance} ({format_level_name(level.value)})"
                     
                     # Map dance name to DanceType enum
                     dance_type = get_dance_type_from_name(dance)
