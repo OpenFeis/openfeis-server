@@ -1732,22 +1732,71 @@ async def delete_entry(
 @router.get("/users", response_model=List[UserResponse])
 async def list_users(
     session: Session = Depends(get_session),
-    role: Optional[RoleType] = None
+    role: Optional[RoleType] = None,
+    search: Optional[str] = None,
+    limit: int = 50
 ):
-    """List all users with optional role filter."""
+    """
+    List users with optional filters.
+    
+    - role: Filter by role (teacher, organizer, etc.)
+    - search: Search by email or name (partial match)
+    - limit: Maximum number of results (default 50)
+    """
     statement = select(User)
+    
     if role:
         statement = statement.where(User.role == role)
     
+    if search:
+        search_lower = f"%{search.lower()}%"
+        statement = statement.where(
+            (func.lower(User.email).like(search_lower)) |
+            (func.lower(User.name).like(search_lower))
+        )
+    
+    statement = statement.limit(limit)
     users = session.exec(statement).all()
+    
     return [
         UserResponse(
             id=str(u.id),
             email=u.email,
             name=u.name,
-            role=u.role
+            role=u.role,
+            email_verified=u.email_verified
         )
         for u in users
+    ]
+
+
+@router.get("/teachers", response_model=List[UserResponse])
+async def list_teachers(
+    session: Session = Depends(get_session),
+    search: Optional[str] = None
+):
+    """
+    List all teachers (for school selection dropdown).
+    
+    Returns users with role=teacher, searchable by name.
+    """
+    statement = select(User).where(User.role == RoleType.TEACHER)
+    
+    if search:
+        search_lower = f"%{search.lower()}%"
+        statement = statement.where(func.lower(User.name).like(search_lower))
+    
+    teachers = session.exec(statement.order_by(User.name)).all()
+    
+    return [
+        UserResponse(
+            id=str(u.id),
+            email=u.email,
+            name=u.name,
+            role=u.role,
+            email_verified=u.email_verified
+        )
+        for u in teachers
     ]
 
 @router.put("/users/{user_id}", response_model=UserResponse)
@@ -3342,3 +3391,718 @@ async def complete_stripe_onboarding(
         "message": message,
         "is_test_mode": False
     }
+
+
+# ============= Phase 4: Teacher Portal & Advancement =============
+
+from backend.scoring_engine.models_platform import PlacementHistory, EntryFlag, AdvancementNotice
+from backend.api.schemas import (
+    PlacementHistoryCreate, PlacementHistoryResponse, DancerPlacementHistoryResponse,
+    AdvancementRuleInfo, AdvancementNoticeResponse, AdvancementCheckResponse,
+    AcknowledgeAdvancementRequest, OverrideAdvancementRequest,
+    EntryFlagCreate, EntryFlagResponse, ResolveFlagRequest, FlaggedEntriesResponse,
+    TeacherStudentEntry, SchoolRosterResponse, SchoolStudentInfo,
+    TeacherDashboardResponse, LinkDancerToSchoolRequest
+)
+from backend.services.advancement import (
+    get_advancement_rules, get_rule_for_level, check_advancement,
+    process_advancement, get_pending_advancements, get_all_advancements,
+    acknowledge_advancement, override_advancement, get_eligible_levels,
+    check_registration_eligibility, record_placement_and_check_advancement,
+    get_dancer_placement_summary
+)
+
+
+# Helper for teacher role check
+def require_teacher():
+    """Require teacher role for endpoint access."""
+    def role_checker(current_user: User = Depends(get_current_user)):
+        if current_user.role not in [RoleType.TEACHER, RoleType.SUPER_ADMIN, RoleType.ORGANIZER]:
+            raise HTTPException(
+                status_code=403,
+                detail="Teacher access required"
+            )
+        return current_user
+    return role_checker
+
+
+# --- Advancement Rules ---
+
+@router.get("/advancement/rules", response_model=List[AdvancementRuleInfo])
+async def list_advancement_rules():
+    """Get all advancement rules."""
+    rules = get_advancement_rules()
+    return [
+        AdvancementRuleInfo(
+            level=r.level,
+            wins_required=r.wins_required,
+            next_level=r.next_level,
+            per_dance=r.per_dance,
+            description=r.description
+        )
+        for r in rules
+    ]
+
+
+# --- Placement History ---
+
+@router.get("/dancers/{dancer_id}/placements", response_model=DancerPlacementHistoryResponse)
+async def get_dancer_placements(
+    dancer_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get all placement history for a dancer."""
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    placements = session.exec(
+        select(PlacementHistory)
+        .where(PlacementHistory.dancer_id == dancer.id)
+        .order_by(PlacementHistory.competition_date.desc())
+    ).all()
+    
+    placement_responses = []
+    for p in placements:
+        comp = session.get(Competition, p.competition_id)
+        feis = session.get(Feis, p.feis_id)
+        
+        placement_responses.append(PlacementHistoryResponse(
+            id=str(p.id),
+            dancer_id=str(p.dancer_id),
+            dancer_name=dancer.name,
+            competition_id=str(p.competition_id),
+            competition_name=comp.name if comp else "Unknown",
+            feis_id=str(p.feis_id),
+            feis_name=feis.name if feis else "Unknown",
+            rank=p.rank,
+            irish_points=p.irish_points,
+            dance_type=p.dance_type,
+            level=p.level,
+            competition_date=p.competition_date,
+            triggered_advancement=p.triggered_advancement,
+            created_at=p.created_at
+        ))
+    
+    first_places = len([p for p in placements if p.rank == 1])
+    
+    return DancerPlacementHistoryResponse(
+        dancer_id=str(dancer.id),
+        dancer_name=dancer.name,
+        total_placements=len(placements),
+        first_place_count=first_places,
+        placements=placement_responses
+    )
+
+
+@router.post("/placements", response_model=PlacementHistoryResponse)
+async def record_placement(
+    placement_data: PlacementHistoryCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Record a placement for a dancer.
+    
+    Typically called automatically when results are finalized,
+    but can be called manually by organizers for corrections.
+    """
+    dancer = session.get(Dancer, UUID(placement_data.dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    competition = session.get(Competition, UUID(placement_data.competition_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    feis = session.get(Feis, UUID(placement_data.feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Create placement
+    placement = PlacementHistory(
+        dancer_id=dancer.id,
+        competition_id=competition.id,
+        feis_id=feis.id,
+        entry_id=UUID(placement_data.entry_id) if placement_data.entry_id else None,
+        rank=placement_data.rank,
+        irish_points=placement_data.irish_points,
+        dance_type=placement_data.dance_type or competition.dance_type,
+        level=placement_data.level,
+        competition_date=placement_data.competition_date
+    )
+    
+    session.add(placement)
+    session.commit()
+    session.refresh(placement)
+    
+    # Check for advancements if 1st place
+    if placement.rank == 1:
+        process_advancement(session, dancer)
+    
+    return PlacementHistoryResponse(
+        id=str(placement.id),
+        dancer_id=str(placement.dancer_id),
+        dancer_name=dancer.name,
+        competition_id=str(placement.competition_id),
+        competition_name=competition.name,
+        feis_id=str(placement.feis_id),
+        feis_name=feis.name,
+        rank=placement.rank,
+        irish_points=placement.irish_points,
+        dance_type=placement.dance_type,
+        level=placement.level,
+        competition_date=placement.competition_date,
+        triggered_advancement=placement.triggered_advancement,
+        created_at=placement.created_at
+    )
+
+
+# --- Advancement Checks ---
+
+@router.get("/dancers/{dancer_id}/advancement", response_model=AdvancementCheckResponse)
+async def check_dancer_advancement(
+    dancer_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Check a dancer's advancement status.
+    
+    Returns pending advancements and eligible levels.
+    """
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    pending = get_pending_advancements(session, dancer.id)
+    eligible, warnings = get_eligible_levels(session, dancer)
+    
+    pending_responses = []
+    for n in pending:
+        pending_responses.append(AdvancementNoticeResponse(
+            id=str(n.id),
+            dancer_id=str(n.dancer_id),
+            dancer_name=dancer.name,
+            from_level=n.from_level,
+            to_level=n.to_level,
+            dance_type=n.dance_type,
+            acknowledged=n.acknowledged,
+            acknowledged_at=n.acknowledged_at,
+            overridden=n.overridden,
+            override_reason=n.override_reason,
+            created_at=n.created_at
+        ))
+    
+    return AdvancementCheckResponse(
+        dancer_id=str(dancer.id),
+        dancer_name=dancer.name,
+        current_level=dancer.current_level,
+        pending_advancements=pending_responses,
+        eligible_levels=eligible,
+        warnings=warnings
+    )
+
+
+@router.post("/advancement/{advancement_id}/acknowledge")
+async def acknowledge_advancement_notice(
+    advancement_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Acknowledge an advancement notice."""
+    try:
+        notice = acknowledge_advancement(
+            session, UUID(advancement_id), current_user.id
+        )
+        return {"success": True, "message": "Advancement acknowledged"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/advancement/{advancement_id}/override")
+async def override_advancement_requirement(
+    advancement_id: str,
+    override_data: OverrideAdvancementRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Override an advancement requirement (admin only).
+    
+    Allows a dancer to continue competing at their current level.
+    """
+    try:
+        notice = override_advancement(
+            session, UUID(advancement_id), current_user.id, override_data.reason
+        )
+        return {"success": True, "message": "Advancement requirement overridden"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# --- Entry Flagging ---
+
+@router.post("/entries/{entry_id}/flag", response_model=EntryFlagResponse)
+async def flag_entry(
+    entry_id: str,
+    flag_data: EntryFlagCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_teacher())
+):
+    """
+    Flag an entry for organizer review.
+    
+    Teachers can flag entries they believe are incorrect.
+    """
+    entry = session.get(Entry, UUID(entry_id))
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    # Check if already flagged
+    existing = session.exec(
+        select(EntryFlag)
+        .where(EntryFlag.entry_id == entry.id)
+        .where(EntryFlag.resolved == False)
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Entry already has an unresolved flag")
+    
+    # Create flag
+    flag = EntryFlag(
+        entry_id=entry.id,
+        flagged_by=current_user.id,
+        reason=flag_data.reason,
+        flag_type=flag_data.flag_type
+    )
+    
+    session.add(flag)
+    session.commit()
+    session.refresh(flag)
+    
+    dancer = session.get(Dancer, entry.dancer_id)
+    competition = session.get(Competition, entry.competition_id)
+    
+    return EntryFlagResponse(
+        id=str(flag.id),
+        entry_id=str(flag.entry_id),
+        dancer_name=dancer.name if dancer else "Unknown",
+        competition_name=competition.name if competition else "Unknown",
+        flagged_by=str(flag.flagged_by),
+        flagged_by_name=current_user.name,
+        reason=flag.reason,
+        flag_type=flag.flag_type,
+        resolved=flag.resolved,
+        resolved_by=str(flag.resolved_by) if flag.resolved_by else None,
+        resolved_by_name=None,
+        resolved_at=flag.resolved_at,
+        resolution_note=flag.resolution_note,
+        created_at=flag.created_at
+    )
+
+
+@router.get("/feis/{feis_id}/flags", response_model=FlaggedEntriesResponse)
+async def get_feis_flags(
+    feis_id: str,
+    include_resolved: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Get all flagged entries for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get all entries for this feis
+    entry_ids = session.exec(
+        select(Entry.id)
+        .join(Competition)
+        .where(Competition.feis_id == feis.id)
+    ).all()
+    
+    # Get flags for these entries
+    query = select(EntryFlag).where(EntryFlag.entry_id.in_(entry_ids))
+    if not include_resolved:
+        query = query.where(EntryFlag.resolved == False)
+    
+    flags = session.exec(query.order_by(EntryFlag.created_at.desc())).all()
+    
+    flag_responses = []
+    for flag in flags:
+        entry = session.get(Entry, flag.entry_id)
+        dancer = session.get(Dancer, entry.dancer_id) if entry else None
+        competition = session.get(Competition, entry.competition_id) if entry else None
+        flagged_by_user = session.get(User, flag.flagged_by)
+        resolved_by_user = session.get(User, flag.resolved_by) if flag.resolved_by else None
+        
+        flag_responses.append(EntryFlagResponse(
+            id=str(flag.id),
+            entry_id=str(flag.entry_id),
+            dancer_name=dancer.name if dancer else "Unknown",
+            competition_name=competition.name if competition else "Unknown",
+            flagged_by=str(flag.flagged_by),
+            flagged_by_name=flagged_by_user.name if flagged_by_user else "Unknown",
+            reason=flag.reason,
+            flag_type=flag.flag_type,
+            resolved=flag.resolved,
+            resolved_by=str(flag.resolved_by) if flag.resolved_by else None,
+            resolved_by_name=resolved_by_user.name if resolved_by_user else None,
+            resolved_at=flag.resolved_at,
+            resolution_note=flag.resolution_note,
+            created_at=flag.created_at
+        ))
+    
+    unresolved = len([f for f in flag_responses if not f.resolved])
+    
+    return FlaggedEntriesResponse(
+        feis_id=str(feis.id),
+        feis_name=feis.name,
+        total_flags=len(flag_responses),
+        unresolved_count=unresolved,
+        flags=flag_responses
+    )
+
+
+@router.post("/flags/{flag_id}/resolve")
+async def resolve_flag(
+    flag_id: str,
+    resolve_data: ResolveFlagRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Resolve a flagged entry."""
+    flag = session.get(EntryFlag, UUID(flag_id))
+    if not flag:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    
+    from datetime import datetime
+    
+    flag.resolved = True
+    flag.resolved_by = current_user.id
+    flag.resolved_at = datetime.utcnow()
+    flag.resolution_note = resolve_data.resolution_note
+    
+    session.add(flag)
+    session.commit()
+    
+    return {"success": True, "message": "Flag resolved"}
+
+
+# --- Teacher Dashboard ---
+
+@router.get("/teacher/dashboard", response_model=TeacherDashboardResponse)
+async def get_teacher_dashboard(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_teacher())
+):
+    """Get teacher dashboard with school overview."""
+    # Get all dancers linked to this teacher's school
+    dancers = session.exec(
+        select(Dancer).where(Dancer.school_id == current_user.id)
+    ).all()
+    
+    dancer_ids = [d.id for d in dancers]
+    
+    # Get all entries for these dancers
+    entries = []
+    entries_by_feis = {}
+    
+    if dancer_ids:
+        entries = session.exec(
+            select(Entry)
+            .where(Entry.dancer_id.in_(dancer_ids))
+        ).all()
+        
+        for entry in entries:
+            comp = session.get(Competition, entry.competition_id)
+            if comp:
+                feis_id = str(comp.feis_id)
+                entries_by_feis[feis_id] = entries_by_feis.get(feis_id, 0) + 1
+    
+    # Get pending advancements
+    pending_advancements = 0
+    for dancer in dancers:
+        pending = get_pending_advancements(session, dancer.id)
+        pending_advancements += len(pending)
+    
+    # Build recent entries
+    recent_entries = []
+    for entry in entries[:20]:  # Limit to 20 most recent
+        dancer = session.get(Dancer, entry.dancer_id)
+        comp = session.get(Competition, entry.competition_id)
+        feis = session.get(Feis, comp.feis_id) if comp else None
+        
+        # Check if flagged
+        flag = session.exec(
+            select(EntryFlag)
+            .where(EntryFlag.entry_id == entry.id)
+            .where(EntryFlag.resolved == False)
+        ).first()
+        
+        recent_entries.append(TeacherStudentEntry(
+            entry_id=str(entry.id),
+            dancer_id=str(entry.dancer_id),
+            dancer_name=dancer.name if dancer else "Unknown",
+            competition_id=str(entry.competition_id),
+            competition_name=comp.name if comp else "Unknown",
+            level=comp.level if comp else CompetitionLevel.BEGINNER,
+            competitor_number=entry.competitor_number,
+            paid=entry.paid,
+            feis_id=str(comp.feis_id) if comp else "",
+            feis_name=feis.name if feis else "Unknown",
+            feis_date=feis.date if feis else None,
+            is_flagged=flag is not None,
+            flag_id=str(flag.id) if flag else None
+        ))
+    
+    return TeacherDashboardResponse(
+        teacher_id=str(current_user.id),
+        teacher_name=current_user.name,
+        total_students=len(dancers),
+        total_entries=len(entries),
+        entries_by_feis=entries_by_feis,
+        pending_advancements=pending_advancements,
+        recent_entries=recent_entries
+    )
+
+
+@router.get("/teacher/roster", response_model=SchoolRosterResponse)
+async def get_school_roster(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_teacher())
+):
+    """Get the teacher's school roster."""
+    dancers = session.exec(
+        select(Dancer).where(Dancer.school_id == current_user.id)
+    ).all()
+    
+    students = []
+    for dancer in dancers:
+        parent = session.get(User, dancer.parent_id)
+        
+        # Count entries
+        entry_count = session.exec(
+            select(func.count(Entry.id)).where(Entry.dancer_id == dancer.id)
+        ).one()
+        
+        # Count pending advancements
+        pending = get_pending_advancements(session, dancer.id)
+        
+        students.append(SchoolStudentInfo(
+            id=str(dancer.id),
+            name=dancer.name,
+            dob=dancer.dob,
+            current_level=dancer.current_level,
+            gender=dancer.gender,
+            parent_name=parent.name if parent else "Unknown",
+            entry_count=entry_count,
+            pending_advancements=len(pending)
+        ))
+    
+    return SchoolRosterResponse(
+        school_id=str(current_user.id),
+        teacher_name=current_user.name,
+        total_students=len(students),
+        students=students
+    )
+
+
+@router.get("/teacher/entries", response_model=List[TeacherStudentEntry])
+async def get_teacher_student_entries(
+    feis_id: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_teacher())
+):
+    """Get all entries for students in the teacher's school."""
+    # Get all dancers linked to this teacher
+    dancers = session.exec(
+        select(Dancer).where(Dancer.school_id == current_user.id)
+    ).all()
+    
+    dancer_ids = [d.id for d in dancers]
+    
+    if not dancer_ids:
+        return []
+    
+    # Build entry query
+    query = select(Entry).where(Entry.dancer_id.in_(dancer_ids))
+    
+    entries = session.exec(query).all()
+    
+    # Filter by feis if specified
+    results = []
+    for entry in entries:
+        comp = session.get(Competition, entry.competition_id)
+        if not comp:
+            continue
+        
+        if feis_id and str(comp.feis_id) != feis_id:
+            continue
+        
+        dancer = session.get(Dancer, entry.dancer_id)
+        feis = session.get(Feis, comp.feis_id)
+        
+        # Check if flagged
+        flag = session.exec(
+            select(EntryFlag)
+            .where(EntryFlag.entry_id == entry.id)
+            .where(EntryFlag.resolved == False)
+        ).first()
+        
+        results.append(TeacherStudentEntry(
+            entry_id=str(entry.id),
+            dancer_id=str(entry.dancer_id),
+            dancer_name=dancer.name if dancer else "Unknown",
+            competition_id=str(entry.competition_id),
+            competition_name=comp.name,
+            level=comp.level,
+            competitor_number=entry.competitor_number,
+            paid=entry.paid,
+            feis_id=str(comp.feis_id),
+            feis_name=feis.name if feis else "Unknown",
+            feis_date=feis.date if feis else None,
+            is_flagged=flag is not None,
+            flag_id=str(flag.id) if flag else None
+        ))
+    
+    return results
+
+
+@router.post("/dancers/{dancer_id}/link-school")
+async def link_dancer_to_school(
+    dancer_id: str,
+    link_data: LinkDancerToSchoolRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Link a dancer to a school (teacher).
+    
+    Can be done by:
+    - The dancer's parent
+    - The teacher being linked to
+    - An admin
+    """
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    teacher = session.get(User, UUID(link_data.school_id))
+    if not teacher or teacher.role != RoleType.TEACHER:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    
+    # Check permissions
+    is_parent = dancer.parent_id == current_user.id
+    is_teacher = UUID(link_data.school_id) == current_user.id
+    is_admin = current_user.role in [RoleType.SUPER_ADMIN, RoleType.ORGANIZER]
+    
+    if not (is_parent or is_teacher or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to link this dancer")
+    
+    dancer.school_id = teacher.id
+    session.add(dancer)
+    session.commit()
+    
+    return {"success": True, "message": f"Dancer linked to {teacher.name}'s school"}
+
+
+@router.delete("/dancers/{dancer_id}/unlink-school")
+async def unlink_dancer_from_school(
+    dancer_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a dancer from their school."""
+    dancer = session.get(Dancer, UUID(dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    
+    # Check permissions
+    is_parent = dancer.parent_id == current_user.id
+    is_teacher = dancer.school_id == current_user.id
+    is_admin = current_user.role in [RoleType.SUPER_ADMIN, RoleType.ORGANIZER]
+    
+    if not (is_parent or is_teacher or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to unlink this dancer")
+    
+    dancer.school_id = None
+    session.add(dancer)
+    session.commit()
+    
+    return {"success": True, "message": "Dancer unlinked from school"}
+
+
+@router.get("/teacher/export")
+async def export_teacher_entries(
+    feis_id: Optional[str] = None,
+    format: str = "csv",
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_teacher())
+):
+    """
+    Export teacher's student entries to CSV or JSON.
+    """
+    import csv
+    import io
+    import json
+    
+    # Get entries using the existing endpoint logic
+    dancers = session.exec(
+        select(Dancer).where(Dancer.school_id == current_user.id)
+    ).all()
+    
+    dancer_ids = [d.id for d in dancers]
+    
+    if not dancer_ids:
+        if format == "csv":
+            return StreamingResponse(
+                io.StringIO("No entries found"),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=school_entries.csv"}
+            )
+        return {"entries": []}
+    
+    entries = session.exec(
+        select(Entry).where(Entry.dancer_id.in_(dancer_ids))
+    ).all()
+    
+    # Build export data
+    export_data = []
+    for entry in entries:
+        comp = session.get(Competition, entry.competition_id)
+        if not comp:
+            continue
+        
+        if feis_id and str(comp.feis_id) != feis_id:
+            continue
+        
+        dancer = session.get(Dancer, entry.dancer_id)
+        feis = session.get(Feis, comp.feis_id)
+        
+        export_data.append({
+            "dancer_name": dancer.name if dancer else "Unknown",
+            "competition_name": comp.name,
+            "level": comp.level.value,
+            "feis_name": feis.name if feis else "Unknown",
+            "feis_date": str(feis.date) if feis else "",
+            "competitor_number": entry.competitor_number or "",
+            "paid": "Yes" if entry.paid else "No"
+        })
+    
+    if format == "json":
+        return {"entries": export_data}
+    
+    # CSV export
+    output = io.StringIO()
+    if export_data:
+        writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
+        writer.writeheader()
+        writer.writerows(export_data)
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=school_entries_{feis_id or 'all'}.csv"}
+    )

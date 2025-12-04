@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth';
-import type { Dancer, CompetitionLevel, Gender } from '../../models/types';
+import type { Dancer, CompetitionLevel, Gender, User } from '../../models/types';
 
 const auth = useAuthStore();
 
@@ -33,10 +33,60 @@ const dancerForm = ref({
   dob: '',
   gender: 'female' as Gender,
   current_level: 'beginner' as CompetitionLevel,
-  clrg_number: ''
+  clrg_number: '',
+  school_id: ''
 });
 const dancerSaving = ref(false);
 const dancerError = ref<string | null>(null);
+
+// Teacher/School selection
+const teachers = ref<User[]>([]);
+const teacherSearch = ref('');
+const teachersLoading = ref(false);
+const showTeacherDropdown = ref(false);
+const selectedTeacher = ref<User | null>(null);
+
+// Fetch teachers
+const fetchTeachers = async (search?: string) => {
+  teachersLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    
+    const response = await fetch(`/api/v1/teachers?${params.toString()}`);
+    if (response.ok) {
+      teachers.value = await response.json();
+    }
+  } catch (e) {
+    console.error('Failed to fetch teachers:', e);
+  } finally {
+    teachersLoading.value = false;
+  }
+};
+
+// Teacher search debounce
+let teacherSearchTimeout: number | null = null;
+const onTeacherSearchInput = () => {
+  if (teacherSearchTimeout) clearTimeout(teacherSearchTimeout);
+  teacherSearchTimeout = window.setTimeout(() => {
+    fetchTeachers(teacherSearch.value);
+  }, 300);
+};
+
+// Select a teacher
+const selectTeacher = (teacher: User) => {
+  selectedTeacher.value = teacher;
+  dancerForm.value.school_id = teacher.id;
+  teacherSearch.value = teacher.name;
+  showTeacherDropdown.value = false;
+};
+
+// Clear teacher selection
+const clearTeacher = () => {
+  selectedTeacher.value = null;
+  dancerForm.value.school_id = '';
+  teacherSearch.value = '';
+};
 
 // Registration history
 interface RegistrationEntry {
@@ -201,20 +251,26 @@ const fetchDancers = async () => {
   }
 };
 
-const openAddDancer = () => {
+const openAddDancer = async () => {
   dancerModalMode.value = 'add';
   dancerForm.value = {
     name: '',
     dob: '',
     gender: 'female',
     current_level: 'beginner',
-    clrg_number: ''
+    clrg_number: '',
+    school_id: ''
   };
+  // Reset teacher selection
+  selectedTeacher.value = null;
+  teacherSearch.value = '';
   dancerError.value = null;
   showDancerModal.value = true;
+  // Fetch teachers for dropdown
+  await fetchTeachers();
 };
 
-const openEditDancer = (dancer: Dancer) => {
+const openEditDancer = async (dancer: Dancer) => {
   dancerModalMode.value = 'edit';
   editingDancer.value = dancer;
   dancerForm.value = {
@@ -222,10 +278,24 @@ const openEditDancer = (dancer: Dancer) => {
     dob: dancer.dob,
     gender: dancer.gender,
     current_level: dancer.current_level,
-    clrg_number: dancer.clrg_number || ''
+    clrg_number: dancer.clrg_number || '',
+    school_id: dancer.school_id || ''
   };
+  // Reset teacher selection
+  selectedTeacher.value = null;
+  teacherSearch.value = '';
   dancerError.value = null;
   showDancerModal.value = true;
+  // Fetch teachers for dropdown
+  await fetchTeachers();
+  // If dancer has a school, try to find and display it
+  if (dancer.school_id) {
+    const teacher = teachers.value.find(t => t.id === dancer.school_id);
+    if (teacher) {
+      selectedTeacher.value = teacher;
+      teacherSearch.value = teacher.name;
+    }
+  }
 };
 
 const closeDancerModal = () => {
@@ -263,7 +333,8 @@ const saveDancer = async () => {
         dob: dancerForm.value.dob,
         gender: dancerForm.value.gender,
         current_level: dancerForm.value.current_level,
-        clrg_number: dancerForm.value.clrg_number || null
+        clrg_number: dancerForm.value.clrg_number || null,
+        school_id: dancerForm.value.school_id || null
       })
     });
     
@@ -608,6 +679,12 @@ const registrationsByDancer = computed(() => {
                   <span v-if="dancer.clrg_number" class="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-800">
                     CLRG #{{ dancer.clrg_number }}
                   </span>
+                  <span v-if="dancer.school_id" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-violet-100 text-violet-800">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    School Linked
+                  </span>
                 </div>
                 <p class="text-xs text-slate-500 mt-2">
                   DOB: {{ new Date(dancer.dob).toLocaleDateString() }}
@@ -736,6 +813,88 @@ const registrationsByDancer = computed(() => {
                 class="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
                 placeholder="e.g., 12345"
               />
+            </div>
+
+            <!-- Dance School / Teacher -->
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1">
+                Dance School / Teacher
+                <span class="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <div class="relative">
+                <!-- Selected Teacher Badge -->
+                <div v-if="selectedTeacher" class="flex items-center gap-2 mb-2">
+                  <span class="inline-flex items-center gap-2 px-3 py-2 bg-violet-100 text-violet-800 rounded-lg">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    <span class="font-medium">{{ selectedTeacher.name }}</span>
+                    <button 
+                      type="button"
+                      @click="clearTeacher"
+                      class="ml-1 p-0.5 hover:bg-violet-200 rounded"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                </div>
+                
+                <!-- Search Input -->
+                <div v-else class="relative">
+                  <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input 
+                    type="text" 
+                    v-model="teacherSearch"
+                    @input="onTeacherSearchInput"
+                    @focus="showTeacherDropdown = true"
+                    placeholder="Search for teacher or school..."
+                    class="w-full pl-10 pr-4 py-2 rounded-xl border-2 border-slate-200 focus:border-violet-500 focus:ring-4 focus:ring-violet-100 transition-all outline-none"
+                  />
+                  
+                  <!-- Dropdown -->
+                  <div 
+                    v-if="showTeacherDropdown"
+                    class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto"
+                  >
+                    <!-- Loading -->
+                    <div v-if="teachersLoading" class="flex items-center justify-center py-4">
+                      <div class="animate-spin rounded-full h-5 w-5 border-2 border-violet-200 border-t-violet-600"></div>
+                    </div>
+                    
+                    <!-- No Results -->
+                    <div v-else-if="teachers.length === 0" class="px-4 py-3 text-sm text-slate-500 text-center">
+                      <p>No teachers found</p>
+                      <p class="text-xs mt-1">Ask your teacher to register</p>
+                    </div>
+                    
+                    <!-- Results -->
+                    <button
+                      v-else
+                      v-for="teacher in teachers"
+                      :key="teacher.id"
+                      type="button"
+                      @click="selectTeacher(teacher)"
+                      class="w-full px-4 py-2 text-left hover:bg-violet-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-2"
+                    >
+                      <div class="w-7 h-7 bg-violet-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg class="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div class="font-medium text-slate-800 text-sm">{{ teacher.name }}</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">
+                Link to a dance school for teacher visibility
+              </p>
             </div>
             
             <div class="flex gap-3 pt-4">

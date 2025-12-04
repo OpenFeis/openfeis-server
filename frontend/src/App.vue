@@ -13,6 +13,8 @@ import SiteSettings from './components/admin/SiteSettings.vue';
 import CloudSync from './components/admin/CloudSync.vue';
 import ScheduleGantt from './components/admin/ScheduleGantt.vue';
 import FeisSettingsManager from './components/admin/FeisSettingsManager.vue';
+import UserManager from './components/admin/UserManager.vue';
+import TeacherDashboard from './components/teacher/TeacherDashboard.vue';
 import AuthModal from './components/auth/AuthModal.vue';
 import EmailVerification from './components/auth/EmailVerification.vue';
 import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
@@ -70,7 +72,7 @@ const handleAuthSuccess = () => {
 };
 
 // Navigation state
-type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'verify-email' | 'account';
+type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'teacher' | 'verify-email' | 'account';
 const view = ref<ViewType>('home');
 
 // Mobile menu state
@@ -86,7 +88,7 @@ const navigateTo = (newView: ViewType) => {
 const verificationToken = ref<string | undefined>(undefined);
 
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler' | 'feis-settings';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler' | 'feis-settings' | 'users';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -374,6 +376,19 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             >
               Tabulator
             </button>
+            <!-- Teacher - show for teachers or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessTeacher"
+              @click="view = 'teacher'"
+              :class="[
+                'px-4 py-2 rounded-lg font-medium transition-all',
+                view === 'teacher' 
+                  ? 'bg-violet-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Teacher
+            </button>
             <!-- Admin - show for organizers/admins or in demo mode when not logged in -->
             <button 
               v-if="!auth.isAuthenticated || auth.canAccessAdmin"
@@ -514,6 +529,19 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               ]"
             >
               Tabulator
+            </button>
+            <!-- Teacher - show for teachers or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessTeacher"
+              @click="navigateTo('teacher')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'teacher' 
+                  ? 'bg-violet-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Teacher
             </button>
             <!-- Admin - show for organizers/admins or in demo mode when not logged in -->
             <button 
@@ -1114,6 +1142,17 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 <p class="text-slate-600">Manage feiseanna, competitions, and entries</p>
               </div>
               <div class="flex gap-2">
+              <!-- Users Button (Super Admin only) -->
+              <button
+                v-if="auth.isAdmin"
+                @click="adminView = 'users'"
+                class="px-4 py-2 rounded-lg bg-violet-100 text-violet-700 font-medium hover:bg-violet-200 transition-colors flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                Users
+              </button>
               <!-- Cloud Sync Button -->
               <button
                 @click="adminView = 'cloud-sync'"
@@ -1339,6 +1378,11 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </div>
             <CloudSync />
           </div>
+
+          <!-- User Manager View (Super Admin Only) -->
+          <div v-else-if="adminView === 'users'">
+            <UserManager @back="adminView = 'feis-list'" />
+          </div>
         </div>
         </template>
         <template v-else>
@@ -1354,6 +1398,37 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               <p class="text-slate-600 mb-6">
                 The Admin Dashboard is only available to feis organizers and administrators.
                 If you're an organizer, please contact an administrator to update your account role.
+              </p>
+              <button
+                @click="view = 'home'"
+                class="px-6 py-3 rounded-xl font-semibold bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+              >
+                Return Home
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Teacher View -->
+      <div v-else-if="view === 'teacher'" class="py-8">
+        <!-- Access control: show teacher dashboard only for teachers or unauthenticated (demo mode) -->
+        <template v-if="!auth.isAuthenticated || auth.canAccessTeacher">
+          <TeacherDashboard />
+        </template>
+        <template v-else>
+          <!-- Access Denied for non-teachers -->
+          <div class="py-12">
+            <div class="max-w-md mx-auto text-center">
+              <div class="w-20 h-20 rounded-2xl bg-violet-100 flex items-center justify-center mx-auto mb-6">
+                <svg class="w-10 h-10 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-3">Teacher Access Only</h2>
+              <p class="text-slate-600 mb-6">
+                The Teacher Dashboard is only available to registered teachers. 
+                If you're a teacher, please contact an administrator to update your account role.
               </p>
               <button
                 @click="view = 'home'"

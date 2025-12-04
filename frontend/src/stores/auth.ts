@@ -49,6 +49,11 @@ export const useAuthStore = defineStore('auth', () => {
   const canAccessJudge = computed(() => 
     user.value?.role === 'super_admin' || user.value?.role === 'adjudicator'
   );
+  
+  // Can access teacher features
+  const canAccessTeacher = computed(() => 
+    user.value?.role === 'super_admin' || user.value?.role === 'teacher'
+  );
 
   // Helper to make authenticated requests
   async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
@@ -256,6 +261,7 @@ export const useAuthStore = defineStore('auth', () => {
     isTeacher,
     canAccessAdmin,
     canAccessJudge,
+    canAccessTeacher,
     isEmailVerified,
     authHeaders,
     

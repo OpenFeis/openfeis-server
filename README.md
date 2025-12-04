@@ -35,12 +35,13 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **My Account Dashboard** — Manage your profile, change password, view registration history
 - **Persistent Dancer Profiles** — Save dancer profiles once, reuse them across multiple feiseanna
 - **Dancer Management** — Add, edit, and delete dancer profiles from your account
+- **School Linking** — Link dancers to their teacher/school once, automatically visible to teachers 🆕
 - **Smart Registration** — Select from saved dancers or create new ones when registering
 - **Eligibility Filtering** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
 - **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
-- **Family Maximum Cap** — Automatic savings when fees exceed the family cap (e.g., $150) 🆕
-- **Late Fee Transparency** — Clear display of late fees when registering after the deadline 🆕
-- **Server-Side Cart Calculation** — Accurate pricing with itemized breakdown 🆕
+- **Family Maximum Cap** — Automatic savings when fees exceed the family cap (e.g., $150)
+- **Late Fee Transparency** — Clear display of late fees when registering after the deadline
+- **Server-Side Cart Calculation** — Accurate pricing with itemized breakdown
 - **Registration History** — View all past registrations grouped by dancer
 
 ### For Judges (Adjudicators)
@@ -80,7 +81,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Public Access** — Anyone can view results (no login required)
 - **Local Mode** — Calculate results client-side when offline (toggle in UI)
 
-### Local-First / Venue Mode 🆕
+### Local-First / Venue Mode
 - **Offline Operation** — Run an entire feis without internet connectivity
 - **Local Server Deployment** — Single Docker command starts everything on a laptop
 - **WebSocket Broadcasting** — Scores propagate to all tabulators in under 1 second
@@ -88,6 +89,17 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Cloud Sync** — Batch upload all local scores to cloud server after the event
 - **Conflict Resolution** — UI to resolve score conflicts when syncing
 - **Network Resilience** — Graceful degradation during WiFi interruptions
+
+### Teacher Portal & Advancement 🆕
+- **Teacher Dashboard** — View all students linked to your school
+- **School Roster** — Manage dancers, view levels, track entries
+- **Placement History** — Full history of dancer placements across feiseanna
+- **Advancement Rules Engine** — CLRG-compliant level progression tracking
+- **Won Out Detection** — Automatic detection when dancers should advance
+- **Per-Dance Advancement** — Support for per-dance (Novice/PW) vs all-dance (Beginner) advancement
+- **Registration Flagging** — Teachers can flag incorrect entries for organizer review
+- **Entry Export** — Export student entries to CSV or JSON
+- **School Linking** — Link dancers to schools for teacher visibility
 
 ---
 
@@ -382,6 +394,36 @@ openfeis-server/
 | `GET` | `/api/v1/feis/{feis_id}/stripe-status` | Check Stripe connection status | No |
 | `POST` | `/api/v1/feis/{feis_id}/stripe-onboarding` | Start Stripe Connect onboarding | Organizer/Admin |
 
+### Teacher Portal 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/teacher/dashboard` | Get teacher dashboard with overview | Teacher |
+| `GET` | `/api/v1/teacher/roster` | Get school roster (all linked students) | Teacher |
+| `GET` | `/api/v1/teacher/entries` | Get all entries for school students | Teacher |
+| `GET` | `/api/v1/teacher/export` | Export entries to CSV/JSON | Teacher |
+| `POST` | `/api/v1/dancers/{id}/link-school` | Link dancer to school | Yes |
+| `DELETE` | `/api/v1/dancers/{id}/unlink-school` | Unlink dancer from school | Yes |
+
+### Placement & Advancement 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/advancement/rules` | Get all advancement rules | No |
+| `GET` | `/api/v1/dancers/{id}/placements` | Get dancer's placement history | No |
+| `POST` | `/api/v1/placements` | Record a placement | Organizer/Admin |
+| `GET` | `/api/v1/dancers/{id}/advancement` | Check dancer's advancement status | No |
+| `POST` | `/api/v1/advancement/{id}/acknowledge` | Acknowledge advancement notice | Yes |
+| `POST` | `/api/v1/advancement/{id}/override` | Override advancement (admin) | Organizer/Admin |
+
+### Entry Flagging 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/entries/{id}/flag` | Flag an entry for review | Teacher |
+| `GET` | `/api/v1/feis/{id}/flags` | Get all flagged entries for feis | Organizer/Admin |
+| `POST` | `/api/v1/flags/{id}/resolve` | Resolve a flagged entry | Organizer/Admin |
+
 ### Example: Login
 
 ```bash
@@ -541,7 +583,9 @@ For local testing, you have two options:
    - View email verification status
 5. **Add dancer profiles:**
    - Click **"Add Dancer"** in the My Dancers section
+   - Link your dancer to their teacher/school (searchable dropdown)
    - These profiles persist and can be used across multiple feiseanna
+   - Teachers can see linked dancers in their Teacher Dashboard
 
 ### For Parents: Registering Your Dancer
 
@@ -689,6 +733,7 @@ class Feis:
 class Dancer:
     id: UUID
     parent_id: UUID  # FK to User
+    school_id: Optional[UUID]  # FK to User (teacher) 🆕
     name: str
     dob: date
     current_level: CompetitionLevel
@@ -1004,10 +1049,18 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 - [x] **Conflict Detection** — Identify sibling overlaps, adjudicator conflicts, and time clashes
 - [x] **Competition Metadata** — Dance type, tempo, bars, scoring method fields
 
-### 🔜 Coming Soon (Phase 4)
+### ✅ Recently Completed (Phase 4)
+
+- [x] **Teacher Portal** — Dashboard for teachers to manage school dancers 🆕
+- [x] **School Roster** — View all linked students with levels and entries 🆕
+- [x] **Placement History** — Track dancer placements across feiseanna 🆕
+- [x] **Advancement Rules Engine** — CLRG-compliant level progression 🆕
+- [x] **Entry Flagging** — Teachers can flag incorrect registrations 🆕
+- [x] **School Linking** — Link dancers to teacher accounts 🆕
+
+### 🔜 Coming Soon (Phase 5)
 
 - [ ] **Stripe Connect Activation** — Enable live payment processing
-- [ ] **Teacher Portal** — Bulk registration & school management
 - [ ] **Digital Signage** — Stage-side displays for "Now Dancing / On Deck"
 - [ ] **Audit Log** — Track every score change with timestamps
 - [ ] **Print Schedules** — PDF export of stage schedules

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import type { Dancer, Gender, CompetitionLevel } from '../../models/types';
+import { ref, computed, watch, onMounted } from 'vue';
+import type { Dancer, Gender, CompetitionLevel, User } from '../../models/types';
 
 // Props & Emits
 const props = defineProps<{
@@ -19,6 +19,61 @@ const dob = ref(props.modelValue?.dob || '');
 const gender = ref<Gender>(props.modelValue?.gender || 'female');
 const currentLevel = ref<CompetitionLevel>(props.modelValue?.current_level || 'beginner');
 const clrgNumber = ref(props.modelValue?.clrg_number || '');
+const schoolId = ref<string>(props.modelValue?.school_id || '');
+
+// Teacher/School Search State
+const teachers = ref<User[]>([]);
+const teacherSearch = ref('');
+const teachersLoading = ref(false);
+const showTeacherDropdown = ref(false);
+const selectedTeacher = ref<User | null>(null);
+
+// Fetch teachers
+const fetchTeachers = async (search?: string) => {
+  teachersLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    
+    const response = await fetch(`/api/v1/teachers?${params.toString()}`);
+    if (response.ok) {
+      teachers.value = await response.json();
+    }
+  } catch (e) {
+    console.error('Failed to fetch teachers:', e);
+  } finally {
+    teachersLoading.value = false;
+  }
+};
+
+// Teacher search debounce
+let searchTimeout: number | null = null;
+const onTeacherSearchInput = () => {
+  if (searchTimeout) clearTimeout(searchTimeout);
+  searchTimeout = window.setTimeout(() => {
+    fetchTeachers(teacherSearch.value);
+  }, 300);
+};
+
+// Select a teacher
+const selectTeacher = (teacher: User) => {
+  selectedTeacher.value = teacher;
+  schoolId.value = teacher.id;
+  teacherSearch.value = teacher.name;
+  showTeacherDropdown.value = false;
+};
+
+// Clear teacher selection
+const clearTeacher = () => {
+  selectedTeacher.value = null;
+  schoolId.value = '';
+  teacherSearch.value = '';
+};
+
+// Load initial teachers on mount
+onMounted(() => {
+  fetchTeachers();
+});
 
 // Competition Age Calculation (January 1st Rule)
 // In Irish Dancing, your "competition age" is your age as of January 1st
@@ -69,6 +124,7 @@ const formData = computed(() => ({
   gender: gender.value,
   current_level: currentLevel.value,
   clrg_number: clrgNumber.value || undefined,
+  school_id: schoolId.value || undefined,
 }));
 
 // Update parent on changes
@@ -251,6 +307,89 @@ const genderOptions: { value: Gender; label: string }[] = [
         />
         <p class="text-xs text-slate-500 mt-1">
           Your CLRG number can be found on your dance registration card
+        </p>
+      </div>
+
+      <!-- Dance School / Teacher (Optional) -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">
+          Dance School / Teacher
+          <span class="text-slate-400 font-normal">(Optional)</span>
+        </label>
+        <div class="relative">
+          <!-- Selected Teacher Badge -->
+          <div v-if="selectedTeacher" class="flex items-center gap-2 mb-2">
+            <span class="inline-flex items-center gap-2 px-3 py-2 bg-violet-100 text-violet-800 rounded-lg">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              <span class="font-medium">{{ selectedTeacher.name }}</span>
+              <button 
+                type="button"
+                @click="clearTeacher"
+                class="ml-1 p-0.5 hover:bg-violet-200 rounded"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          </div>
+          
+          <!-- Search Input -->
+          <div v-else class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input 
+              type="text" 
+              v-model="teacherSearch"
+              @input="onTeacherSearchInput"
+              @focus="showTeacherDropdown = true"
+              placeholder="Search for your teacher or school..."
+              class="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 focus:ring-4 focus:ring-violet-100 transition-all outline-none text-slate-800 placeholder-slate-400"
+            />
+            
+            <!-- Dropdown -->
+            <div 
+              v-if="showTeacherDropdown"
+              class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto"
+            >
+              <!-- Loading -->
+              <div v-if="teachersLoading" class="flex items-center justify-center py-4">
+                <div class="animate-spin rounded-full h-5 w-5 border-2 border-violet-200 border-t-violet-600"></div>
+              </div>
+              
+              <!-- No Results -->
+              <div v-else-if="teachers.length === 0" class="px-4 py-3 text-sm text-slate-500 text-center">
+                <p>No teachers found</p>
+                <p class="text-xs mt-1">Ask your teacher to register on Open Feis</p>
+              </div>
+              
+              <!-- Results -->
+              <button
+                v-else
+                v-for="teacher in teachers"
+                :key="teacher.id"
+                type="button"
+                @click="selectTeacher(teacher)"
+                class="w-full px-4 py-3 text-left hover:bg-violet-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-3"
+              >
+                <div class="w-8 h-8 bg-violet-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg class="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div>
+                  <div class="font-medium text-slate-800">{{ teacher.name }}</div>
+                  <div class="text-xs text-slate-500">{{ teacher.email }}</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">
+          Link this dancer to their dance school for teacher visibility
         </p>
       </div>
 

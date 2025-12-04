@@ -703,3 +703,210 @@ class StripeStatusResponse(BaseModel):
     feis_connected: bool  # This feis has connected account
     onboarding_complete: bool
     message: str
+
+
+# ============= Phase 4: Teacher Portal & Advancement =============
+
+# --- Placement History ---
+
+class PlacementHistoryCreate(BaseModel):
+    """Request to record a placement (usually auto-created when results finalized)."""
+    dancer_id: str
+    competition_id: str
+    feis_id: str
+    entry_id: Optional[str] = None
+    rank: int
+    irish_points: Optional[float] = None
+    dance_type: Optional[DanceType] = None
+    level: CompetitionLevel
+    competition_date: date
+
+
+class PlacementHistoryResponse(BaseModel):
+    """Response with placement history record."""
+    id: str
+    dancer_id: str
+    dancer_name: str
+    competition_id: str
+    competition_name: str
+    feis_id: str
+    feis_name: str
+    rank: int
+    irish_points: Optional[float]
+    dance_type: Optional[DanceType]
+    level: CompetitionLevel
+    competition_date: date
+    triggered_advancement: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DancerPlacementHistoryResponse(BaseModel):
+    """Response with all placement history for a dancer."""
+    dancer_id: str
+    dancer_name: str
+    total_placements: int
+    first_place_count: int
+    placements: List[PlacementHistoryResponse]
+
+
+# --- Advancement ---
+
+class AdvancementRuleInfo(BaseModel):
+    """Information about an advancement rule."""
+    level: CompetitionLevel
+    wins_required: int
+    next_level: CompetitionLevel
+    per_dance: bool  # True = advances only for that dance, False = advances for all
+    description: str
+
+
+class AdvancementNoticeResponse(BaseModel):
+    """Response with an advancement notice."""
+    id: str
+    dancer_id: str
+    dancer_name: str
+    from_level: CompetitionLevel
+    to_level: CompetitionLevel
+    dance_type: Optional[DanceType]  # None = all dances
+    acknowledged: bool
+    acknowledged_at: Optional[datetime]
+    overridden: bool
+    override_reason: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AdvancementCheckResponse(BaseModel):
+    """Response from checking a dancer's advancement status."""
+    dancer_id: str
+    dancer_name: str
+    current_level: CompetitionLevel
+    pending_advancements: List[AdvancementNoticeResponse]
+    eligible_levels: List[CompetitionLevel]  # Levels this dancer can register for
+    warnings: List[str]  # Any warnings about level eligibility
+
+
+class AcknowledgeAdvancementRequest(BaseModel):
+    """Request to acknowledge an advancement notice."""
+    advancement_id: str
+
+
+class OverrideAdvancementRequest(BaseModel):
+    """Request to override (bypass) an advancement requirement."""
+    advancement_id: str
+    reason: str
+
+
+# --- Entry Flagging ---
+
+class EntryFlagCreate(BaseModel):
+    """Request to flag an entry for review."""
+    entry_id: str
+    reason: str
+    flag_type: str = "level_incorrect"  # level_incorrect, school_wrong, other
+
+
+class EntryFlagResponse(BaseModel):
+    """Response with entry flag details."""
+    id: str
+    entry_id: str
+    dancer_name: str
+    competition_name: str
+    flagged_by: str
+    flagged_by_name: str
+    reason: str
+    flag_type: str
+    resolved: bool
+    resolved_by: Optional[str]
+    resolved_by_name: Optional[str]
+    resolved_at: Optional[datetime]
+    resolution_note: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ResolveFlagRequest(BaseModel):
+    """Request to resolve a flagged entry."""
+    flag_id: str
+    resolution_note: str
+
+
+class FlaggedEntriesResponse(BaseModel):
+    """Response with all flagged entries for a feis."""
+    feis_id: str
+    feis_name: str
+    total_flags: int
+    unresolved_count: int
+    flags: List[EntryFlagResponse]
+
+
+# --- Teacher Dashboard ---
+
+class TeacherStudentEntry(BaseModel):
+    """An entry belonging to a student of the teacher."""
+    entry_id: str
+    dancer_id: str
+    dancer_name: str
+    competition_id: str
+    competition_name: str
+    level: CompetitionLevel
+    competitor_number: Optional[int]
+    paid: bool
+    feis_id: str
+    feis_name: str
+    feis_date: date
+    is_flagged: bool
+    flag_id: Optional[str] = None
+
+
+class SchoolRosterResponse(BaseModel):
+    """Response with all students linked to a teacher's school."""
+    school_id: str
+    teacher_name: str
+    total_students: int
+    students: List["SchoolStudentInfo"]
+
+
+class SchoolStudentInfo(BaseModel):
+    """Information about a student in the school roster."""
+    id: str
+    name: str
+    dob: date
+    current_level: CompetitionLevel
+    gender: Gender
+    parent_name: str
+    entry_count: int
+    pending_advancements: int
+
+    class Config:
+        from_attributes = True
+
+
+class TeacherDashboardResponse(BaseModel):
+    """Response for the teacher dashboard."""
+    teacher_id: str
+    teacher_name: str
+    total_students: int
+    total_entries: int
+    entries_by_feis: dict  # {feis_id: count}
+    pending_advancements: int
+    recent_entries: List[TeacherStudentEntry]
+
+
+class TeacherEntriesExportRequest(BaseModel):
+    """Request to export teacher's student entries."""
+    feis_id: Optional[str] = None  # None = all feiseanna
+    format: str = "csv"  # csv or json
+
+
+class LinkDancerToSchoolRequest(BaseModel):
+    """Request to link a dancer to a school (teacher)."""
+    dancer_id: str
+    school_id: str  # Teacher's user ID

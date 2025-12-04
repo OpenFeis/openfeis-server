@@ -358,3 +358,178 @@ export function formatCents(cents: number, currency: 'USD' | 'EUR' | 'GBP' = 'US
   const symbol = symbols[currency] || '$';
   return `${symbol}${(cents / 100).toFixed(2)}`;
 }
+
+
+// ============= Phase 4: Teacher Portal & Advancement Types =============
+
+// --- Placement History ---
+
+export interface PlacementHistory {
+  id: string;
+  dancer_id: string;
+  dancer_name: string;
+  competition_id: string;
+  competition_name: string;
+  feis_id: string;
+  feis_name: string;
+  rank: number;
+  irish_points: number | null;
+  dance_type: DanceType | null;
+  level: CompetitionLevel;
+  competition_date: string;  // ISO date
+  triggered_advancement: boolean;
+  created_at: string;  // ISO datetime
+}
+
+export interface DancerPlacementHistory {
+  dancer_id: string;
+  dancer_name: string;
+  total_placements: number;
+  first_place_count: number;
+  placements: PlacementHistory[];
+}
+
+// --- Advancement ---
+
+export interface AdvancementRule {
+  level: CompetitionLevel;
+  wins_required: number;
+  next_level: CompetitionLevel;
+  per_dance: boolean;
+  description: string;
+}
+
+export interface AdvancementNotice {
+  id: string;
+  dancer_id: string;
+  dancer_name: string;
+  from_level: CompetitionLevel;
+  to_level: CompetitionLevel;
+  dance_type: DanceType | null;  // null = all dances
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+  overridden: boolean;
+  override_reason: string | null;
+  created_at: string;
+}
+
+export interface AdvancementCheck {
+  dancer_id: string;
+  dancer_name: string;
+  current_level: CompetitionLevel;
+  pending_advancements: AdvancementNotice[];
+  eligible_levels: CompetitionLevel[];
+  warnings: string[];
+}
+
+// --- Entry Flagging ---
+
+export type FlagType = 'level_incorrect' | 'school_wrong' | 'other';
+
+export interface EntryFlag {
+  id: string;
+  entry_id: string;
+  dancer_name: string;
+  competition_name: string;
+  flagged_by: string;
+  flagged_by_name: string;
+  reason: string;
+  flag_type: FlagType;
+  resolved: boolean;
+  resolved_by: string | null;
+  resolved_by_name: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+}
+
+export interface FlaggedEntries {
+  feis_id: string;
+  feis_name: string;
+  total_flags: number;
+  unresolved_count: number;
+  flags: EntryFlag[];
+}
+
+export interface CreateFlagRequest {
+  entry_id: string;
+  reason: string;
+  flag_type: FlagType;
+}
+
+export interface ResolveFlagRequest {
+  flag_id: string;
+  resolution_note: string;
+}
+
+// --- Teacher Dashboard ---
+
+export interface TeacherStudentEntry {
+  entry_id: string;
+  dancer_id: string;
+  dancer_name: string;
+  competition_id: string;
+  competition_name: string;
+  level: CompetitionLevel;
+  competitor_number: number | null;
+  paid: boolean;
+  feis_id: string;
+  feis_name: string;
+  feis_date: string;  // ISO date
+  is_flagged: boolean;
+  flag_id: string | null;
+}
+
+export interface SchoolStudent {
+  id: string;
+  name: string;
+  dob: string;  // ISO date
+  current_level: CompetitionLevel;
+  gender: Gender;
+  parent_name: string;
+  entry_count: number;
+  pending_advancements: number;
+}
+
+export interface SchoolRoster {
+  school_id: string;
+  teacher_name: string;
+  total_students: number;
+  students: SchoolStudent[];
+}
+
+export interface TeacherDashboard {
+  teacher_id: string;
+  teacher_name: string;
+  total_students: number;
+  total_entries: number;
+  entries_by_feis: Record<string, number>;
+  pending_advancements: number;
+  recent_entries: TeacherStudentEntry[];
+}
+
+// --- Teacher Actions ---
+
+export interface LinkDancerToSchoolRequest {
+  dancer_id: string;
+  school_id: string;
+}
+
+// Helper: Get level badge color
+export function getLevelBadgeColor(level: CompetitionLevel): string {
+  const colors: Record<CompetitionLevel, string> = {
+    beginner: 'bg-green-100 text-green-800',
+    novice: 'bg-blue-100 text-blue-800',
+    prizewinner: 'bg-purple-100 text-purple-800',
+    championship: 'bg-amber-100 text-amber-800',
+  };
+  return colors[level] || 'bg-gray-100 text-gray-800';
+}
+
+// Helper: Get rank badge for placements
+export function getRankBadge(rank: number): { color: string; icon: string } {
+  if (rank === 1) return { color: 'bg-yellow-100 text-yellow-800', icon: '🥇' };
+  if (rank === 2) return { color: 'bg-slate-200 text-slate-800', icon: '🥈' };
+  if (rank === 3) return { color: 'bg-amber-100 text-amber-800', icon: '🥉' };
+  return { color: 'bg-slate-100 text-slate-600', icon: '' };
+}
