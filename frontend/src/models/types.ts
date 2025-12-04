@@ -21,7 +21,14 @@ export interface Competitor {
 
 export type RoleType = 'super_admin' | 'organizer' | 'teacher' | 'parent' | 'adjudicator';
 
-export type CompetitionLevel = 'beginner' | 'novice' | 'prizewinner' | 'championship';
+export type CompetitionLevel = 
+  | 'first_feis'
+  | 'beginner_1' 
+  | 'beginner_2'
+  | 'novice' 
+  | 'prizewinner' 
+  | 'preliminary_championship'
+  | 'open_championship';
 
 export type Gender = 'male' | 'female' | 'other';
 
@@ -74,6 +81,7 @@ export interface Competition {
   max_age: number;
   level: CompetitionLevel;
   gender?: Gender;
+  code?: string; // Display code (e.g., "407SJ")
   // New scheduling fields
   dance_type?: DanceType;
   tempo_bpm?: number;
@@ -518,12 +526,29 @@ export interface LinkDancerToSchoolRequest {
 // Helper: Get level badge color
 export function getLevelBadgeColor(level: CompetitionLevel): string {
   const colors: Record<CompetitionLevel, string> = {
-    beginner: 'bg-green-100 text-green-800',
+    first_feis: 'bg-pink-100 text-pink-800',
+    beginner_1: 'bg-green-100 text-green-800',
+    beginner_2: 'bg-teal-100 text-teal-800',
     novice: 'bg-blue-100 text-blue-800',
     prizewinner: 'bg-purple-100 text-purple-800',
-    championship: 'bg-amber-100 text-amber-800',
+    preliminary_championship: 'bg-orange-100 text-orange-800',
+    open_championship: 'bg-amber-100 text-amber-800',
   };
   return colors[level] || 'bg-gray-100 text-gray-800';
+}
+
+// Helper: Get human-readable level name
+export function getLevelDisplayName(level: CompetitionLevel): string {
+  const names: Record<CompetitionLevel, string> = {
+    first_feis: 'First Feis',
+    beginner_1: 'Beginner 1',
+    beginner_2: 'Beginner 2',
+    novice: 'Novice',
+    prizewinner: 'Prizewinner',
+    preliminary_championship: 'Prelim Champ',
+    open_championship: 'Open Champ',
+  };
+  return names[level] || level;
 }
 
 // Helper: Get rank badge for placements
@@ -532,4 +557,172 @@ export function getRankBadge(rank: number): { color: string; icon: string } {
   if (rank === 2) return { color: 'bg-slate-200 text-slate-800', icon: '🥈' };
   if (rank === 3) return { color: 'bg-amber-100 text-amber-800', icon: '🥉' };
   return { color: 'bg-slate-100 text-slate-600', icon: '' };
+}
+
+
+// ============= Phase 5: Waitlist, Check-In, Refunds =============
+
+export type CheckInStatus = 'not_checked_in' | 'checked_in' | 'scratched';
+export type WaitlistStatus = 'waiting' | 'promoted' | 'expired' | 'cancelled';
+
+// --- Waitlist ---
+
+export interface WaitlistEntry {
+  id: string;
+  feis_id: string;
+  feis_name: string;
+  dancer_id: string;
+  dancer_name: string;
+  competition_id: string | null;
+  competition_name: string | null;
+  position: number;
+  status: WaitlistStatus;
+  offer_sent_at: string | null;
+  offer_expires_at: string | null;
+  created_at: string;
+}
+
+export interface WaitlistStatusResponse {
+  feis_id: string;
+  feis_name: string;
+  total_waiting: number;
+  competition_waitlists: Record<string, number>;
+  global_waitlist_count: number;
+  user_waitlist_entries: WaitlistEntry[];
+}
+
+export interface FeisCapacity {
+  feis_id: string;
+  feis_name: string;
+  global_cap: number | null;
+  current_dancer_count: number;
+  spots_remaining: number | null;
+  is_full: boolean;
+  waitlist_enabled: boolean;
+  waitlist_count: number;
+}
+
+export interface CompetitionCapacity {
+  competition_id: string;
+  competition_name: string;
+  max_entries: number | null;
+  current_entries: number;
+  spots_remaining: number | null;
+  is_full: boolean;
+  waitlist_count: number;
+}
+
+// --- Check-In ---
+
+export interface CheckInResult {
+  entry_id: string;
+  dancer_name: string;
+  competitor_number: number | null;
+  competition_name: string;
+  status: CheckInStatus;
+  checked_in_at: string | null;
+  message: string;
+}
+
+export interface StageMonitorEntry {
+  entry_id: string;
+  competitor_number: number | null;
+  dancer_name: string;
+  school_name: string | null;
+  check_in_status: CheckInStatus;
+  is_current: boolean;
+  is_on_deck: boolean;
+}
+
+export interface StageMonitorData {
+  competition_id: string;
+  competition_name: string;
+  stage_name: string | null;
+  feis_name: string;
+  total_entries: number;
+  checked_in_count: number;
+  scratched_count: number;
+  current_dancer: StageMonitorEntry | null;
+  on_deck: StageMonitorEntry[];
+  all_entries: StageMonitorEntry[];
+}
+
+export interface CheckInStats {
+  competition_id: string;
+  total_entries: number;
+  checked_in: number;
+  scratched: number;
+  not_checked_in: number;
+  check_in_percent: number;
+}
+
+export interface FeisCheckInSummary {
+  feis_id: string;
+  total_competitions: number;
+  total_entries: number;
+  total_checked_in: number;
+  total_scratched: number;
+  overall_check_in_percent: number;
+  competitions: (CheckInStats & { competition_name: string })[];
+}
+
+// --- Refunds ---
+
+export interface RefundPolicy {
+  feis_id: string;
+  feis_name: string;
+  allow_scratches: boolean;
+  scratch_refund_percent: number;
+  scratch_deadline: string | null;
+  can_scratch: boolean;
+  refund_message: string;
+}
+
+export interface ScratchResult {
+  entry_id: string;
+  dancer_name: string;
+  competition_name: string;
+  refund_amount_cents: number;
+  message: string;
+}
+
+export interface RefundLog {
+  id: string;
+  order_id: string;
+  entry_id: string | null;
+  amount_cents: number;
+  reason: string;
+  refund_type: 'full' | 'partial' | 'scratch';
+  processed_by_name: string;
+  created_at: string;
+}
+
+export interface OrderRefundSummary {
+  order_id: string;
+  original_total_cents: number;
+  refund_total_cents: number;
+  remaining_cents: number;
+  status: PaymentStatus;
+  refund_logs: RefundLog[];
+}
+
+// Helper: Get check-in status badge
+export function getCheckInStatusBadge(status: CheckInStatus): { color: string; label: string } {
+  const badges: Record<CheckInStatus, { color: string; label: string }> = {
+    not_checked_in: { color: 'bg-slate-100 text-slate-600', label: 'Not Checked In' },
+    checked_in: { color: 'bg-green-100 text-green-800', label: 'Checked In' },
+    scratched: { color: 'bg-red-100 text-red-800', label: 'Scratched' },
+  };
+  return badges[status] || { color: 'bg-slate-100 text-slate-600', label: 'Unknown' };
+}
+
+// Helper: Get waitlist status badge
+export function getWaitlistStatusBadge(status: WaitlistStatus): { color: string; label: string } {
+  const badges: Record<WaitlistStatus, { color: string; label: string }> = {
+    waiting: { color: 'bg-amber-100 text-amber-800', label: 'Waiting' },
+    promoted: { color: 'bg-green-100 text-green-800', label: 'Promoted' },
+    expired: { color: 'bg-red-100 text-red-800', label: 'Expired' },
+    cancelled: { color: 'bg-slate-100 text-slate-600', label: 'Cancelled' },
+  };
+  return badges[status] || { color: 'bg-slate-100 text-slate-600', label: 'Unknown' };
 }

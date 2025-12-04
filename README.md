@@ -54,22 +54,42 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Feis Manager** — Create, edit, and manage feiseanna from the frontend (no SQL required)
 - **Syllabus Generator** — Auto-generate 100+ competitions with one click (Age × Gender × Level × Dance)
 - **Competition Manager** — View, filter, and manage all competitions in a feis
+- **Competition Codes** — Auto-generated codes (e.g., "407SJ") with organizer override 🆕
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
 - **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
+- **Cap Enforcement** — Set per-competition limits and global feis dancer caps 🆕
+- **Waitlist Management** — Automatic waitlisting with configurable offer windows 🆕
 - **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages
 - **Stage Management** — Create and manage multiple stages/areas for your feis
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
 - **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts)
-- **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis 🆕
-- **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap 🆕
-- **Late Fee Management** — Configure late fee amount and cutoff date 🆕
-- **Fee Items** — Add custom fees like venue levy, program book, etc. 🆕
-- **Order Tracking** — View all orders with payment status and itemized breakdowns 🆕
-- **Stripe Connect Ready** — Payment infrastructure ready for online payments (stubbed) 🆕
+- **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
+- **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap
+- **Late Fee Management** — Configure late fee amount and cutoff date
+- **Fee Items** — Add custom fees like venue levy, program book, etc.
+- **Order Tracking** — View all orders with payment status and itemized breakdowns
+- **Refund Processing** — Process refunds with full audit logging 🆕
+- **Stripe Connect Ready** — Payment infrastructure ready for online payments (stubbed)
 - **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
 - **Protected Operations** — Only organizers can modify their own feiseanna
+
+### For Volunteers (Check-In) 🆕
+- **Stage-Centric Check-In** — Select a stage to see only its competitions
+- **Auto-Select Current** — Dashboard auto-selects the competition closest to now
+- **QR Code Scanning** — Scan competitor number cards for instant check-in
+- **Manual Check-In** — Enter competitor number manually when QR unavailable
+- **Bulk Operations** — Check in multiple dancers at once
+- **Scratch Management** — Mark no-shows as scratched
+- **Check-In Stats** — Real-time stats showing checked-in vs. total per competition
+
+### For Stage Monitors 🆕
+- **Full-Screen Display** — Large, readable display for sidestage viewing
+- **Competition Codes** — Shows "NOW" and "NEXT" competition codes prominently
+- **Stage Selection** — Filter to a specific stage
+- **Keyboard Navigation** — Arrow keys to advance/go back
+- **Stage Colors** — Each stage can have a distinct color theme
 
 ### For Tabulators & Public Results
 - **Tabulator Dashboard** — Select feis and competition from dropdowns to view results
@@ -205,8 +225,13 @@ openfeis-server/
 │   │   ├── email.py            # Email service (Resend integration)
 │   │   ├── number_cards.py     # PDF generation for competitor numbers
 │   │   ├── scheduling.py       # Time estimation & conflict detection
-│   │   ├── cart.py             # Cart calculation with family cap logic 🆕
-│   │   └── stripe.py           # Stripe Connect integration (stubbed) 🆕
+│   │   ├── cart.py             # Cart calculation with family cap logic
+│   │   ├── stripe.py           # Stripe Connect integration (stubbed)
+│   │   ├── waitlist.py         # Waitlist management 🆕
+│   │   ├── checkin.py          # Check-in operations 🆕
+│   │   └── refund.py           # Refund processing 🆕
+│   ├── utils/
+│   │   └── competition_codes.py  # Competition code generation 🆕
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
 │       ├── models.py           # Round, JudgeScore models
@@ -238,6 +263,9 @@ openfeis-server/
 │   │   │   │   ├── DancerProfileForm.vue
 │   │   │   │   ├── EligibilityPicker.vue
 │   │   │   │   └── CartSummary.vue
+│   │   │   ├── checkin/                      # 🆕
+│   │   │   │   ├── CheckInDashboard.vue      # Stage-centric check-in UI
+│   │   │   │   └── StageMonitor.vue          # Full-screen stage display
 │   │   │   └── tabulator/
 │   │   │       └── TabulatorDashboard.vue
 │   │   ├── models/
@@ -416,13 +444,44 @@ openfeis-server/
 | `POST` | `/api/v1/advancement/{id}/acknowledge` | Acknowledge advancement notice | Yes |
 | `POST` | `/api/v1/advancement/{id}/override` | Override advancement (admin) | Organizer/Admin |
 
-### Entry Flagging 🆕
+### Entry Flagging
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | `POST` | `/api/v1/entries/{id}/flag` | Flag an entry for review | Teacher |
 | `GET` | `/api/v1/feis/{id}/flags` | Get all flagged entries for feis | Organizer/Admin |
 | `POST` | `/api/v1/flags/{id}/resolve` | Resolve a flagged entry | Organizer/Admin |
+
+### Waitlist & Capacity 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{id}/capacity` | Get feis capacity info (total, used, available) | No |
+| `GET` | `/api/v1/competitions/{id}/capacity` | Get competition capacity info | No |
+| `POST` | `/api/v1/waitlist/add` | Add dancer to waitlist | Yes |
+| `GET` | `/api/v1/waitlist/mine` | Get current user's waitlist entries | Yes |
+| `POST` | `/api/v1/waitlist/{id}/accept` | Accept a waitlist spot offer | Yes |
+| `POST` | `/api/v1/waitlist/{id}/cancel` | Cancel waitlist entry | Yes |
+| `GET` | `/api/v1/feis/{id}/waitlist` | View full waitlist (organizers only) | Organizer/Admin |
+
+### Check-In System 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/checkin` | Check in an entry by ID | Organizer/Admin |
+| `POST` | `/api/v1/checkin/by-number` | Check in by competitor number | Organizer/Admin |
+| `POST` | `/api/v1/checkin/bulk` | Bulk check-in multiple entries | Organizer/Admin |
+| `POST` | `/api/v1/checkin/{id}/undo` | Undo a check-in | Organizer/Admin |
+| `GET` | `/api/v1/checkin/qr/{dancer_id}` | Look up entry by QR code data | No |
+| `GET` | `/api/v1/competitions/{id}/stage-monitor` | Get stage monitor data | No |
+| `GET` | `/api/v1/competitions/{id}/checkin-stats` | Get check-in statistics | No |
+| `GET` | `/api/v1/feis/{id}/checkin-summary` | Get feis-wide check-in summary | No |
+
+### Refunds 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/orders/{id}/refund` | Process a refund | Organizer/Admin |
 
 ### Example: Login
 
@@ -457,7 +516,7 @@ curl -X POST http://localhost:8000/api/v1/admin/syllabus/generate \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
     "feis_id": "your-feis-uuid",
-    "levels": ["beginner", "novice", "prizewinner"],
+    "levels": ["beginner_1", "novice", "prizewinner"],
     "min_age": 5,
     "max_age": 16,
     "genders": ["male", "female"],
@@ -472,6 +531,8 @@ curl -X POST http://localhost:8000/api/v1/admin/syllabus/generate \
   "message": "Successfully created 126 competitions for Great Irish Feis 2025."
 }
 ```
+
+> **Competition Levels:** `first_feis`, `beginner_1`, `beginner_2`, `novice`, `prizewinner`, `preliminary_championship`, `open_championship`
 
 ---
 
@@ -598,7 +659,7 @@ For local testing, you have two options:
    - Enter your dancer's name
    - Enter their date of birth — the system automatically calculates their **competition age** (age as of January 1st)
    - Select their category (Girl/Boy)
-   - Select their current level (Beginner, Novice, Prizewinner, Championship)
+   - Select their current level (First Feis, Beginner 1, Beginner 2, Novice, Prizewinner, Prelim Champ, Open Champ)
 5. **Select Competitions:**
    - The system only shows competitions your dancer is **eligible** for
    - Competitions are grouped by dance type (Reel, Light Jig, etc.)
@@ -753,9 +814,11 @@ class Competition:
     name: str
     min_age: int
     max_age: int
-    level: CompetitionLevel
+    level: CompetitionLevel  # first_feis, beginner_1, beginner_2, novice, prizewinner, preliminary_championship, open_championship
     gender: Optional[Gender]
-    # Scheduling fields (Phase 2) 🆕
+    code: Optional[str]  # Auto-generated display code (e.g., "407SJ") 🆕
+    max_entries: Optional[int]  # Per-competition cap 🆕
+    # Scheduling fields
     dance_type: Optional[DanceType]  # REEL, LIGHT_JIG, SLIP_JIG, etc.
     tempo_bpm: Optional[int]  # Beats per minute
     bars: int  # Number of bars danced (default 48)
@@ -772,9 +835,13 @@ class Entry:
     competitor_number: Optional[int]
     paid: bool
     pay_later: bool  # "Pay at Door" registration
-    order_id: Optional[UUID]  # FK to Order 🆕
+    order_id: Optional[UUID]  # FK to Order
+    # Check-in fields 🆕
+    check_in_status: CheckInStatus  # not_checked_in, checked_in, scratched
+    checked_in_at: Optional[datetime]
+    checked_in_by: Optional[UUID]  # FK to User
 
-class FeisSettings:  # 🆕 Phase 3
+class FeisSettings:
     id: UUID
     feis_id: UUID  # FK to Feis (unique)
     base_entry_fee_cents: int  # e.g., 2500 = $25.00
@@ -785,6 +852,10 @@ class FeisSettings:  # 🆕 Phase 3
     change_fee_cents: int
     registration_opens: Optional[datetime]
     registration_closes: Optional[datetime]
+    # Capacity & waitlist fields 🆕
+    global_dancer_cap: Optional[int]  # Max total dancers for the feis
+    enable_waitlist: bool  # Whether to allow waitlisting
+    waitlist_offer_hours: int  # Hours for offer to be valid (default 48)
 
 class FeeItem:  # 🆕 Phase 3
     id: UUID
@@ -803,12 +874,32 @@ class Order:  # 🆕 Phase 3
     status: PaymentStatus  # PENDING, PAID, REFUNDED, FAILED
     stripe_checkout_session_id: Optional[str]
 
-class OrderItem:  # 🆕 Phase 3
+class OrderItem:
     id: UUID
     order_id: UUID  # FK to Order
     description: str
     amount_cents: int
     category: FeeCategory  # Track which items count toward cap
+
+class WaitlistEntry:  # 🆕 Phase 4.5
+    id: UUID
+    dancer_id: UUID  # FK to Dancer
+    competition_id: Optional[UUID]  # FK to Competition (for comp-specific waitlist)
+    feis_id: UUID  # FK to Feis (for global feis waitlist)
+    status: WaitlistStatus  # waiting, promoted, expired, cancelled
+    position: Optional[int]  # Position in queue
+    offered_at: Optional[datetime]  # When a spot was offered
+    expires_at: Optional[datetime]  # When the offer expires
+    created_at: datetime
+
+class RefundLog:  # 🆕 Phase 4.5
+    id: UUID
+    order_id: UUID  # FK to Order
+    refund_amount_cents: int
+    reason: str
+    refunded_by: UUID  # FK to User
+    refunded_at: datetime
+    stripe_refund_id: Optional[str]
 ```
 
 ### Scoring Models
@@ -1051,17 +1142,27 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 
 ### ✅ Recently Completed (Phase 4)
 
-- [x] **Teacher Portal** — Dashboard for teachers to manage school dancers 🆕
-- [x] **School Roster** — View all linked students with levels and entries 🆕
-- [x] **Placement History** — Track dancer placements across feiseanna 🆕
-- [x] **Advancement Rules Engine** — CLRG-compliant level progression 🆕
-- [x] **Entry Flagging** — Teachers can flag incorrect registrations 🆕
-- [x] **School Linking** — Link dancers to teacher accounts 🆕
+- [x] **Teacher Portal** — Dashboard for teachers to manage school dancers
+- [x] **School Roster** — View all linked students with levels and entries
+- [x] **Placement History** — Track dancer placements across feiseanna
+- [x] **Advancement Rules Engine** — CLRG-compliant level progression
+- [x] **Entry Flagging** — Teachers can flag incorrect registrations
+- [x] **School Linking** — Link dancers to teacher accounts
+
+### ✅ Recently Completed (Phase 4.5) 🆕
+
+- [x] **Cap Enforcement** — Per-competition and global feis entry limits
+- [x] **Waitlist System** — Automatic waitlisting when capacity is reached, with timed offers
+- [x] **Stage-Centric Check-In** — Dashboard for sidestage volunteers to check in dancers by stage
+- [x] **QR Code Check-In** — Scan competitor number cards for instant check-in
+- [x] **Stage Monitor** — Full-screen display showing current and next competition codes
+- [x] **Competition Codes** — Auto-generated codes (e.g., "407SJ") based on level, age, and dance
+- [x] **Expanded Competition Levels** — First Feis, Beginner 1, Beginner 2, Novice, Prizewinner, Prelim Champ, Open Champ
+- [x] **Refund Workflow** — Backend support for processing refunds with audit logging
 
 ### 🔜 Coming Soon (Phase 5)
 
 - [ ] **Stripe Connect Activation** — Enable live payment processing
-- [ ] **Digital Signage** — Stage-side displays for "Now Dancing / On Deck"
 - [ ] **Audit Log** — Track every score change with timestamps
 - [ ] **Print Schedules** — PDF export of stage schedules
 

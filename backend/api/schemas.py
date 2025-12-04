@@ -60,6 +60,7 @@ class CompetitionCreate(BaseModel):
     max_age: int
     level: CompetitionLevel
     gender: Optional[Gender] = None
+    code: Optional[str] = None  # Display code (e.g., "407SJ") - auto-generated if not provided
     # New scheduling fields
     dance_type: Optional[DanceType] = None
     tempo_bpm: Optional[int] = None
@@ -74,6 +75,7 @@ class CompetitionUpdate(BaseModel):
     max_age: Optional[int] = None
     level: Optional[CompetitionLevel] = None
     gender: Optional[Gender] = None
+    code: Optional[str] = None  # Display code - set to override auto-generated
     # New scheduling fields
     dance_type: Optional[DanceType] = None
     tempo_bpm: Optional[int] = None
@@ -94,6 +96,7 @@ class CompetitionResponse(BaseModel):
     max_age: int
     level: CompetitionLevel
     gender: Optional[Gender] = None
+    code: Optional[str] = None  # Display code (e.g., "407SJ")
     entry_count: int = 0
     # New scheduling fields
     dance_type: Optional[DanceType] = None
@@ -910,3 +913,206 @@ class LinkDancerToSchoolRequest(BaseModel):
     """Request to link a dancer to a school (teacher)."""
     dancer_id: str
     school_id: str  # Teacher's user ID
+
+
+# ============= Phase 5: Waitlist, Check-In, Refunds =============
+
+from backend.scoring_engine.models_platform import CheckInStatus, WaitlistStatus
+
+
+# --- Waitlist ---
+
+class WaitlistEntryResponse(BaseModel):
+    """Response for a waitlist entry."""
+    id: str
+    feis_id: str
+    feis_name: str
+    dancer_id: str
+    dancer_name: str
+    competition_id: Optional[str]
+    competition_name: Optional[str]
+    position: int
+    status: WaitlistStatus
+    offer_sent_at: Optional[datetime]
+    offer_expires_at: Optional[datetime]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class WaitlistAddRequest(BaseModel):
+    """Request to add to waitlist."""
+    feis_id: str
+    dancer_id: str
+    competition_id: Optional[str] = None  # None = global feis waitlist
+
+
+class WaitlistOfferResponse(BaseModel):
+    """Response when a waitlist offer is available."""
+    waitlist_id: str
+    dancer_name: str
+    competition_name: Optional[str]
+    feis_name: str
+    expires_at: datetime
+    accept_url: str
+
+
+class WaitlistStatusResponse(BaseModel):
+    """Response for waitlist status check."""
+    feis_id: str
+    feis_name: str
+    total_waiting: int
+    competition_waitlists: dict  # {competition_id: count}
+    global_waitlist_count: int
+    user_waitlist_entries: List[WaitlistEntryResponse]
+
+
+# --- Check-In ---
+
+class CheckInRequest(BaseModel):
+    """Request to check in a dancer."""
+    entry_id: str
+
+
+class CheckInResponse(BaseModel):
+    """Response after check-in."""
+    entry_id: str
+    dancer_name: str
+    competitor_number: Optional[int]
+    competition_name: str
+    status: CheckInStatus
+    checked_in_at: Optional[datetime]
+    message: str
+
+
+class BulkCheckInRequest(BaseModel):
+    """Request to check in multiple dancers at once."""
+    entry_ids: List[str]
+
+
+class BulkCheckInResponse(BaseModel):
+    """Response for bulk check-in."""
+    successful: int
+    failed: int
+    results: List[CheckInResponse]
+
+
+class StageMonitorEntry(BaseModel):
+    """An entry to display on the stage monitor."""
+    entry_id: str
+    competitor_number: Optional[int]
+    dancer_name: str
+    school_name: Optional[str]
+    check_in_status: CheckInStatus
+    is_current: bool
+    is_on_deck: bool
+
+
+class StageMonitorResponse(BaseModel):
+    """Response for stage monitor view."""
+    competition_id: str
+    competition_name: str
+    stage_name: Optional[str]
+    feis_name: str
+    total_entries: int
+    checked_in_count: int
+    scratched_count: int
+    current_dancer: Optional[StageMonitorEntry]
+    on_deck: List[StageMonitorEntry]
+    all_entries: List[StageMonitorEntry]
+
+
+class ScratchEntryRequest(BaseModel):
+    """Request to scratch (cancel) an entry."""
+    entry_id: str
+    reason: str
+
+
+class ScratchEntryResponse(BaseModel):
+    """Response after scratching an entry."""
+    entry_id: str
+    dancer_name: str
+    competition_name: str
+    refund_amount_cents: int
+    message: str
+
+
+# --- Refunds ---
+
+class RefundRequest(BaseModel):
+    """Request to process a refund."""
+    order_id: str
+    entry_ids: Optional[List[str]] = None  # None = full refund, specific = partial
+    reason: str
+    refund_amount_cents: Optional[int] = None  # None = auto-calculate based on policy
+
+
+class RefundResponse(BaseModel):
+    """Response after processing a refund."""
+    order_id: str
+    refund_amount_cents: int
+    refund_type: str  # "full", "partial"
+    stripe_refund_id: Optional[str]
+    entries_refunded: int
+    message: str
+
+
+class RefundLogResponse(BaseModel):
+    """Response with refund log details."""
+    id: str
+    order_id: str
+    entry_id: Optional[str]
+    amount_cents: int
+    reason: str
+    refund_type: str
+    processed_by_name: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class OrderRefundSummary(BaseModel):
+    """Summary of refunds for an order."""
+    order_id: str
+    original_total_cents: int
+    refund_total_cents: int
+    remaining_cents: int
+    status: PaymentStatus
+    refund_logs: List[RefundLogResponse]
+
+
+# --- Updated Feis Settings with Caps/Waitlist ---
+
+class FeisSettingsUpdatePhase5(BaseModel):
+    """Extended feis settings update including Phase 5 fields."""
+    # Existing fields
+    base_entry_fee_cents: Optional[int] = None
+    per_competition_fee_cents: Optional[int] = None
+    family_max_cents: Optional[int] = None
+    late_fee_cents: Optional[int] = None
+    late_fee_date: Optional[date] = None
+    change_fee_cents: Optional[int] = None
+    registration_opens: Optional[datetime] = None
+    registration_closes: Optional[datetime] = None
+    
+    # Phase 5 fields
+    global_dancer_cap: Optional[int] = None  # None = unlimited
+    enable_waitlist: Optional[bool] = None
+    waitlist_offer_hours: Optional[int] = None
+    allow_scratches: Optional[bool] = None
+    scratch_refund_percent: Optional[int] = None  # 0-100
+    scratch_deadline: Optional[datetime] = None
+
+
+class FeisCapacityStatus(BaseModel):
+    """Status of feis capacity and waitlist."""
+    feis_id: str
+    feis_name: str
+    global_cap: Optional[int]
+    current_dancer_count: int
+    spots_remaining: Optional[int]  # None if no cap
+    is_full: bool
+    waitlist_enabled: bool
+    waitlist_count: int

@@ -57,7 +57,10 @@ const eligibleCompetitions = computed(() => {
     const genderMatch = !comp.gender || comp.gender === props.dancer.gender;
     
     // Level check - dancers can only enter at or below their level
-    const levelHierarchy: CompetitionLevel[] = ['beginner', 'novice', 'prizewinner', 'championship'];
+    const levelHierarchy: CompetitionLevel[] = [
+      'first_feis', 'beginner_1', 'beginner_2', 'novice', 
+      'prizewinner', 'preliminary_championship', 'open_championship'
+    ];
     const dancerLevelIndex = levelHierarchy.indexOf(props.dancer.current_level!);
     const compLevelIndex = levelHierarchy.indexOf(comp.level);
     const levelMatch = compLevelIndex <= dancerLevelIndex;

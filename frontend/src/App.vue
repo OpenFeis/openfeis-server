@@ -15,6 +15,8 @@ import ScheduleGantt from './components/admin/ScheduleGantt.vue';
 import FeisSettingsManager from './components/admin/FeisSettingsManager.vue';
 import UserManager from './components/admin/UserManager.vue';
 import TeacherDashboard from './components/teacher/TeacherDashboard.vue';
+import CheckInDashboard from './components/checkin/CheckInDashboard.vue';
+import StageMonitor from './components/checkin/StageMonitor.vue';
 import AuthModal from './components/auth/AuthModal.vue';
 import EmailVerification from './components/auth/EmailVerification.vue';
 import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
@@ -72,7 +74,7 @@ const handleAuthSuccess = () => {
 };
 
 // Navigation state
-type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'teacher' | 'verify-email' | 'account';
+type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'teacher' | 'checkin' | 'stage-monitor' | 'verify-email' | 'account';
 const view = ref<ViewType>('home');
 
 // Mobile menu state
@@ -402,6 +404,31 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             >
               Admin
             </button>
+            <!-- Check-In - show for organizers/admins or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              @click="view = 'checkin'"
+              :class="[
+                'px-4 py-2 rounded-lg font-medium transition-all',
+                view === 'checkin' 
+                  ? 'bg-teal-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Check-In
+            </button>
+            <!-- Stage Monitor - public access -->
+            <button 
+              @click="view = 'stage-monitor'"
+              :class="[
+                'px-4 py-2 rounded-lg font-medium transition-all',
+                view === 'stage-monitor' 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Stage
+            </button>
 
             <!-- Separator -->
             <div class="w-px h-6 bg-white/20 mx-2"></div>
@@ -555,6 +582,31 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               ]"
             >
               Admin
+            </button>
+            <!-- Check-In - show for organizers/admins or in demo mode when not logged in -->
+            <button 
+              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              @click="navigateTo('checkin')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'checkin' 
+                  ? 'bg-teal-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Check-In
+            </button>
+            <!-- Stage Monitor - public access -->
+            <button 
+              @click="navigateTo('stage-monitor')"
+              :class="[
+                'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
+                view === 'stage-monitor' 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              ]"
+            >
+              Stage Monitor
             </button>
 
             <!-- Separator -->
@@ -1439,6 +1491,41 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </div>
           </div>
         </template>
+      </div>
+
+      <!-- Check-In Dashboard View -->
+      <div v-else-if="view === 'checkin'" class="py-8">
+        <!-- Access control: show check-in only for organizers/admins or unauthenticated (demo mode) -->
+        <template v-if="!auth.isAuthenticated || auth.canAccessAdmin">
+          <CheckInDashboard />
+        </template>
+        <template v-else>
+          <!-- Access Denied -->
+          <div class="py-12">
+            <div class="max-w-md mx-auto text-center">
+              <div class="w-20 h-20 rounded-2xl bg-teal-100 flex items-center justify-center mx-auto mb-6">
+                <svg class="w-10 h-10 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-3">Organizer Access Only</h2>
+              <p class="text-slate-600 mb-6">
+                The Check-In Dashboard is only available to event organizers and administrators.
+              </p>
+              <button
+                @click="view = 'home'"
+                class="px-6 py-3 rounded-xl font-semibold bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+              >
+                Return Home
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Stage Monitor View (Public) -->
+      <div v-else-if="view === 'stage-monitor'" class="min-h-screen -mt-8 -mx-4 sm:-mx-6 lg:-mx-8">
+        <StageMonitor />
       </div>
 
       <!-- Email Verification View -->

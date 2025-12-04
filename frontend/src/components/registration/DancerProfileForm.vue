@@ -17,7 +17,7 @@ const emit = defineEmits<{
 const name = ref(props.modelValue?.name || '');
 const dob = ref(props.modelValue?.dob || '');
 const gender = ref<Gender>(props.modelValue?.gender || 'female');
-const currentLevel = ref<CompetitionLevel>(props.modelValue?.current_level || 'beginner');
+const currentLevel = ref<CompetitionLevel>(props.modelValue?.current_level || 'beginner_1');
 const clrgNumber = ref(props.modelValue?.clrg_number || '');
 const schoolId = ref<string>(props.modelValue?.school_id || '');
 
@@ -154,10 +154,13 @@ const handleSubmit = () => {
 
 // Level Options with Descriptions
 const levelOptions: { value: CompetitionLevel; label: string; description: string }[] = [
-  { value: 'beginner', label: 'Beginner', description: 'First year of competition (Grades 1-3)' },
-  { value: 'novice', label: 'Novice', description: 'Beginner with 1st place, or Advanced Beginner' },
+  { value: 'first_feis', label: 'First Feis', description: 'First time competing' },
+  { value: 'beginner_1', label: 'Beginner 1', description: 'First year of competition' },
+  { value: 'beginner_2', label: 'Beginner 2', description: 'Advanced beginner' },
+  { value: 'novice', label: 'Novice', description: 'Beginner with 1st place' },
   { value: 'prizewinner', label: 'Prizewinner', description: 'Novice with 1st place in solo' },
-  { value: 'championship', label: 'Championship', description: 'Open Championship level' },
+  { value: 'preliminary_championship', label: 'Prelim Champ', description: 'Preliminary Championship level' },
+  { value: 'open_championship', label: 'Open Champ', description: 'Open Championship level' },
 ];
 
 // Gender Options

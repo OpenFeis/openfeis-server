@@ -18,7 +18,7 @@ const minAge = ref(6);
 const maxAge = ref(18);
 
 // Level selection (multi-select)
-const selectedLevels = ref<Set<CompetitionLevel>>(new Set(['beginner', 'novice', 'prizewinner']));
+const selectedLevels = ref<Set<CompetitionLevel>>(new Set(['beginner_1', 'novice', 'prizewinner']));
 
 // Gender selection (multi-select)
 const selectedGenders = ref<Set<Gender>>(new Set(['male', 'female']));
@@ -86,10 +86,13 @@ const toggleDance = (dance: string) => {
 
 // Level descriptions
 const levelInfo: Record<CompetitionLevel, { label: string; color: string }> = {
-  beginner: { label: 'Beginner', color: 'bg-green-100 text-green-700 border-green-300' },
+  first_feis: { label: 'First Feis', color: 'bg-pink-100 text-pink-700 border-pink-300' },
+  beginner_1: { label: 'Beginner 1', color: 'bg-green-100 text-green-700 border-green-300' },
+  beginner_2: { label: 'Beginner 2', color: 'bg-teal-100 text-teal-700 border-teal-300' },
   novice: { label: 'Novice', color: 'bg-blue-100 text-blue-700 border-blue-300' },
   prizewinner: { label: 'Prizewinner', color: 'bg-orange-100 text-orange-700 border-orange-300' },
-  championship: { label: 'Championship', color: 'bg-amber-100 text-amber-700 border-amber-300' },
+  preliminary_championship: { label: 'Prelim Champ', color: 'bg-purple-100 text-purple-700 border-purple-300' },
+  open_championship: { label: 'Open Champ', color: 'bg-amber-100 text-amber-700 border-amber-300' },
 };
 
 // Gender info
@@ -259,7 +262,7 @@ const previewMatrix = computed(() => {
         <label class="block text-sm font-semibold text-slate-700 mb-3">
           Competition Levels
         </label>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           <button
             v-for="(info, level) in levelInfo"
             :key="level"

@@ -44,14 +44,42 @@ def run_migrations():
         # Competition table - fee category (added in Phase 3)
         ("competition", "fee_category", "ALTER TABLE competition ADD COLUMN fee_category VARCHAR DEFAULT 'qualifying'"),
         
+        # Competition table - display code (added in Phase 5)
+        ("competition", "code", "ALTER TABLE competition ADD COLUMN code VARCHAR"),
+        
         # Entry table - order_id (added in Phase 3)
         ("entry", "order_id", "ALTER TABLE entry ADD COLUMN order_id VARCHAR"),
+        
+        # Entry table - check-in fields (added in Phase 5)
+        ("entry", "check_in_status", "ALTER TABLE entry ADD COLUMN check_in_status VARCHAR DEFAULT 'not_checked_in'"),
+        ("entry", "checked_in_at", "ALTER TABLE entry ADD COLUMN checked_in_at DATETIME"),
+        ("entry", "checked_in_by", "ALTER TABLE entry ADD COLUMN checked_in_by VARCHAR"),
+        ("entry", "cancelled", "ALTER TABLE entry ADD COLUMN cancelled BOOLEAN DEFAULT 0"),
+        ("entry", "cancelled_at", "ALTER TABLE entry ADD COLUMN cancelled_at DATETIME"),
+        ("entry", "cancellation_reason", "ALTER TABLE entry ADD COLUMN cancellation_reason VARCHAR"),
+        ("entry", "refund_amount_cents", "ALTER TABLE entry ADD COLUMN refund_amount_cents INTEGER DEFAULT 0"),
+        
+        # FeisSettings table - capacity & refund fields (added in Phase 5)
+        ("feissettings", "global_dancer_cap", "ALTER TABLE feissettings ADD COLUMN global_dancer_cap INTEGER"),
+        ("feissettings", "enable_waitlist", "ALTER TABLE feissettings ADD COLUMN enable_waitlist BOOLEAN DEFAULT 1"),
+        ("feissettings", "waitlist_offer_hours", "ALTER TABLE feissettings ADD COLUMN waitlist_offer_hours INTEGER DEFAULT 48"),
+        ("feissettings", "allow_scratches", "ALTER TABLE feissettings ADD COLUMN allow_scratches BOOLEAN DEFAULT 1"),
+        ("feissettings", "scratch_refund_percent", "ALTER TABLE feissettings ADD COLUMN scratch_refund_percent INTEGER DEFAULT 50"),
+        ("feissettings", "scratch_deadline", "ALTER TABLE feissettings ADD COLUMN scratch_deadline DATETIME"),
+        
+        # Order table - refund fields (added in Phase 5)
+        # Note: "order" is a reserved SQL keyword, must be quoted
+        ("order", "refund_total_cents", 'ALTER TABLE "order" ADD COLUMN refund_total_cents INTEGER DEFAULT 0'),
+        ("order", "refunded_at", 'ALTER TABLE "order" ADD COLUMN refunded_at DATETIME'),
+        ("order", "refund_reason", 'ALTER TABLE "order" ADD COLUMN refund_reason VARCHAR'),
+        ("order", "stripe_refund_id", 'ALTER TABLE "order" ADD COLUMN stripe_refund_id VARCHAR'),
     ]
     
     with engine.connect() as conn:
         for table, column, sql in migrations:
             # Check if column exists
-            result = conn.execute(text(f"PRAGMA table_info({table})"))
+            # Quote the table name in case it's a reserved keyword (like "order")
+            result = conn.execute(text(f'PRAGMA table_info("{table}")'))
             columns = [row[1] for row in result.fetchall()]
             
             if column not in columns:
@@ -79,7 +107,9 @@ def create_db_and_tables():
     # This must happen BEFORE create_all() is called
     from backend.scoring_engine.models_platform import (
         User, Feis, Competition, Dancer, Entry, SiteSettings, Stage,
-        FeisSettings, FeeItem, Order, OrderItem  # Phase 3 models
+        FeisSettings, FeeItem, Order, OrderItem,  # Phase 3 models
+        PlacementHistory, EntryFlag, AdvancementNotice,  # Phase 4 models
+        WaitlistEntry, RefundLog  # Phase 5 models
     )
     from backend.scoring_engine.models import Round, JudgeScore
     

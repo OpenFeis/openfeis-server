@@ -34,13 +34,29 @@ class AdvancementRule:
 
 
 # Default CLRG-style advancement rules
+# Note: First Feis and Beginner 1/2 are simplified early levels
+# Main advancement path: Novice → Prizewinner → Prelim Champ → Open Champ
 ADVANCEMENT_RULES: Dict[CompetitionLevel, AdvancementRule] = {
-    CompetitionLevel.BEGINNER: AdvancementRule(
-        level=CompetitionLevel.BEGINNER,
+    CompetitionLevel.FIRST_FEIS: AdvancementRule(
+        level=CompetitionLevel.FIRST_FEIS,
+        wins_required=1,
+        next_level=CompetitionLevel.BEGINNER_1,
+        per_dance=False,
+        description="1st place at First Feis advances to Beginner 1"
+    ),
+    CompetitionLevel.BEGINNER_1: AdvancementRule(
+        level=CompetitionLevel.BEGINNER_1,
+        wins_required=1,
+        next_level=CompetitionLevel.BEGINNER_2,
+        per_dance=False,
+        description="1st place at Beginner 1 advances to Beginner 2"
+    ),
+    CompetitionLevel.BEGINNER_2: AdvancementRule(
+        level=CompetitionLevel.BEGINNER_2,
         wins_required=1,
         next_level=CompetitionLevel.NOVICE,
-        per_dance=False,  # Winning at Beginner advances for all dances
-        description="1st place at Beginner advances to Novice for all dances"
+        per_dance=False,
+        description="1st place at Beginner 2 advances to Novice for all dances"
     ),
     CompetitionLevel.NOVICE: AdvancementRule(
         level=CompetitionLevel.NOVICE,
@@ -52,11 +68,18 @@ ADVANCEMENT_RULES: Dict[CompetitionLevel, AdvancementRule] = {
     CompetitionLevel.PRIZEWINNER: AdvancementRule(
         level=CompetitionLevel.PRIZEWINNER,
         wins_required=1,
-        next_level=CompetitionLevel.CHAMPIONSHIP,
+        next_level=CompetitionLevel.PRELIMINARY_CHAMPIONSHIP,
         per_dance=True,  # Winning at Prizewinner advances for that dance only
-        description="1st place at Prizewinner advances to Championship for that dance"
+        description="1st place at Prizewinner advances to Preliminary Championship"
     ),
-    # Championship has no automatic advancement
+    CompetitionLevel.PRELIMINARY_CHAMPIONSHIP: AdvancementRule(
+        level=CompetitionLevel.PRELIMINARY_CHAMPIONSHIP,
+        wins_required=1,
+        next_level=CompetitionLevel.OPEN_CHAMPIONSHIP,
+        per_dance=False,  # Recall at PC qualifies for Open Championship
+        description="Recall at Preliminary Championship qualifies for Open Championship"
+    ),
+    # Open Championship has no automatic advancement
 }
 
 

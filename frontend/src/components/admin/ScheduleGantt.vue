@@ -305,10 +305,13 @@ const unscheduleCompetition = (comp: ScheduledCompetition) => {
 // Get level color
 const getLevelColor = (level: CompetitionLevel): string => {
   const colors: Record<CompetitionLevel, string> = {
-    beginner: 'bg-emerald-500',
+    first_feis: 'bg-pink-500',
+    beginner_1: 'bg-emerald-500',
+    beginner_2: 'bg-teal-500',
     novice: 'bg-blue-500',
     prizewinner: 'bg-amber-500',
-    championship: 'bg-purple-500'
+    preliminary_championship: 'bg-orange-500',
+    open_championship: 'bg-purple-500'
   };
   return colors[level] || 'bg-slate-500';
 };

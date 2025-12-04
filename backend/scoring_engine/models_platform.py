@@ -17,10 +17,14 @@ class RoleType(str, Enum):
     ADJUDICATOR = "adjudicator"
 
 class CompetitionLevel(str, Enum):
-    BEGINNER = "beginner"
-    NOVICE = "novice"
-    PRIZEWINNER = "prizewinner"
-    CHAMPIONSHIP = "championship"
+    """Competition levels following industry standard numbering."""
+    FIRST_FEIS = "first_feis"                       # Level 1
+    BEGINNER_1 = "beginner_1"                       # Level 2
+    BEGINNER_2 = "beginner_2"                       # Level 3 (Advanced Beginner)
+    NOVICE = "novice"                               # Level 4
+    PRIZEWINNER = "prizewinner"                     # Level 5 (Open)
+    PRELIMINARY_CHAMPIONSHIP = "preliminary_championship"  # Level 6
+    OPEN_CHAMPIONSHIP = "open_championship"         # Level 7
 
 class Gender(str, Enum):
     MALE = "male"
@@ -55,8 +59,24 @@ class PaymentStatus(str, Enum):
     PENDING = "pending"         # Not yet paid
     COMPLETED = "completed"     # Payment received
     FAILED = "failed"           # Payment attempt failed
-    REFUNDED = "refunded"       # Payment was refunded
+    REFUNDED = "refunded"       # Payment was refunded (full)
+    PARTIAL_REFUND = "partial_refund"  # Some entries refunded
     PAY_AT_DOOR = "pay_at_door" # Will pay at event check-in
+
+
+class CheckInStatus(str, Enum):
+    """Check-in status for entries at the event."""
+    NOT_CHECKED_IN = "not_checked_in"  # Default state
+    CHECKED_IN = "checked_in"          # Dancer is present
+    SCRATCHED = "scratched"            # Dancer cancelled/no-show
+
+
+class WaitlistStatus(str, Enum):
+    """Status of a waitlist entry."""
+    WAITING = "waiting"       # In queue
+    PROMOTED = "promoted"     # Moved to registered
+    EXPIRED = "expired"       # Offer expired
+    CANCELLED = "cancelled"   # User cancelled
 
 
 # --- Database Models ---
@@ -154,6 +174,10 @@ class Competition(SQLModel, table=True):
     level: CompetitionLevel
     gender: Optional[Gender] = None
     
+    # Display code (e.g., "407SJ" for Novice U7 Slip Jig)
+    # Auto-generated but can be overridden by organizer
+    code: Optional[str] = Field(default=None, index=True)
+    
     # New scheduling/competition definition fields (Phase 2)
     dance_type: Optional[DanceType] = None
     tempo_bpm: Optional[int] = None  # e.g., 113 for Reel
@@ -189,6 +213,17 @@ class Entry(SQLModel, table=True):
     pay_later: bool = Field(default=False)  # "Pay at Door" option - permanent feature
     order_id: Optional[UUID] = Field(default=None, foreign_key="order.id")
     
+    # Check-in status (Phase 5)
+    check_in_status: CheckInStatus = Field(default=CheckInStatus.NOT_CHECKED_IN)
+    checked_in_at: Optional[datetime] = None
+    checked_in_by: Optional[UUID] = Field(default=None, foreign_key="user.id")
+    
+    # Cancellation/Scratch (Phase 5)
+    cancelled: bool = Field(default=False)
+    cancelled_at: Optional[datetime] = None
+    cancellation_reason: Optional[str] = None
+    refund_amount_cents: int = Field(default=0)  # Amount refunded for this entry
+    
     # Relationships
     dancer: Dancer = Relationship(back_populates="entries")
     competition: Competition = Relationship(back_populates="entries")
@@ -223,6 +258,16 @@ class FeisSettings(SQLModel, table=True):
     # Registration window
     registration_opens: Optional[datetime] = None
     registration_closes: Optional[datetime] = None
+    
+    # Capacity limits (Phase 5)
+    global_dancer_cap: Optional[int] = None  # Max total dancers (None = unlimited)
+    enable_waitlist: bool = Field(default=True)  # Auto-add to waitlist when caps reached
+    waitlist_offer_hours: int = Field(default=48)  # Hours to accept waitlist offer before expiring
+    
+    # Refund policy (Phase 5)
+    allow_scratches: bool = Field(default=True)  # Can entries be cancelled?
+    scratch_refund_percent: int = Field(default=50)  # % refund when scratching (0-100)
+    scratch_deadline: Optional[datetime] = None  # After this, no refunds
     
     # Stripe settings (per-feis, for Stripe Connect)
     stripe_account_id: Optional[str] = None  # Connected Stripe account ID
@@ -279,6 +324,12 @@ class Order(SQLModel, table=True):
     status: PaymentStatus = Field(default=PaymentStatus.PENDING)
     stripe_payment_intent_id: Optional[str] = None
     stripe_checkout_session_id: Optional[str] = None
+    
+    # Refund tracking (Phase 5)
+    refund_total_cents: int = Field(default=0)  # Total amount refunded
+    refunded_at: Optional[datetime] = None
+    refund_reason: Optional[str] = None
+    stripe_refund_id: Optional[str] = None
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -422,4 +473,73 @@ class AdvancementNotice(SQLModel, table=True):
     
     # Relationships
     dancer: "Dancer" = Relationship()
+
+
+# ============= Phase 5: Waitlist, Check-In, Refunds =============
+
+class WaitlistEntry(SQLModel, table=True):
+    """
+    Tracks dancers waiting for a spot in a competition or feis.
+    
+    When a competition or feis reaches capacity, new registrations
+    go to the waitlist. If a spot opens (scratch/cancellation),
+    the next person in line is offered the spot.
+    """
+    __tablename__ = "waitlistentry"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    feis_id: UUID = Field(foreign_key="feis.id", index=True)
+    dancer_id: UUID = Field(foreign_key="dancer.id", index=True)
+    competition_id: Optional[UUID] = Field(default=None, foreign_key="competition.id")  # None = global waitlist
+    user_id: UUID = Field(foreign_key="user.id")  # Parent who added to waitlist
+    
+    # Queue position and status
+    position: int  # Position in waitlist (1 = first in line)
+    status: WaitlistStatus = Field(default=WaitlistStatus.WAITING)
+    
+    # Offer tracking (when spot becomes available)
+    offer_sent_at: Optional[datetime] = None
+    offer_expires_at: Optional[datetime] = None
+    offer_accepted_at: Optional[datetime] = None
+    
+    # If promoted, reference to the created entry
+    promoted_entry_id: Optional[UUID] = Field(default=None, foreign_key="entry.id")
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    feis: "Feis" = Relationship()
+    dancer: "Dancer" = Relationship()
+    competition: Optional["Competition"] = Relationship()
+    user: "User" = Relationship()
+
+
+class RefundLog(SQLModel, table=True):
+    """
+    Audit log for refunds processed.
+    
+    Tracks individual refund transactions for compliance and debugging.
+    """
+    __tablename__ = "refundlog"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    order_id: UUID = Field(foreign_key="order.id", index=True)
+    entry_id: Optional[UUID] = Field(default=None, foreign_key="entry.id")  # Specific entry if partial refund
+    
+    # Refund details
+    amount_cents: int
+    reason: str
+    refund_type: str  # "full", "partial", "scratch"
+    
+    # Processing info
+    processed_by: UUID = Field(foreign_key="user.id")
+    stripe_refund_id: Optional[str] = None
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    order: "Order" = Relationship()
 

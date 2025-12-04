@@ -1,0 +1,183 @@
+"""
+Competition code generation following industry standards.
+
+Format: [LevelDigit][AgeIndex][DanceCode][Variant?]
+
+Examples:
+- 407SJ = Novice (4), U7 (07), Slip Jig
+- 609PC = Preliminary Championship (6), U9 (09)
+- 515RL2 = Prizewinner (5), U15 (15), Reel, Second Chance
+
+Level digits:
+- 1 = First Feis
+- 2 = Beginner 1
+- 3 = Beginner 2 / Advanced Beginner  
+- 4 = Novice
+- 5 = Prizewinner / Open
+- 6 = Preliminary Championship
+- 7 = Open Championship
+- 8-9 = Specials, teams, ceili
+
+Dance codes:
+- RL = Reel
+- LJ = Light Jig
+- SJ = Slip Jig
+- SN = Single Jig
+- TJ = Treble Jig
+- HP = Hornpipe
+- TS = Traditional Set
+- CS = Contemporary Set
+- TR = Treble Reel
+- PD = St. Patrick's Day
+
+Championship round codes:
+- PC = Preliminary Championship
+- OC = Open Championship
+"""
+
+from typing import Optional
+
+# Level to digit mapping
+LEVEL_DIGITS = {
+    "first_feis": "1",
+    "beginner_1": "2",
+    "beginner_2": "3",
+    "novice": "4",
+    "prizewinner": "5",
+    "preliminary_championship": "6",
+    "open_championship": "7",
+}
+
+# Dance type to code mapping
+DANCE_CODES = {
+    "REEL": "RL",
+    "LIGHT_JIG": "LJ",
+    "SLIP_JIG": "SJ",
+    "SINGLE_JIG": "SN",
+    "TREBLE_JIG": "TJ",
+    "HORNPIPE": "HP",
+    "TRADITIONAL_SET": "TS",
+    "CONTEMPORARY_SET": "CS",
+    "TREBLE_REEL": "TR",
+}
+
+# Reverse mapping for display
+DANCE_CODE_NAMES = {v: k for k, v in DANCE_CODES.items()}
+
+
+def generate_competition_code(
+    level: str,
+    min_age: int,
+    dance_type: Optional[str] = None,
+    is_second_chance: bool = False,
+    variant_suffix: Optional[str] = None
+) -> str:
+    """
+    Generate a competition code following industry conventions.
+    
+    Args:
+        level: Competition level (e.g., "novice", "preliminary_championship")
+        min_age: Minimum age for the competition (used as age index)
+        dance_type: Dance type enum value (e.g., "REEL", "SLIP_JIG")
+        is_second_chance: Whether this is a second chance competition
+        variant_suffix: Optional custom suffix (overrides second chance)
+    
+    Returns:
+        Competition code string (e.g., "407SJ", "609PC")
+    """
+    # Get level digit
+    level_digit = LEVEL_DIGITS.get(level.lower(), "9")
+    
+    # Age index - pad to 2 digits
+    # Use min_age directly as the index (U6 -> 06, U10 -> 10, U15 -> 15)
+    age_index = str(min_age).zfill(2)
+    
+    # For championships, use round code instead of dance code
+    if level.lower() in ("preliminary_championship", "open_championship"):
+        if level.lower() == "preliminary_championship":
+            dance_code = "PC"
+        else:
+            dance_code = "OC"
+    elif dance_type:
+        dance_code = DANCE_CODES.get(dance_type.upper(), dance_type[:2].upper() if dance_type else "")
+    else:
+        dance_code = ""
+    
+    # Build the code
+    code = f"{level_digit}{age_index}{dance_code}"
+    
+    # Add suffix
+    if variant_suffix:
+        code += variant_suffix
+    elif is_second_chance:
+        code += "2"
+    
+    return code
+
+
+def parse_competition_code(code: str) -> dict:
+    """
+    Parse a competition code into its components.
+    
+    Args:
+        code: Competition code string (e.g., "407SJ", "609PC2")
+    
+    Returns:
+        Dictionary with level_digit, age_index, dance_code, suffix
+    """
+    if not code or len(code) < 3:
+        return {}
+    
+    result = {
+        "level_digit": code[0],
+        "age_index": code[1:3] if len(code) >= 3 else "",
+        "dance_code": "",
+        "suffix": ""
+    }
+    
+    # Extract dance code and suffix
+    remaining = code[3:]
+    if remaining:
+        # Dance codes are typically 2 letters
+        if len(remaining) >= 2 and remaining[:2].isalpha():
+            result["dance_code"] = remaining[:2]
+            result["suffix"] = remaining[2:]
+        else:
+            result["suffix"] = remaining
+    
+    return result
+
+
+def get_level_name(level_digit: str) -> str:
+    """Get human-readable level name from digit."""
+    names = {
+        "1": "First Feis",
+        "2": "Beginner 1",
+        "3": "Beginner 2",
+        "4": "Novice",
+        "5": "Prizewinner",
+        "6": "Preliminary Championship",
+        "7": "Open Championship",
+        "8": "Special",
+        "9": "Special",
+    }
+    return names.get(level_digit, "Unknown")
+
+
+def get_dance_name(dance_code: str) -> str:
+    """Get human-readable dance name from code."""
+    names = {
+        "RL": "Reel",
+        "LJ": "Light Jig",
+        "SJ": "Slip Jig",
+        "SN": "Single Jig",
+        "TJ": "Treble Jig",
+        "HP": "Hornpipe",
+        "TS": "Traditional Set",
+        "CS": "Contemporary Set",
+        "TR": "Treble Reel",
+        "PC": "Preliminary Championship",
+        "OC": "Open Championship",
+    }
+    return names.get(dance_code.upper(), dance_code)
+

@@ -104,10 +104,13 @@ const registrationsLoading = ref(false);
 
 // Level and gender options
 const levelOptions: { value: CompetitionLevel; label: string }[] = [
-  { value: 'beginner', label: 'Beginner' },
+  { value: 'first_feis', label: 'First Feis' },
+  { value: 'beginner_1', label: 'Beginner 1' },
+  { value: 'beginner_2', label: 'Beginner 2' },
   { value: 'novice', label: 'Novice' },
   { value: 'prizewinner', label: 'Prizewinner' },
-  { value: 'championship', label: 'Championship' },
+  { value: 'preliminary_championship', label: 'Prelim Champ' },
+  { value: 'open_championship', label: 'Open Champ' },
 ];
 
 const genderOptions: { value: Gender; label: string }[] = [
@@ -257,7 +260,7 @@ const openAddDancer = async () => {
     name: '',
     dob: '',
     gender: 'female',
-    current_level: 'beginner',
+    current_level: 'beginner_1',
     clrg_number: '',
     school_id: ''
   };

@@ -12,6 +12,7 @@ from backend.scoring_engine.models_platform import (
 )
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
+from backend.utils.competition_codes import generate_competition_code
 from backend.api.schemas import (
     SyllabusGenerationRequest, SyllabusGenerationResponse,
     FeisCreate, FeisUpdate, FeisResponse,
@@ -737,6 +738,7 @@ async def list_competitions(feis_id: str, session: Session = Depends(get_session
             max_age=comp.max_age,
             level=comp.level,
             gender=comp.gender,
+            code=comp.code,
             entry_count=entry_count,
             # New scheduling fields
             dance_type=comp.dance_type,
@@ -760,6 +762,15 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
+    # Auto-generate code if not provided
+    code = comp_data.code
+    if not code:
+        code = generate_competition_code(
+            level=comp_data.level.value,
+            min_age=comp_data.min_age,
+            dance_type=comp_data.dance_type.value if comp_data.dance_type else None
+        )
+    
     comp = Competition(
         feis_id=feis.id,
         name=comp_data.name,
@@ -767,6 +778,7 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         max_age=comp_data.max_age,
         level=comp_data.level,
         gender=comp_data.gender,
+        code=code,
         # New fields
         dance_type=comp_data.dance_type,
         tempo_bpm=comp_data.tempo_bpm,
@@ -787,6 +799,7 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         max_age=comp.max_age,
         level=comp.level,
         gender=comp.gender,
+        code=comp.code,
         entry_count=0,
         dance_type=comp.dance_type,
         tempo_bpm=comp.tempo_bpm,
@@ -957,6 +970,13 @@ async def generate_syllabus(
                     dance_type = get_dance_type_from_name(dance)
                     tempo = get_default_tempo(dance_type)
                     
+                    # Generate competition code
+                    code = generate_competition_code(
+                        level=level.value,
+                        min_age=current_age,  # Use age group (e.g., U6 -> 6)
+                        dance_type=dance_type.value if dance_type else None
+                    )
+                    
                     comp = Competition(
                         feis_id=feis.id,
                         name=comp_name,
@@ -964,6 +984,7 @@ async def generate_syllabus(
                         max_age=current_age,
                         level=level,
                         gender=gender,
+                        code=code,
                         # New fields
                         dance_type=dance_type,
                         tempo_bpm=tempo,
@@ -3845,7 +3866,7 @@ async def get_teacher_dashboard(
             dancer_name=dancer.name if dancer else "Unknown",
             competition_id=str(entry.competition_id),
             competition_name=comp.name if comp else "Unknown",
-            level=comp.level if comp else CompetitionLevel.BEGINNER,
+            level=comp.level if comp else CompetitionLevel.BEGINNER_1,
             competitor_number=entry.competitor_number,
             paid=entry.paid,
             feis_id=str(comp.feis_id) if comp else "",
@@ -4106,3 +4127,599 @@ async def export_teacher_entries(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=school_entries_{feis_id or 'all'}.csv"}
     )
+
+
+# ============= Phase 5: Waitlist, Check-In, Refunds =============
+
+from backend.scoring_engine.models_platform import WaitlistEntry, RefundLog, CheckInStatus, WaitlistStatus
+from backend.api.schemas import (
+    WaitlistEntryResponse, WaitlistAddRequest, WaitlistStatusResponse,
+    CheckInRequest, CheckInResponse, BulkCheckInRequest, BulkCheckInResponse,
+    StageMonitorEntry, StageMonitorResponse, ScratchEntryRequest, ScratchEntryResponse,
+    RefundRequest, RefundResponse, RefundLogResponse, OrderRefundSummary,
+    FeisCapacityStatus
+)
+from backend.services.waitlist import (
+    get_competition_capacity, get_feis_capacity, check_can_register,
+    add_to_waitlist, get_user_waitlist_entries, process_spot_available,
+    accept_waitlist_offer, cancel_waitlist_entry
+)
+from backend.services.checkin import (
+    check_in_entry, check_in_by_number, bulk_check_in, undo_check_in,
+    mark_scratched, get_stage_monitor_data, get_competition_check_in_stats,
+    get_feis_check_in_summary, lookup_entry_by_qr
+)
+from backend.services.refund import (
+    get_refund_policy, scratch_entry, process_full_refund,
+    process_partial_refund, get_order_refund_summary, get_feis_refund_stats
+)
+
+
+# --- Capacity & Waitlist ---
+
+@router.get("/feis/{feis_id}/capacity", response_model=FeisCapacityStatus)
+async def get_feis_capacity_status(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get capacity status for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    cap_info = get_feis_capacity(session, UUID(feis_id))
+    
+    return FeisCapacityStatus(
+        feis_id=str(feis.id),
+        feis_name=feis.name,
+        global_cap=cap_info.max_capacity,
+        current_dancer_count=cap_info.current_count,
+        spots_remaining=cap_info.spots_remaining,
+        is_full=cap_info.is_full,
+        waitlist_enabled=cap_info.waitlist_enabled,
+        waitlist_count=cap_info.waitlist_count
+    )
+
+
+@router.get("/competitions/{competition_id}/capacity")
+async def get_competition_capacity_status(
+    competition_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get capacity status for a competition."""
+    comp = session.get(Competition, UUID(competition_id))
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    cap_info = get_competition_capacity(session, UUID(competition_id))
+    
+    return {
+        "competition_id": str(comp.id),
+        "competition_name": comp.name,
+        "max_entries": cap_info.max_capacity,
+        "current_entries": cap_info.current_count,
+        "spots_remaining": cap_info.spots_remaining,
+        "is_full": cap_info.is_full,
+        "waitlist_count": cap_info.waitlist_count
+    }
+
+
+@router.post("/waitlist/add", response_model=WaitlistEntryResponse)
+async def add_to_waitlist_endpoint(
+    request: WaitlistAddRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a dancer to the waitlist."""
+    # Verify dancer belongs to user
+    dancer = session.get(Dancer, UUID(request.dancer_id))
+    if not dancer:
+        raise HTTPException(status_code=404, detail="Dancer not found")
+    if dancer.parent_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized for this dancer")
+    
+    feis = session.get(Feis, UUID(request.feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    comp_id = UUID(request.competition_id) if request.competition_id else None
+    comp = session.get(Competition, comp_id) if comp_id else None
+    
+    entry = add_to_waitlist(
+        session,
+        UUID(request.feis_id),
+        UUID(request.dancer_id),
+        current_user.id,
+        comp_id
+    )
+    
+    return WaitlistEntryResponse(
+        id=str(entry.id),
+        feis_id=str(entry.feis_id),
+        feis_name=feis.name,
+        dancer_id=str(entry.dancer_id),
+        dancer_name=dancer.name,
+        competition_id=str(entry.competition_id) if entry.competition_id else None,
+        competition_name=comp.name if comp else None,
+        position=entry.position,
+        status=entry.status,
+        offer_sent_at=entry.offer_sent_at,
+        offer_expires_at=entry.offer_expires_at,
+        created_at=entry.created_at
+    )
+
+
+@router.get("/waitlist/mine", response_model=List[WaitlistEntryResponse])
+async def get_my_waitlist_entries(
+    feis_id: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Get waitlist entries for current user's dancers."""
+    feis_uuid = UUID(feis_id) if feis_id else None
+    entries = get_user_waitlist_entries(session, current_user.id, feis_uuid)
+    
+    results = []
+    for entry in entries:
+        dancer = session.get(Dancer, entry.dancer_id)
+        feis = session.get(Feis, entry.feis_id)
+        comp = session.get(Competition, entry.competition_id) if entry.competition_id else None
+        
+        results.append(WaitlistEntryResponse(
+            id=str(entry.id),
+            feis_id=str(entry.feis_id),
+            feis_name=feis.name if feis else "Unknown",
+            dancer_id=str(entry.dancer_id),
+            dancer_name=dancer.name if dancer else "Unknown",
+            competition_id=str(entry.competition_id) if entry.competition_id else None,
+            competition_name=comp.name if comp else None,
+            position=entry.position,
+            status=entry.status,
+            offer_sent_at=entry.offer_sent_at,
+            offer_expires_at=entry.offer_expires_at,
+            created_at=entry.created_at
+        ))
+    
+    return results
+
+
+@router.post("/waitlist/{waitlist_id}/accept")
+async def accept_waitlist(
+    waitlist_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Accept a waitlist offer."""
+    success, message, entry = accept_waitlist_offer(
+        session, UUID(waitlist_id), current_user.id
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {
+        "success": True,
+        "message": message,
+        "entry_id": str(entry.id) if entry else None
+    }
+
+
+@router.post("/waitlist/{waitlist_id}/cancel")
+async def cancel_waitlist(
+    waitlist_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel a waitlist entry."""
+    success, message = cancel_waitlist_entry(session, UUID(waitlist_id), current_user.id)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {"success": True, "message": message}
+
+
+@router.get("/feis/{feis_id}/waitlist", response_model=WaitlistStatusResponse)
+async def get_feis_waitlist_status(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Get waitlist status for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Global waitlist count
+    global_count = session.exec(
+        select(func.count(WaitlistEntry.id))
+        .where(WaitlistEntry.feis_id == UUID(feis_id))
+        .where(WaitlistEntry.competition_id.is_(None))
+        .where(WaitlistEntry.status == WaitlistStatus.WAITING)
+    ).one()
+    
+    # Per-competition waitlists
+    comp_waitlists = {}
+    competitions = session.exec(
+        select(Competition).where(Competition.feis_id == UUID(feis_id))
+    ).all()
+    
+    for comp in competitions:
+        count = session.exec(
+            select(func.count(WaitlistEntry.id))
+            .where(WaitlistEntry.competition_id == comp.id)
+            .where(WaitlistEntry.status == WaitlistStatus.WAITING)
+        ).one()
+        if count > 0:
+            comp_waitlists[str(comp.id)] = count
+    
+    total = global_count + sum(comp_waitlists.values())
+    
+    # User's entries
+    user_entries = get_user_waitlist_entries(session, current_user.id, UUID(feis_id))
+    user_entry_responses = []
+    for entry in user_entries:
+        dancer = session.get(Dancer, entry.dancer_id)
+        comp = session.get(Competition, entry.competition_id) if entry.competition_id else None
+        user_entry_responses.append(WaitlistEntryResponse(
+            id=str(entry.id),
+            feis_id=str(entry.feis_id),
+            feis_name=feis.name,
+            dancer_id=str(entry.dancer_id),
+            dancer_name=dancer.name if dancer else "Unknown",
+            competition_id=str(entry.competition_id) if entry.competition_id else None,
+            competition_name=comp.name if comp else None,
+            position=entry.position,
+            status=entry.status,
+            offer_sent_at=entry.offer_sent_at,
+            offer_expires_at=entry.offer_expires_at,
+            created_at=entry.created_at
+        ))
+    
+    return WaitlistStatusResponse(
+        feis_id=str(feis.id),
+        feis_name=feis.name,
+        total_waiting=total,
+        competition_waitlists=comp_waitlists,
+        global_waitlist_count=global_count,
+        user_waitlist_entries=user_entry_responses
+    )
+
+
+# --- Check-In ---
+
+@router.post("/checkin", response_model=CheckInResponse)
+async def check_in_dancer(
+    request: CheckInRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Check in a dancer by entry ID."""
+    result = check_in_entry(session, UUID(request.entry_id), current_user.id)
+    
+    return CheckInResponse(
+        entry_id=result.entry_id,
+        dancer_name=result.dancer_name,
+        competitor_number=result.competitor_number,
+        competition_name=result.competition_name,
+        status=result.status,
+        checked_in_at=datetime.utcnow() if result.success else None,
+        message=result.message
+    )
+
+
+@router.post("/checkin/by-number", response_model=CheckInResponse)
+async def check_in_by_competitor_number(
+    competition_id: str,
+    competitor_number: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Check in a dancer by competitor number."""
+    result = check_in_by_number(
+        session, UUID(competition_id), competitor_number, current_user.id
+    )
+    
+    return CheckInResponse(
+        entry_id=result.entry_id,
+        dancer_name=result.dancer_name,
+        competitor_number=result.competitor_number,
+        competition_name=result.competition_name,
+        status=result.status,
+        checked_in_at=datetime.utcnow() if result.success else None,
+        message=result.message
+    )
+
+
+@router.post("/checkin/bulk", response_model=BulkCheckInResponse)
+async def bulk_check_in_endpoint(
+    request: BulkCheckInRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Check in multiple dancers at once."""
+    entry_uuids = [UUID(eid) for eid in request.entry_ids]
+    results = bulk_check_in(session, entry_uuids, current_user.id)
+    
+    responses = [
+        CheckInResponse(
+            entry_id=r.entry_id,
+            dancer_name=r.dancer_name,
+            competitor_number=r.competitor_number,
+            competition_name=r.competition_name,
+            status=r.status,
+            checked_in_at=datetime.utcnow() if r.success else None,
+            message=r.message
+        )
+        for r in results
+    ]
+    
+    successful = sum(1 for r in results if r.success)
+    
+    return BulkCheckInResponse(
+        successful=successful,
+        failed=len(results) - successful,
+        results=responses
+    )
+
+
+@router.post("/checkin/{entry_id}/undo", response_model=CheckInResponse)
+async def undo_check_in_endpoint(
+    entry_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Undo a check-in."""
+    result = undo_check_in(session, UUID(entry_id))
+    
+    return CheckInResponse(
+        entry_id=result.entry_id,
+        dancer_name=result.dancer_name,
+        competitor_number=result.competitor_number,
+        competition_name=result.competition_name,
+        status=result.status,
+        checked_in_at=None,
+        message=result.message
+    )
+
+
+@router.get("/checkin/qr/{dancer_id}")
+async def lookup_by_qr_code(
+    dancer_id: str,
+    feis_id: Optional[str] = None,
+    session: Session = Depends(get_session)
+):
+    """Look up entries for a dancer (from QR code scan)."""
+    feis_uuid = UUID(feis_id) if feis_id else None
+    entries = lookup_entry_by_qr(session, UUID(dancer_id), feis_uuid)
+    
+    results = []
+    for entry in entries:
+        dancer = session.get(Dancer, entry.dancer_id)
+        competition = session.get(Competition, entry.competition_id)
+        feis = session.get(Feis, competition.feis_id) if competition else None
+        
+        results.append({
+            "entry_id": str(entry.id),
+            "dancer_name": dancer.name if dancer else "Unknown",
+            "competitor_number": entry.competitor_number,
+            "competition_id": str(competition.id) if competition else None,
+            "competition_name": competition.name if competition else "Unknown",
+            "feis_name": feis.name if feis else "Unknown",
+            "check_in_status": entry.check_in_status.value,
+            "paid": entry.paid,
+            "cancelled": entry.cancelled
+        })
+    
+    return {"dancer_id": dancer_id, "entries": results}
+
+
+@router.get("/competitions/{competition_id}/stage-monitor", response_model=StageMonitorResponse)
+async def get_stage_monitor(
+    competition_id: str,
+    current_position: int = 0,
+    session: Session = Depends(get_session)
+):
+    """Get stage monitor data for a competition."""
+    data = get_stage_monitor_data(session, UUID(competition_id), current_position)
+    
+    entries = [
+        StageMonitorEntry(
+            entry_id=e["entry_id"],
+            competitor_number=e["competitor_number"],
+            dancer_name=e["dancer_name"],
+            school_name=e["school_name"],
+            check_in_status=CheckInStatus(e["check_in_status"]),
+            is_current=e["is_current"],
+            is_on_deck=e["is_on_deck"]
+        )
+        for e in data.entries
+    ]
+    
+    current_dancer = next((e for e in entries if e.is_current), None)
+    on_deck = [e for e in entries if e.is_on_deck]
+    
+    return StageMonitorResponse(
+        competition_id=data.competition_id,
+        competition_name=data.competition_name,
+        stage_name=data.stage_name,
+        feis_name=data.feis_name,
+        total_entries=data.total_entries,
+        checked_in_count=data.checked_in_count,
+        scratched_count=data.scratched_count,
+        current_dancer=current_dancer,
+        on_deck=on_deck,
+        all_entries=entries
+    )
+
+
+@router.get("/competitions/{competition_id}/checkin-stats")
+async def get_competition_checkin_stats(
+    competition_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get check-in statistics for a competition."""
+    return get_competition_check_in_stats(session, UUID(competition_id))
+
+
+@router.get("/feis/{feis_id}/checkin-summary")
+async def get_feis_checkin_summary(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get check-in summary for all competitions in a feis."""
+    return get_feis_check_in_summary(session, UUID(feis_id))
+
+
+# --- Scratch / Refunds ---
+
+@router.post("/entries/{entry_id}/scratch", response_model=ScratchEntryResponse)
+async def scratch_entry_endpoint(
+    entry_id: str,
+    request: ScratchEntryRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Scratch (cancel) an entry with refund processing."""
+    entry = session.get(Entry, UUID(entry_id))
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    # Verify user owns this entry (or is admin/organizer)
+    dancer = session.get(Dancer, entry.dancer_id)
+    competition = session.get(Competition, entry.competition_id)
+    feis = session.get(Feis, competition.feis_id) if competition else None
+    
+    is_owner = dancer and dancer.parent_id == current_user.id
+    is_admin = current_user.role in [RoleType.SUPER_ADMIN, RoleType.ORGANIZER]
+    is_feis_owner = feis and feis.organizer_id == current_user.id
+    
+    if not (is_owner or is_admin or is_feis_owner):
+        raise HTTPException(status_code=403, detail="Not authorized to scratch this entry")
+    
+    result = scratch_entry(session, UUID(entry_id), current_user.id, request.reason)
+    
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    
+    return ScratchEntryResponse(
+        entry_id=result.entry_id,
+        dancer_name=result.dancer_name,
+        competition_name=result.competition_name,
+        refund_amount_cents=result.refund_amount_cents,
+        message=result.message
+    )
+
+
+@router.get("/feis/{feis_id}/refund-policy")
+async def get_feis_refund_policy(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get the refund policy for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    policy = get_refund_policy(session, UUID(feis_id))
+    return {
+        "feis_id": feis_id,
+        "feis_name": feis.name,
+        **policy
+    }
+
+
+@router.post("/orders/{order_id}/refund", response_model=RefundResponse)
+async def refund_order(
+    order_id: str,
+    request: RefundRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Process a refund for an order."""
+    order = session.get(Order, UUID(order_id))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if request.entry_ids:
+        # Partial refund
+        entry_uuids = [UUID(eid) for eid in request.entry_ids]
+        result = process_partial_refund(
+            session, UUID(order_id), entry_uuids, current_user.id,
+            request.reason, request.refund_amount_cents
+        )
+    else:
+        # Full refund
+        result = process_full_refund(
+            session, UUID(order_id), current_user.id, request.reason
+        )
+    
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    
+    return RefundResponse(
+        order_id=result.order_id,
+        refund_amount_cents=result.refund_amount_cents,
+        refund_type=result.refund_type,
+        stripe_refund_id=result.stripe_refund_id,
+        entries_refunded=result.entries_affected,
+        message=result.message
+    )
+
+
+@router.get("/orders/{order_id}/refunds", response_model=OrderRefundSummary)
+async def get_order_refunds(
+    order_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Get refund summary for an order."""
+    order = session.get(Order, UUID(order_id))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Verify user owns this order or is admin
+    is_owner = order.user_id == current_user.id
+    is_admin = current_user.role in [RoleType.SUPER_ADMIN, RoleType.ORGANIZER]
+    
+    if not (is_owner or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to view this order")
+    
+    summary = get_order_refund_summary(session, UUID(order_id))
+    
+    logs = [
+        RefundLogResponse(
+            id=log["id"],
+            order_id=order_id,
+            entry_id=log.get("entry_name"),
+            amount_cents=log["amount_cents"],
+            reason=log["reason"],
+            refund_type=log["refund_type"],
+            processed_by_name=log["processed_by_name"],
+            created_at=datetime.fromisoformat(log["created_at"])
+        )
+        for log in summary["refund_logs"]
+    ]
+    
+    return OrderRefundSummary(
+        order_id=order_id,
+        original_total_cents=summary["original_total_cents"],
+        refund_total_cents=summary["refund_total_cents"],
+        remaining_cents=summary["remaining_cents"],
+        status=PaymentStatus(summary["status"]),
+        refund_logs=logs
+    )
+
+
+@router.get("/feis/{feis_id}/refund-stats")
+async def get_feis_refund_statistics(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Get refund statistics for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    return get_feis_refund_stats(session, UUID(feis_id))
