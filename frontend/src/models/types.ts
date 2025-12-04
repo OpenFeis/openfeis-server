@@ -25,6 +25,19 @@ export type CompetitionLevel = 'beginner' | 'novice' | 'prizewinner' | 'champion
 
 export type Gender = 'male' | 'female' | 'other';
 
+// New scheduling types
+export type DanceType = 
+  | 'reel'
+  | 'light_jig'
+  | 'slip_jig'
+  | 'treble_jig'
+  | 'hornpipe'
+  | 'traditional_set'
+  | 'contemporary_set'
+  | 'treble_reel';
+
+export type ScoringMethod = 'solo' | 'championship';
+
 export interface User {
   id: string;
   email: string;
@@ -61,6 +74,27 @@ export interface Competition {
   max_age: number;
   level: CompetitionLevel;
   gender?: Gender;
+  // New scheduling fields
+  dance_type?: DanceType;
+  tempo_bpm?: number;
+  bars?: number;
+  scoring_method?: ScoringMethod;
+  price_cents?: number;
+  max_entries?: number;
+  stage_id?: string;
+  scheduled_time?: string; // ISO datetime
+  estimated_duration_minutes?: number;
+  adjudicator_id?: string;
+  entry_count?: number;
+}
+
+export interface Stage {
+  id: string;
+  feis_id: string;
+  name: string;
+  color?: string; // Hex color, e.g., "#FF5733"
+  sequence: number;
+  competition_count?: number;
 }
 
 export interface Entry {
@@ -139,3 +173,62 @@ export interface ScoreSubmissionResponse {
   notes?: string;
   timestamp: string;
 }
+
+// ============= Scheduling Types =============
+
+export interface ScheduleConflict {
+  conflict_type: 'sibling' | 'adjudicator' | 'time_overlap';
+  severity: 'warning' | 'error';
+  message: string;
+  affected_competition_ids: string[];
+  affected_dancer_ids: string[];
+  affected_stage_ids: string[];
+}
+
+export interface ScheduledCompetition {
+  id: string;
+  name: string;
+  stage_id?: string;
+  stage_name?: string;
+  scheduled_time?: string;
+  estimated_duration_minutes: number;
+  entry_count: number;
+  level: CompetitionLevel;
+  dance_type?: DanceType;
+  has_conflicts: boolean;
+}
+
+export interface SchedulerViewResponse {
+  feis_id: string;
+  feis_name: string;
+  feis_date: string;
+  stages: Stage[];
+  competitions: ScheduledCompetition[];
+  conflicts: ScheduleConflict[];
+}
+
+export interface DurationEstimateRequest {
+  entry_count: number;
+  bars?: number;
+  tempo_bpm?: number;
+  dancers_per_rotation?: number;
+  setup_time_minutes?: number;
+}
+
+export interface DurationEstimateResponse {
+  estimated_minutes: number;
+  rotations: number;
+  breakdown: string;
+}
+
+// Dance type display info
+export const DANCE_TYPE_INFO: Record<DanceType, { label: string; defaultTempo: number; icon: string }> = {
+  reel: { label: 'Reel', defaultTempo: 113, icon: '🎵' },
+  light_jig: { label: 'Light Jig', defaultTempo: 115, icon: '💫' },
+  slip_jig: { label: 'Slip Jig', defaultTempo: 113, icon: '✨' },
+  treble_jig: { label: 'Treble Jig', defaultTempo: 73, icon: '🥁' },
+  hornpipe: { label: 'Hornpipe', defaultTempo: 138, icon: '⚡' },
+  traditional_set: { label: 'Traditional Set', defaultTempo: 113, icon: '🌟' },
+  contemporary_set: { label: 'Contemporary Set', defaultTempo: 113, icon: '💎' },
+  treble_reel: { label: 'Treble Reel', defaultTempo: 92, icon: '🔥' },
+};

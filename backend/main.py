@@ -1,4 +1,4 @@
-# Database schema version: 3 (added password hashing, authentication)
+# Database schema version: 4.3 (data migration to fix enum values)
 import os
 from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query

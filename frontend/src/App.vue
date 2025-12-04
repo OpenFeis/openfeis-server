@@ -11,6 +11,7 @@ import EntryManager from './components/admin/EntryManager.vue';
 import CompetitionManager from './components/admin/CompetitionManager.vue';
 import SiteSettings from './components/admin/SiteSettings.vue';
 import CloudSync from './components/admin/CloudSync.vue';
+import ScheduleGantt from './components/admin/ScheduleGantt.vue';
 import AuthModal from './components/auth/AuthModal.vue';
 import EmailVerification from './components/auth/EmailVerification.vue';
 import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
@@ -84,7 +85,7 @@ const navigateTo = (newView: ViewType) => {
 const verificationToken = ref<string | undefined>(undefined);
 
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -1229,7 +1230,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               <p class="text-slate-600">Select what you'd like to manage</p>
             </div>
 
-            <div class="grid md:grid-cols-3 gap-6">
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               <!-- Entries -->
               <button
                 @click="adminView = 'entries'"
@@ -1256,6 +1257,20 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 </div>
                 <h3 class="text-lg font-bold text-slate-800 mb-1">Competitions</h3>
                 <p class="text-slate-600 text-sm">Edit, delete, or manage competitions</p>
+              </button>
+
+              <!-- Scheduler -->
+              <button
+                @click="adminView = 'scheduler'"
+                class="bg-white rounded-xl p-6 shadow-lg border border-slate-200 hover:border-violet-300 hover:shadow-xl transition-all text-left"
+              >
+                <div class="w-12 h-12 rounded-lg bg-violet-100 flex items-center justify-center mb-4">
+                  <svg class="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-1">Schedule Builder</h3>
+                <p class="text-slate-600 text-sm">Visual drag-and-drop scheduler</p>
               </button>
 
               <!-- Syllabus Generator -->
@@ -1310,6 +1325,26 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               :feis-id="selectedFeis.id"
               :feis-name="selectedFeis.name"
               @generated="handleSyllabusGenerated"
+            />
+          </div>
+
+          <!-- Schedule Builder View -->
+          <div v-else-if="adminView === 'scheduler' && selectedFeis">
+            <div class="mb-6">
+              <button
+                @click="adminView = 'feis-detail'"
+                class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1 mb-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to {{ selectedFeis.name }}
+              </button>
+            </div>
+            <ScheduleGantt
+              :feis-id="selectedFeis.id"
+              :feis-name="selectedFeis.name"
+              @saved="() => {}"
             />
           </div>
 

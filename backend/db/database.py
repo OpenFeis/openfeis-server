@@ -28,6 +28,18 @@ def run_migrations():
         ("user", "email_verified", "ALTER TABLE user ADD COLUMN email_verified BOOLEAN DEFAULT 0"),
         ("user", "email_verification_token", "ALTER TABLE user ADD COLUMN email_verification_token VARCHAR"),
         ("user", "email_verification_sent_at", "ALTER TABLE user ADD COLUMN email_verification_sent_at DATETIME"),
+        
+        # Competition table - scheduling fields (added in Phase 2)
+        ("competition", "dance_type", "ALTER TABLE competition ADD COLUMN dance_type VARCHAR"),
+        ("competition", "tempo_bpm", "ALTER TABLE competition ADD COLUMN tempo_bpm INTEGER"),
+        ("competition", "bars", "ALTER TABLE competition ADD COLUMN bars INTEGER DEFAULT 48"),
+        ("competition", "scoring_method", "ALTER TABLE competition ADD COLUMN scoring_method VARCHAR DEFAULT 'SOLO'"),
+        ("competition", "price_cents", "ALTER TABLE competition ADD COLUMN price_cents INTEGER DEFAULT 1000"),
+        ("competition", "max_entries", "ALTER TABLE competition ADD COLUMN max_entries INTEGER"),
+        ("competition", "stage_id", "ALTER TABLE competition ADD COLUMN stage_id VARCHAR"),
+        ("competition", "scheduled_time", "ALTER TABLE competition ADD COLUMN scheduled_time DATETIME"),
+        ("competition", "estimated_duration_minutes", "ALTER TABLE competition ADD COLUMN estimated_duration_minutes INTEGER"),
+        ("competition", "adjudicator_id", "ALTER TABLE competition ADD COLUMN adjudicator_id VARCHAR"),
     ]
     
     with engine.connect() as conn:
@@ -43,12 +55,23 @@ def run_migrations():
                     conn.commit()
                 except Exception as e:
                     print(f"Migration warning: {e}")
+        
+        # Data migration: Fix enum values (lowercase to uppercase)
+        # This fixes the SQLAlchemy enum lookup issue
+        try:
+            conn.execute(text("UPDATE competition SET scoring_method = 'SOLO' WHERE scoring_method = 'solo'"))
+            conn.execute(text("UPDATE competition SET scoring_method = 'CHAMPIONSHIP' WHERE scoring_method = 'championship'"))
+            conn.execute(text("UPDATE competition SET dance_type = UPPER(dance_type) WHERE dance_type IS NOT NULL"))
+            conn.commit()
+            print("Migration: Fixed enum values to uppercase")
+        except Exception as e:
+            print(f"Migration warning (enum fix): {e}")
 
 
 def create_db_and_tables():
     # Import all models to ensure they are registered with SQLModel.metadata
     # This must happen BEFORE create_all() is called
-    from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, SiteSettings
+    from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, SiteSettings, Stage
     from backend.scoring_engine.models import Round, JudgeScore
     
     SQLModel.metadata.create_all(engine)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { CompetitionLevel, Gender, SyllabusGenerationRequest, SyllabusGenerationResponse } from '../../models/types';
+import type { CompetitionLevel, Gender, SyllabusGenerationRequest, SyllabusGenerationResponse, ScoringMethod } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
 
 // Props
@@ -26,6 +26,10 @@ const selectedGenders = ref<Set<Gender>>(new Set(['male', 'female']));
 // Dance selection (multi-select)
 const availableDances = ['Reel', 'Light Jig', 'Slip Jig', 'Treble Jig', 'Hornpipe', 'Set Dance'];
 const selectedDances = ref<Set<string>>(new Set(['Reel', 'Light Jig', 'Slip Jig']));
+
+// New options
+const priceDollars = ref(10); // Default $10 per competition
+const scoringMethod = ref<ScoringMethod>('solo');
 
 // UI State
 const isGenerating = ref(false);
@@ -119,13 +123,15 @@ const generateSyllabus = async () => {
   error.value = null;
   generationResult.value = null;
 
-  const request: SyllabusGenerationRequest = {
+  const request: SyllabusGenerationRequest & { price_cents: number; scoring_method: ScoringMethod } = {
     feis_id: props.feisId,
     levels: Array.from(selectedLevels.value),
     min_age: minAge.value,
     max_age: maxAge.value,
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
+    price_cents: priceDollars.value * 100,
+    scoring_method: scoringMethod.value,
   };
 
   try {
@@ -301,6 +307,55 @@ const previewMatrix = computed(() => {
             <span class="text-lg">{{ danceIcons[dance] }}</span>
             {{ dance }}
           </button>
+        </div>
+      </div>
+
+      <!-- Pricing & Scoring Options -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-3">
+            Price per Competition
+          </label>
+          <div class="relative">
+            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+            <input 
+              type="number" 
+              v-model.number="priceDollars" 
+              min="0" 
+              max="100"
+              step="1"
+              class="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-lg font-bold"
+            />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-3">
+            Scoring Method
+          </label>
+          <div class="flex gap-2">
+            <button
+              @click="scoringMethod = 'solo'"
+              :class="[
+                'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
+                scoringMethod === 'solo'
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+              ]"
+            >
+              Solo
+            </button>
+            <button
+              @click="scoringMethod = 'championship'"
+              :class="[
+                'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
+                scoringMethod === 'championship'
+                  ? 'bg-purple-600 text-white border-purple-600 shadow-lg'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+              ]"
+            >
+              Championship
+            </button>
+          </div>
         </div>
       </div>
 

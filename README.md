@@ -53,6 +53,10 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Competition Manager** — View, filter, and manage all competitions in a feis
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
 - **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
+- **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages 🆕
+- **Stage Management** — Create and manage multiple stages/areas for your feis 🆕
+- **Time Estimation** — Automatic duration estimates based on entry count and dance parameters 🆕
+- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts) 🆕
 - **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
@@ -179,7 +183,8 @@ openfeis-server/
 │   │   └── database.py         # SQLite connection & session
 │   ├── services/
 │   │   ├── email.py            # Email service (Resend integration)
-│   │   └── number_cards.py     # PDF generation for competitor numbers
+│   │   ├── number_cards.py     # PDF generation for competitor numbers
+│   │   └── scheduling.py       # Time estimation & conflict detection 🆕
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
 │       ├── models.py           # Round, JudgeScore models
@@ -193,6 +198,7 @@ openfeis-server/
 │   │   │   │   ├── CompetitionManager.vue  # Competition listing/management
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
 │   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
+│   │   │   │   ├── ScheduleGantt.vue       # Visual drag-and-drop scheduler 🆕
 │   │   │   │   ├── SiteSettings.vue        # Email & site configuration
 │   │   │   │   └── CloudSync.vue           # Offline-to-cloud sync UI
 │   │   │   ├── account/
@@ -327,6 +333,24 @@ openfeis-server/
 |--------|----------|-------------|---------------|
 | `GET` | `/api/v1/feis/{feis_id}/number-cards` | Bulk PDF of all number cards (sorted by school, name) | Organizer/Admin |
 | `GET` | `/api/v1/entries/{entry_id}/number-card` | Single card reprint | Organizer/Admin |
+
+### Stage Management 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/v1/feis/{feis_id}/stages` | Create a new stage | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/stages` | List stages for a feis | No |
+| `PUT` | `/api/v1/stages/{stage_id}` | Update a stage | Organizer/Admin |
+| `DELETE` | `/api/v1/stages/{stage_id}` | Delete a stage | Organizer/Admin |
+
+### Scheduling 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/scheduler` | Get all scheduler data (stages, competitions, conflicts) | No |
+| `PUT` | `/api/v1/competitions/{id}/schedule` | Update competition schedule (stage, time, duration) | Organizer/Admin |
+| `POST` | `/api/v1/feis/{feis_id}/schedule/batch` | Batch update multiple competition schedules | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/scheduling-conflicts` | Detect and return scheduling conflicts | Organizer/Admin |
 
 ### Example: Login
 
@@ -641,6 +665,13 @@ class Dancer:
     gender: Gender
     clrg_number: Optional[str]
 
+class Stage:  # 🆕 Phase 2
+    id: UUID
+    feis_id: UUID  # FK to Feis
+    name: str  # e.g., "Stage A", "Main Hall"
+    color: Optional[str]  # Hex color for UI
+    sequence: int  # Display order
+
 class Competition:
     id: UUID
     feis_id: UUID  # FK to Feis
@@ -649,6 +680,15 @@ class Competition:
     max_age: int
     level: CompetitionLevel
     gender: Optional[Gender]
+    # Scheduling fields (Phase 2) 🆕
+    dance_type: Optional[DanceType]  # REEL, LIGHT_JIG, SLIP_JIG, etc.
+    tempo_bpm: Optional[int]  # Beats per minute
+    bars: int  # Number of bars danced (default 48)
+    scoring_method: ScoringMethod  # SOLO or CHAMPIONSHIP
+    stage_id: Optional[UUID]  # FK to Stage
+    scheduled_time: Optional[datetime]
+    estimated_duration_minutes: Optional[int]
+    adjudicator_id: Optional[UUID]  # FK to User
 
 class Entry:
     id: UUID
@@ -881,13 +921,21 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 
 ## 🗺️ Roadmap
 
-### 🔜 Coming Soon (Phase 4)
+### ✅ Recently Completed (Phase 2)
 
-- [ ] **Stripe Connect** — Payment processing
-- [ ] **Teacher Portal** — Bulk registration & approval
-- [ ] **Scheduling Matrix** — Drag-and-drop stage assignment
+- [x] **Schedule Builder** — Visual drag-and-drop scheduler for competitions
+- [x] **Stage Management** — Create and manage multiple stages per feis
+- [x] **Time Estimation** — Automatic duration calculation based on entries and dance parameters
+- [x] **Conflict Detection** — Identify sibling overlaps, adjudicator conflicts, and time clashes
+- [x] **Competition Metadata** — Dance type, tempo, bars, scoring method fields
+
+### 🔜 Coming Soon (Phase 3-4)
+
+- [ ] **Stripe Connect** — Payment processing for online registration
+- [ ] **Teacher Portal** — Bulk registration & school management
 - [ ] **Digital Signage** — Stage-side displays for "Now Dancing / On Deck"
 - [ ] **Audit Log** — Track every score change with timestamps
+- [ ] **Print Schedules** — PDF export of stage schedules
 
 ### 🔮 Future
 

@@ -3,10 +3,13 @@ from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from sqlmodel import Session, select, func
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
-from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings
+from backend.scoring_engine.models_platform import (
+    User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings,
+    Stage, DanceType, ScoringMethod
+)
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
 from backend.api.schemas import (
@@ -21,7 +24,16 @@ from backend.api.schemas import (
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
     SiteSettingsUpdate, SiteSettingsResponse,
     CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse,
-    TabulatorResultItem, TabulatorResults, CompetitionWithScores
+    TabulatorResultItem, TabulatorResults, CompetitionWithScores,
+    # New scheduling schemas
+    StageCreate, StageUpdate, StageResponse,
+    DurationEstimateRequest, DurationEstimateResponse,
+    ScheduleCompetitionRequest, BulkScheduleRequest, BulkScheduleResponse,
+    ScheduleConflict, ConflictCheckResponse, ScheduledCompetition, SchedulerViewResponse
+)
+from backend.services.scheduling import (
+    estimate_duration, estimate_competition_duration, detect_all_conflicts,
+    get_dance_type_from_name, get_default_tempo, Conflict
 )
 from backend.api.auth import (
     hash_password, verify_password, create_access_token,
@@ -719,7 +731,18 @@ async def list_competitions(feis_id: str, session: Session = Depends(get_session
             max_age=comp.max_age,
             level=comp.level,
             gender=comp.gender,
-            entry_count=entry_count
+            entry_count=entry_count,
+            # New scheduling fields
+            dance_type=comp.dance_type,
+            tempo_bpm=comp.tempo_bpm,
+            bars=comp.bars or 48,
+            scoring_method=comp.scoring_method or ScoringMethod.SOLO,
+            price_cents=comp.price_cents or 1000,
+            max_entries=comp.max_entries,
+            stage_id=str(comp.stage_id) if comp.stage_id else None,
+            scheduled_time=comp.scheduled_time,
+            estimated_duration_minutes=comp.estimated_duration_minutes,
+            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
         ))
     
     return result
@@ -737,7 +760,14 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         min_age=comp_data.min_age,
         max_age=comp_data.max_age,
         level=comp_data.level,
-        gender=comp_data.gender
+        gender=comp_data.gender,
+        # New fields
+        dance_type=comp_data.dance_type,
+        tempo_bpm=comp_data.tempo_bpm,
+        bars=comp_data.bars,
+        scoring_method=comp_data.scoring_method,
+        price_cents=comp_data.price_cents,
+        max_entries=comp_data.max_entries
     )
     session.add(comp)
     session.commit()
@@ -751,7 +781,13 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         max_age=comp.max_age,
         level=comp.level,
         gender=comp.gender,
-        entry_count=0
+        entry_count=0,
+        dance_type=comp.dance_type,
+        tempo_bpm=comp.tempo_bpm,
+        bars=comp.bars or 48,
+        scoring_method=comp.scoring_method or ScoringMethod.SOLO,
+        price_cents=comp.price_cents or 1000,
+        max_entries=comp.max_entries
     )
 
 @router.put("/competitions/{comp_id}", response_model=CompetitionResponse)
@@ -771,6 +807,27 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         comp.level = comp_data.level
     if comp_data.gender is not None:
         comp.gender = comp_data.gender
+    # New scheduling fields
+    if comp_data.dance_type is not None:
+        comp.dance_type = comp_data.dance_type
+    if comp_data.tempo_bpm is not None:
+        comp.tempo_bpm = comp_data.tempo_bpm
+    if comp_data.bars is not None:
+        comp.bars = comp_data.bars
+    if comp_data.scoring_method is not None:
+        comp.scoring_method = comp_data.scoring_method
+    if comp_data.price_cents is not None:
+        comp.price_cents = comp_data.price_cents
+    if comp_data.max_entries is not None:
+        comp.max_entries = comp_data.max_entries
+    if comp_data.stage_id is not None:
+        comp.stage_id = UUID(comp_data.stage_id) if comp_data.stage_id else None
+    if comp_data.scheduled_time is not None:
+        comp.scheduled_time = comp_data.scheduled_time
+    if comp_data.estimated_duration_minutes is not None:
+        comp.estimated_duration_minutes = comp_data.estimated_duration_minutes
+    if comp_data.adjudicator_id is not None:
+        comp.adjudicator_id = UUID(comp_data.adjudicator_id) if comp_data.adjudicator_id else None
     
     session.add(comp)
     session.commit()
@@ -788,7 +845,17 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         max_age=comp.max_age,
         level=comp.level,
         gender=comp.gender,
-        entry_count=entry_count
+        entry_count=entry_count,
+        dance_type=comp.dance_type,
+        tempo_bpm=comp.tempo_bpm,
+        bars=comp.bars or 48,
+        scoring_method=comp.scoring_method or ScoringMethod.SOLO,
+        price_cents=comp.price_cents or 1000,
+        max_entries=comp.max_entries,
+        stage_id=str(comp.stage_id) if comp.stage_id else None,
+        scheduled_time=comp.scheduled_time,
+        estimated_duration_minutes=comp.estimated_duration_minutes,
+        adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
     )
 
 @router.delete("/competitions/{comp_id}")
@@ -880,13 +947,23 @@ async def generate_syllabus(
                 for dance in request.dances:
                     comp_name = f"{gender.value.title()} {age_group} {dance} ({level.value.title()})"
                     
+                    # Map dance name to DanceType enum
+                    dance_type = get_dance_type_from_name(dance)
+                    tempo = get_default_tempo(dance_type)
+                    
                     comp = Competition(
                         feis_id=feis.id,
                         name=comp_name,
                         min_age=current_age - 2,
                         max_age=current_age,
                         level=level,
-                        gender=gender
+                        gender=gender,
+                        # New fields
+                        dance_type=dance_type,
+                        tempo_bpm=tempo,
+                        bars=48,  # Standard
+                        scoring_method=request.scoring_method,
+                        price_cents=request.price_cents
                     )
                     session.add(comp)
                     count += 1
@@ -899,6 +976,408 @@ async def generate_syllabus(
         generated_count=count,
         message=f"Successfully created {count} competitions for {feis.name}."
     )
+
+
+# ============= Stage Management Endpoints =============
+
+@router.get("/feis/{feis_id}/stages", response_model=List[StageResponse])
+async def list_stages(feis_id: str, session: Session = Depends(get_session)):
+    """List all stages for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    stages = session.exec(
+        select(Stage)
+        .where(Stage.feis_id == feis.id)
+        .order_by(Stage.sequence)
+    ).all()
+    
+    result = []
+    for stage in stages:
+        comp_count = session.exec(
+            select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
+        ).one()
+        result.append(StageResponse(
+            id=str(stage.id),
+            feis_id=str(stage.feis_id),
+            name=stage.name,
+            color=stage.color,
+            sequence=stage.sequence,
+            competition_count=comp_count
+        ))
+    
+    return result
+
+
+@router.post("/stages", response_model=StageResponse)
+async def create_stage(
+    stage_data: StageCreate, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Create a new stage for a feis. Requires organizer or super_admin role."""
+    feis = session.get(Feis, UUID(stage_data.feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only create stages for your own feis")
+    
+    stage = Stage(
+        feis_id=feis.id,
+        name=stage_data.name,
+        color=stage_data.color,
+        sequence=stage_data.sequence
+    )
+    session.add(stage)
+    session.commit()
+    session.refresh(stage)
+    
+    return StageResponse(
+        id=str(stage.id),
+        feis_id=str(stage.feis_id),
+        name=stage.name,
+        color=stage.color,
+        sequence=stage.sequence,
+        competition_count=0
+    )
+
+
+@router.put("/stages/{stage_id}", response_model=StageResponse)
+async def update_stage(
+    stage_id: str, 
+    stage_data: StageUpdate, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Update a stage. Requires organizer or super_admin role."""
+    stage = session.get(Stage, UUID(stage_id))
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    feis = session.get(Feis, stage.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update stages for your own feis")
+    
+    if stage_data.name is not None:
+        stage.name = stage_data.name
+    if stage_data.color is not None:
+        stage.color = stage_data.color
+    if stage_data.sequence is not None:
+        stage.sequence = stage_data.sequence
+    
+    session.add(stage)
+    session.commit()
+    session.refresh(stage)
+    
+    comp_count = session.exec(
+        select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
+    ).one()
+    
+    return StageResponse(
+        id=str(stage.id),
+        feis_id=str(stage.feis_id),
+        name=stage.name,
+        color=stage.color,
+        sequence=stage.sequence,
+        competition_count=comp_count
+    )
+
+
+@router.delete("/stages/{stage_id}")
+async def delete_stage(
+    stage_id: str, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Delete a stage. Competitions assigned to this stage will have their stage_id cleared."""
+    stage = session.get(Stage, UUID(stage_id))
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    feis = session.get(Feis, stage.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete stages for your own feis")
+    
+    # Clear stage_id from any competitions assigned to this stage
+    competitions = session.exec(
+        select(Competition).where(Competition.stage_id == stage.id)
+    ).all()
+    for comp in competitions:
+        comp.stage_id = None
+        session.add(comp)
+    
+    session.delete(stage)
+    session.commit()
+    
+    return {"message": f"Stage '{stage.name}' deleted"}
+
+
+# ============= Scheduling Endpoints =============
+
+@router.post("/scheduling/estimate-duration", response_model=DurationEstimateResponse)
+async def estimate_competition_duration_endpoint(
+    request: DurationEstimateRequest
+):
+    """
+    Estimate how long a competition will take based on entry count and dance parameters.
+    
+    This is a stateless calculation endpoint - no authentication required.
+    """
+    estimated_minutes, rotations, breakdown = estimate_duration(
+        entry_count=request.entry_count,
+        bars=request.bars,
+        tempo_bpm=request.tempo_bpm,
+        dancers_per_rotation=request.dancers_per_rotation,
+        setup_time_minutes=request.setup_time_minutes
+    )
+    
+    return DurationEstimateResponse(
+        estimated_minutes=estimated_minutes,
+        rotations=rotations,
+        breakdown=breakdown
+    )
+
+
+@router.get("/feis/{feis_id}/scheduler", response_model=SchedulerViewResponse)
+async def get_scheduler_view(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get all data needed for the scheduler view.
+    
+    Returns stages, competitions with scheduling info, and detected conflicts.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get stages
+    stages = session.exec(
+        select(Stage)
+        .where(Stage.feis_id == feis.id)
+        .order_by(Stage.sequence)
+    ).all()
+    
+    stage_responses = []
+    for stage in stages:
+        comp_count = session.exec(
+            select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
+        ).one()
+        stage_responses.append(StageResponse(
+            id=str(stage.id),
+            feis_id=str(stage.feis_id),
+            name=stage.name,
+            color=stage.color,
+            sequence=stage.sequence,
+            competition_count=comp_count
+        ))
+    
+    # Get competitions with entry counts and estimated durations
+    competitions = session.exec(
+        select(Competition).where(Competition.feis_id == feis.id)
+    ).all()
+    
+    # Detect conflicts
+    conflicts = detect_all_conflicts(feis.id, session)
+    conflict_comp_ids = set()
+    for conflict in conflicts:
+        conflict_comp_ids.update(conflict.affected_competition_ids)
+    
+    comp_responses = []
+    for comp in competitions:
+        entry_count = session.exec(
+            select(func.count(Entry.id)).where(Entry.competition_id == comp.id)
+        ).one()
+        
+        # Get stage name if assigned
+        stage_name = None
+        if comp.stage_id:
+            stage = session.get(Stage, comp.stage_id)
+            stage_name = stage.name if stage else None
+        
+        # Calculate estimated duration if not set
+        estimated_duration = comp.estimated_duration_minutes
+        if estimated_duration is None:
+            estimated_duration = estimate_competition_duration(comp, entry_count)
+        
+        comp_responses.append(ScheduledCompetition(
+            id=str(comp.id),
+            name=comp.name,
+            stage_id=str(comp.stage_id) if comp.stage_id else None,
+            stage_name=stage_name,
+            scheduled_time=comp.scheduled_time,
+            estimated_duration_minutes=estimated_duration,
+            entry_count=entry_count,
+            level=comp.level,
+            dance_type=comp.dance_type,
+            has_conflicts=str(comp.id) in conflict_comp_ids
+        ))
+    
+    # Convert conflicts to response format
+    conflict_responses = [
+        ScheduleConflict(
+            conflict_type=c.conflict_type,
+            severity=c.severity,
+            message=c.message,
+            affected_competition_ids=c.affected_competition_ids,
+            affected_dancer_ids=c.affected_dancer_ids,
+            affected_stage_ids=c.affected_stage_ids
+        )
+        for c in conflicts
+    ]
+    
+    return SchedulerViewResponse(
+        feis_id=str(feis.id),
+        feis_name=feis.name,
+        feis_date=feis.date,
+        stages=stage_responses,
+        competitions=comp_responses,
+        conflicts=conflict_responses
+    )
+
+
+@router.post("/feis/{feis_id}/schedule/bulk", response_model=BulkScheduleResponse)
+async def bulk_schedule_competitions(
+    feis_id: str,
+    request: BulkScheduleRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Schedule multiple competitions at once.
+    
+    Used by the Gantt scheduler to save all changes.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only schedule competitions for your own feis")
+    
+    scheduled_count = 0
+    for schedule in request.schedules:
+        comp = session.get(Competition, UUID(schedule.competition_id))
+        if comp and comp.feis_id == feis.id:
+            comp.stage_id = UUID(schedule.stage_id) if schedule.stage_id else None
+            comp.scheduled_time = schedule.scheduled_time
+            session.add(comp)
+            scheduled_count += 1
+    
+    session.commit()
+    
+    # Detect conflicts after scheduling
+    conflicts = detect_all_conflicts(feis.id, session)
+    conflict_responses = [
+        ScheduleConflict(
+            conflict_type=c.conflict_type,
+            severity=c.severity,
+            message=c.message,
+            affected_competition_ids=c.affected_competition_ids,
+            affected_dancer_ids=c.affected_dancer_ids,
+            affected_stage_ids=c.affected_stage_ids
+        )
+        for c in conflicts
+    ]
+    
+    return BulkScheduleResponse(
+        scheduled_count=scheduled_count,
+        conflicts=conflict_responses,
+        message=f"Scheduled {scheduled_count} competitions. {len(conflicts)} conflicts detected."
+    )
+
+
+@router.get("/feis/{feis_id}/conflicts", response_model=ConflictCheckResponse)
+async def check_conflicts(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Check for scheduling conflicts in a feis.
+    
+    Returns all detected sibling conflicts, adjudicator conflicts, and time overlaps.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    conflicts = detect_all_conflicts(feis.id, session)
+    
+    warning_count = sum(1 for c in conflicts if c.severity == "warning")
+    error_count = sum(1 for c in conflicts if c.severity == "error")
+    
+    conflict_responses = [
+        ScheduleConflict(
+            conflict_type=c.conflict_type,
+            severity=c.severity,
+            message=c.message,
+            affected_competition_ids=c.affected_competition_ids,
+            affected_dancer_ids=c.affected_dancer_ids,
+            affected_stage_ids=c.affected_stage_ids
+        )
+        for c in conflicts
+    ]
+    
+    return ConflictCheckResponse(
+        has_conflicts=len(conflicts) > 0,
+        warning_count=warning_count,
+        error_count=error_count,
+        conflicts=conflict_responses
+    )
+
+
+@router.post("/competitions/{comp_id}/update-duration")
+async def update_competition_duration(
+    comp_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Recalculate and update a competition's estimated duration based on current entry count.
+    """
+    comp = session.get(Competition, UUID(comp_id))
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    feis = session.get(Feis, comp.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership (unless super_admin)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update competitions for your own feis")
+    
+    # Get entry count
+    entry_count = session.exec(
+        select(func.count(Entry.id)).where(Entry.competition_id == comp.id)
+    ).one()
+    
+    # Calculate new duration
+    new_duration = estimate_competition_duration(comp, entry_count)
+    comp.estimated_duration_minutes = new_duration
+    
+    session.add(comp)
+    session.commit()
+    
+    return {
+        "competition_id": str(comp.id),
+        "entry_count": entry_count,
+        "estimated_duration_minutes": new_duration
+    }
+
 
 # ============= Entry Management Endpoints =============
 

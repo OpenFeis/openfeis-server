@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
-from backend.scoring_engine.models_platform import CompetitionLevel, Gender, RoleType
+from backend.scoring_engine.models_platform import CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod
 
 # ============= Syllabus Generation =============
 
@@ -13,6 +13,9 @@ class SyllabusGenerationRequest(BaseModel):
     max_age: int
     genders: List[Gender]
     dances: List[str] = ["Reel", "Light Jig", "Slip Jig", "Treble Jig", "Hornpipe"]
+    # New options
+    price_cents: int = 1000  # Default $10.00 per competition
+    scoring_method: ScoringMethod = ScoringMethod.SOLO
 
 class SyllabusGenerationResponse(BaseModel):
     generated_count: int
@@ -54,6 +57,13 @@ class CompetitionCreate(BaseModel):
     max_age: int
     level: CompetitionLevel
     gender: Optional[Gender] = None
+    # New scheduling fields
+    dance_type: Optional[DanceType] = None
+    tempo_bpm: Optional[int] = None
+    bars: int = 48
+    scoring_method: ScoringMethod = ScoringMethod.SOLO
+    price_cents: int = 1000
+    max_entries: Optional[int] = None
 
 class CompetitionUpdate(BaseModel):
     name: Optional[str] = None
@@ -61,6 +71,17 @@ class CompetitionUpdate(BaseModel):
     max_age: Optional[int] = None
     level: Optional[CompetitionLevel] = None
     gender: Optional[Gender] = None
+    # New scheduling fields
+    dance_type: Optional[DanceType] = None
+    tempo_bpm: Optional[int] = None
+    bars: Optional[int] = None
+    scoring_method: Optional[ScoringMethod] = None
+    price_cents: Optional[int] = None
+    max_entries: Optional[int] = None
+    stage_id: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
+    estimated_duration_minutes: Optional[int] = None
+    adjudicator_id: Optional[str] = None
 
 class CompetitionResponse(BaseModel):
     id: str
@@ -71,9 +92,46 @@ class CompetitionResponse(BaseModel):
     level: CompetitionLevel
     gender: Optional[Gender] = None
     entry_count: int = 0
+    # New scheduling fields
+    dance_type: Optional[DanceType] = None
+    tempo_bpm: Optional[int] = None
+    bars: int = 48
+    scoring_method: ScoringMethod = ScoringMethod.SOLO
+    price_cents: int = 1000
+    max_entries: Optional[int] = None
+    stage_id: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
+    estimated_duration_minutes: Optional[int] = None
+    adjudicator_id: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+# ============= Stage CRUD =============
+
+class StageCreate(BaseModel):
+    feis_id: str
+    name: str
+    color: Optional[str] = None  # Hex color, e.g., "#FF5733"
+    sequence: int = 0
+
+class StageUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    sequence: Optional[int] = None
+
+class StageResponse(BaseModel):
+    id: str
+    feis_id: str
+    name: str
+    color: Optional[str] = None
+    sequence: int = 0
+    competition_count: int = 0
+
+    class Config:
+        from_attributes = True
+
 
 # ============= Entry Management =============
 
@@ -332,3 +390,95 @@ class CompetitionWithScores(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============= Scheduling / Duration Estimation =============
+
+class DurationEstimateRequest(BaseModel):
+    """Request to estimate competition duration."""
+    entry_count: int
+    bars: int = 48
+    tempo_bpm: int = 113
+    dancers_per_rotation: int = 2
+    setup_time_minutes: int = 2
+
+class DurationEstimateResponse(BaseModel):
+    """Estimated duration for a competition."""
+    estimated_minutes: int
+    rotations: int
+    breakdown: str  # Human-readable breakdown
+
+
+class ScheduleCompetitionRequest(BaseModel):
+    """Request to schedule a competition on a stage."""
+    competition_id: str
+    stage_id: str
+    scheduled_time: datetime
+
+
+class BulkScheduleRequest(BaseModel):
+    """Request to schedule multiple competitions at once."""
+    schedules: List[ScheduleCompetitionRequest]
+
+
+class BulkScheduleResponse(BaseModel):
+    """Response after bulk scheduling."""
+    scheduled_count: int
+    conflicts: List["ScheduleConflict"]
+    message: str
+
+
+# ============= Conflict Detection =============
+
+class ConflictType(str):
+    """Types of scheduling conflicts."""
+    SIBLING = "sibling"           # Same family on multiple stages at same time
+    ADJUDICATOR = "adjudicator"   # Judge assigned to their own students
+    TIME_OVERLAP = "time_overlap" # Same dancer in overlapping competitions
+
+
+class ScheduleConflict(BaseModel):
+    """A detected scheduling conflict."""
+    conflict_type: str  # sibling, adjudicator, time_overlap
+    severity: str  # warning, error (blocking)
+    message: str
+    affected_competition_ids: List[str]
+    affected_dancer_ids: List[str] = []
+    affected_stage_ids: List[str] = []
+
+
+class ConflictCheckResponse(BaseModel):
+    """Response from conflict detection."""
+    has_conflicts: bool
+    warning_count: int
+    error_count: int
+    conflicts: List[ScheduleConflict]
+
+
+# ============= Scheduler View Data =============
+
+class ScheduledCompetition(BaseModel):
+    """Competition data for the Gantt scheduler view."""
+    id: str
+    name: str
+    stage_id: Optional[str] = None
+    stage_name: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
+    estimated_duration_minutes: int
+    entry_count: int
+    level: CompetitionLevel
+    dance_type: Optional[DanceType] = None
+    has_conflicts: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class SchedulerViewResponse(BaseModel):
+    """Full data for the scheduler view."""
+    feis_id: str
+    feis_name: str
+    feis_date: date
+    stages: List[StageResponse]
+    competitions: List[ScheduledCompetition]
+    conflicts: List[ScheduleConflict]
