@@ -29,7 +29,7 @@ const selectedDances = ref<Set<string>>(new Set(['Reel', 'Light Jig', 'Slip Jig'
 
 // New options
 const priceDollars = ref(10); // Default $10 per competition
-const scoringMethod = ref<ScoringMethod>('solo');
+const scoringMethod = ref<ScoringMethod>('SOLO');
 
 // UI State
 const isGenerating = ref(false);
@@ -134,7 +134,7 @@ const generateSyllabus = async () => {
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
     price_cents: priceDollars.value * 100,
-    scoring_method: scoringMethod.value.toUpperCase(),  // Backend expects uppercase enum
+    scoring_method: scoringMethod.value,  // Already uppercase to match backend enum
   };
 
   try {
@@ -349,10 +349,10 @@ const previewMatrix = computed(() => {
           </label>
           <div class="flex gap-2">
             <button
-              @click="scoringMethod = 'solo'"
+              @click="scoringMethod = 'SOLO'"
               :class="[
                 'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
-                scoringMethod === 'solo'
+                scoringMethod === 'SOLO'
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg'
                   : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
               ]"
@@ -360,10 +360,10 @@ const previewMatrix = computed(() => {
               Solo
             </button>
             <button
-              @click="scoringMethod = 'championship'"
+              @click="scoringMethod = 'CHAMPIONSHIP'"
               :class="[
                 'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
-                scoringMethod === 'championship'
+                scoringMethod === 'CHAMPIONSHIP'
                   ? 'bg-purple-600 text-white border-purple-600 shadow-lg'
                   : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
               ]"

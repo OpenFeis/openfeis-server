@@ -32,18 +32,18 @@ export type CompetitionLevel =
 
 export type Gender = 'male' | 'female' | 'other';
 
-// New scheduling types
+// New scheduling types (uppercase to match backend enum values)
 export type DanceType = 
-  | 'reel'
-  | 'light_jig'
-  | 'slip_jig'
-  | 'treble_jig'
-  | 'hornpipe'
-  | 'traditional_set'
-  | 'contemporary_set'
-  | 'treble_reel';
+  | 'REEL'
+  | 'LIGHT_JIG'
+  | 'SLIP_JIG'
+  | 'TREBLE_JIG'
+  | 'HORNPIPE'
+  | 'TRADITIONAL_SET'
+  | 'CONTEMPORARY_SET'
+  | 'TREBLE_REEL';
 
-export type ScoringMethod = 'solo' | 'championship';
+export type ScoringMethod = 'SOLO' | 'CHAMPIONSHIP';
 
 export interface User {
   id: string;
@@ -229,16 +229,16 @@ export interface DurationEstimateResponse {
   breakdown: string;
 }
 
-// Dance type display info
+// Dance type display info (keys match backend enum values)
 export const DANCE_TYPE_INFO: Record<DanceType, { label: string; defaultTempo: number; icon: string }> = {
-  reel: { label: 'Reel', defaultTempo: 113, icon: '🎵' },
-  light_jig: { label: 'Light Jig', defaultTempo: 115, icon: '💫' },
-  slip_jig: { label: 'Slip Jig', defaultTempo: 113, icon: '✨' },
-  treble_jig: { label: 'Treble Jig', defaultTempo: 73, icon: '🥁' },
-  hornpipe: { label: 'Hornpipe', defaultTempo: 138, icon: '⚡' },
-  traditional_set: { label: 'Traditional Set', defaultTempo: 113, icon: '🌟' },
-  contemporary_set: { label: 'Contemporary Set', defaultTempo: 113, icon: '💎' },
-  treble_reel: { label: 'Treble Reel', defaultTempo: 92, icon: '🔥' },
+  REEL: { label: 'Reel', defaultTempo: 113, icon: '🎵' },
+  LIGHT_JIG: { label: 'Light Jig', defaultTempo: 115, icon: '💫' },
+  SLIP_JIG: { label: 'Slip Jig', defaultTempo: 113, icon: '✨' },
+  TREBLE_JIG: { label: 'Treble Jig', defaultTempo: 73, icon: '🥁' },
+  HORNPIPE: { label: 'Hornpipe', defaultTempo: 138, icon: '⚡' },
+  TRADITIONAL_SET: { label: 'Traditional Set', defaultTempo: 113, icon: '🌟' },
+  CONTEMPORARY_SET: { label: 'Contemporary Set', defaultTempo: 113, icon: '💎' },
+  TREBLE_REEL: { label: 'Treble Reel', defaultTempo: 92, icon: '🔥' },
 };
 
 
