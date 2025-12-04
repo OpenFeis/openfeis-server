@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, onUnmounted } from 'vue';
+import { ref } from 'vue';
 import type { 
   CompetitionForScoring, 
   CompetitorForScoring, 
@@ -53,7 +53,8 @@ export const useScoringStore = defineStore('scoring', () => {
   });
 
   // WebSocket score handler - update local state when other judges submit
-  const unsubscribeScore = scoreSocket.onScore((scoreMsg: ScoreMessage) => {
+  // Note: unsubscribe function stored but not used - store lifetime matches app lifetime
+  scoreSocket.onScore((scoreMsg: ScoreMessage) => {
     // If we're viewing this competition, we might want to update the UI
     // For now, just notify the local results store
     if (selectedCompetition.value?.id === scoreMsg.competition_id) {

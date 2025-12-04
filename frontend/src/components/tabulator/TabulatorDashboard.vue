@@ -42,7 +42,7 @@ interface TabulatorResults {
 
 // Local results store for offline mode
 const localResultsStore = useLocalResultsStore();
-const { isLocalMode, currentResults: localResults, isCalculating } = storeToRefs(localResultsStore);
+const { isLocalMode } = storeToRefs(localResultsStore);
 
 // State
 const feiseanna = ref<FeisOption[]>([]);

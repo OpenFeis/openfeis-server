@@ -8,7 +8,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { dbService } from '../services/db';
-import { localCalculator, type RankedResult } from '../services/localCalculator';
+import { localCalculator } from '../services/localCalculator';
 import type { JudgeScore } from '../models/types';
 
 // ============= Types =============
@@ -191,14 +191,9 @@ export const useLocalResultsStore = defineStore('localResults', () => {
    */
   async function getCompetitionsWithLocalScores(): Promise<LocalCompetition[]> {
     try {
-      // Get all unsynced scores to find which competitions have data
-      const allScores = await dbService.getUnsyncedScores();
-      
-      // Also try to get synced scores (all scores)
       const roundIds = new Set<string>();
       
-      // For now, just check if our registered competitions have scores
-      // In a full implementation, we'd scan all IndexedDB entries
+      // Check which registered competitions have local scores
       for (const comp of competitions.value) {
         const scores = await dbService.getScoresForRound(comp.id);
         if (scores.length > 0) {

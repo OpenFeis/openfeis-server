@@ -138,7 +138,7 @@ class CloudSyncService {
       const successfulIds: string[] = [];
 
       for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
+        const batch = batches[i]!;
         
         try {
           const result = await this.uploadBatch(serverUrl, batch);

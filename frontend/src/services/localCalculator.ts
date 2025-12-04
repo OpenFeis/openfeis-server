@@ -120,11 +120,12 @@ export class IrishPointsCalculator {
 
       while (i < rawScores.length) {
         // Check for ties within this judge's card
-        const tiedGroup: JudgeScore[] = [rawScores[i]];
+        const currentScore = rawScores[i]!;
+        const tiedGroup: JudgeScore[] = [currentScore];
         let j = i + 1;
 
-        while (j < rawScores.length && rawScores[j].value === rawScores[i].value) {
-          tiedGroup.push(rawScores[j]);
+        while (j < rawScores.length && rawScores[j]!.value === currentScore.value) {
+          tiedGroup.push(rawScores[j]!);
           j++;
         }
 
@@ -173,15 +174,16 @@ export class IrishPointsCalculator {
     let i = 0;
 
     while (i < finalResults.length) {
-      const tiedGroup: RankedResult[] = [finalResults[i]];
+      const currentResult = finalResults[i]!;
+      const tiedGroup: RankedResult[] = [currentResult];
       let j = i + 1;
 
       // Use approximate comparison for floating point
       while (
         j < finalResults.length &&
-        Math.abs(finalResults[j].irish_points - finalResults[i].irish_points) < 0.001
+        Math.abs(finalResults[j]!.irish_points - currentResult.irish_points) < 0.001
       ) {
-        tiedGroup.push(finalResults[j]);
+        tiedGroup.push(finalResults[j]!);
         j++;
       }
 
@@ -253,7 +255,7 @@ export class IrishPointsCalculator {
     }
 
     // Get the score at the cutoff position
-    const cutoffScore = sortedResults[cutoffIndex - 1].irish_points;
+    const cutoffScore = sortedResults[cutoffIndex - 1]!.irish_points;
 
     // Recall all dancers with score >= cutoff (handles tie extension)
     const recalledIds: string[] = [];
