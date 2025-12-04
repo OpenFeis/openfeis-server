@@ -40,6 +40,12 @@ def run_migrations():
         ("competition", "scheduled_time", "ALTER TABLE competition ADD COLUMN scheduled_time DATETIME"),
         ("competition", "estimated_duration_minutes", "ALTER TABLE competition ADD COLUMN estimated_duration_minutes INTEGER"),
         ("competition", "adjudicator_id", "ALTER TABLE competition ADD COLUMN adjudicator_id VARCHAR"),
+        
+        # Competition table - fee category (added in Phase 3)
+        ("competition", "fee_category", "ALTER TABLE competition ADD COLUMN fee_category VARCHAR DEFAULT 'qualifying'"),
+        
+        # Entry table - order_id (added in Phase 3)
+        ("entry", "order_id", "ALTER TABLE entry ADD COLUMN order_id VARCHAR"),
     ]
     
     with engine.connect() as conn:
@@ -71,7 +77,10 @@ def run_migrations():
 def create_db_and_tables():
     # Import all models to ensure they are registered with SQLModel.metadata
     # This must happen BEFORE create_all() is called
-    from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, SiteSettings, Stage
+    from backend.scoring_engine.models_platform import (
+        User, Feis, Competition, Dancer, Entry, SiteSettings, Stage,
+        FeisSettings, FeeItem, Order, OrderItem  # Phase 3 models
+    )
     from backend.scoring_engine.models import Round, JudgeScore
     
     SQLModel.metadata.create_all(engine)

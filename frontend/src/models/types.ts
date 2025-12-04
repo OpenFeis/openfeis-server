@@ -232,3 +232,129 @@ export const DANCE_TYPE_INFO: Record<DanceType, { label: string; defaultTempo: n
   contemporary_set: { label: 'Contemporary Set', defaultTempo: 113, icon: '💎' },
   treble_reel: { label: 'Treble Reel', defaultTempo: 92, icon: '🔥' },
 };
+
+
+// ============= Financial Engine Types (Phase 3) =============
+
+export type FeeCategory = 'qualifying' | 'non_qualifying';
+export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded' | 'pay_at_door';
+
+export interface FeisSettings {
+  id: string;
+  feis_id: string;
+  base_entry_fee_cents: number;
+  per_competition_fee_cents: number;
+  family_max_cents: number | null;
+  late_fee_cents: number;
+  late_fee_date: string | null;  // ISO date
+  change_fee_cents: number;
+  registration_opens: string | null;  // ISO datetime
+  registration_closes: string | null;  // ISO datetime
+  stripe_account_id: string | null;
+  stripe_onboarding_complete: boolean;
+}
+
+export interface FeeItem {
+  id: string;
+  feis_id: string;
+  name: string;
+  description: string | null;
+  amount_cents: number;
+  category: FeeCategory;
+  required: boolean;
+  max_quantity: number;
+  active: boolean;
+}
+
+export interface CartLineItem {
+  id: string;
+  type: 'competition' | 'base_fee' | 'fee_item';
+  name: string;
+  description: string | null;
+  dancer_id: string | null;
+  dancer_name: string | null;
+  unit_price_cents: number;
+  quantity: number;
+  total_cents: number;
+  category: FeeCategory;
+}
+
+export interface CartCalculationRequest {
+  feis_id: string;
+  items: Array<{ competition_id: string; dancer_id: string }>;
+  fee_items?: Record<string, number>;  // {fee_item_id: quantity}
+}
+
+export interface CartCalculationResponse {
+  line_items: CartLineItem[];
+  qualifying_subtotal_cents: number;
+  non_qualifying_subtotal_cents: number;
+  subtotal_cents: number;
+  family_discount_cents: number;
+  family_cap_applied: boolean;
+  family_cap_cents: number | null;
+  late_fee_cents: number;
+  late_fee_applied: boolean;
+  late_fee_date: string | null;
+  total_cents: number;
+  dancer_count: number;
+  competition_count: number;
+  savings_percent: number;
+}
+
+export interface CheckoutRequest {
+  feis_id: string;
+  items: Array<{ competition_id: string; dancer_id: string }>;
+  fee_items?: Record<string, number>;
+  pay_at_door: boolean;
+}
+
+export interface CheckoutResponse {
+  success: boolean;
+  order_id: string | null;
+  checkout_url: string | null;
+  is_test_mode: boolean;
+  message: string;
+}
+
+export interface Order {
+  id: string;
+  feis_id: string;
+  user_id: string;
+  subtotal_cents: number;
+  qualifying_subtotal_cents: number;
+  non_qualifying_subtotal_cents: number;
+  family_discount_cents: number;
+  late_fee_cents: number;
+  total_cents: number;
+  status: PaymentStatus;
+  created_at: string;
+  paid_at: string | null;
+  entry_count: number;
+}
+
+export interface RegistrationStatus {
+  is_open: boolean;
+  message: string;
+  opens_at: string | null;
+  closes_at: string | null;
+  is_late: boolean;
+  late_fee_cents: number;
+  stripe_enabled: boolean;
+  payment_methods: ('stripe' | 'pay_at_door')[];
+}
+
+export interface StripeStatus {
+  stripe_configured: boolean;
+  stripe_mode: 'live' | 'test' | 'disabled';
+  feis_connected: boolean;
+  onboarding_complete: boolean;
+  message: string;
+}
+
+// Helper function to format cents as currency
+export function formatCents(cents: number, currency: 'USD' | 'EUR' | 'GBP' = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
+  const symbol = symbols[currency] || '$';
+  return `${symbol}${(cents / 100).toFixed(2)}`;
+}

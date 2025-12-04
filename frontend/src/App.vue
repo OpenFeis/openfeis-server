@@ -12,6 +12,7 @@ import CompetitionManager from './components/admin/CompetitionManager.vue';
 import SiteSettings from './components/admin/SiteSettings.vue';
 import CloudSync from './components/admin/CloudSync.vue';
 import ScheduleGantt from './components/admin/ScheduleGantt.vue';
+import FeisSettingsManager from './components/admin/FeisSettingsManager.vue';
 import AuthModal from './components/auth/AuthModal.vue';
 import EmailVerification from './components/auth/EmailVerification.vue';
 import EmailVerificationBanner from './components/auth/EmailVerificationBanner.vue';
@@ -85,7 +86,7 @@ const navigateTo = (newView: ViewType) => {
 const verificationToken = ref<string | undefined>(undefined);
 
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler' | 'feis-settings';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -252,80 +253,14 @@ const handleCartRemove = (item: CartItem) => {
   );
 };
 
-const handleCheckout = async (payLater: boolean) => {
-  if (!auth.isAuthenticated) {
-    // Prompt login
-    openLogin();
-    cartSummaryRef.value?.resetProcessing();
-    return;
-  }
-  
-  // If dancer wasn't saved yet (edge case), save now
-  if (!savedDancer.value) {
-    registrationLoading.value = true;
-    try {
-      const response = await auth.authFetch('/api/v1/dancers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: currentDancer.value.name,
-          dob: currentDancer.value.dob,
-          gender: currentDancer.value.gender,
-          current_level: currentDancer.value.current_level,
-          clrg_number: currentDancer.value.clrg_number || null
-        })
-      });
-      
-      if (response.ok) {
-        savedDancer.value = await response.json();
-      } else {
-        const error = await response.json();
-        registrationError.value = error.detail || 'Failed to save dancer profile';
-        cartSummaryRef.value?.resetProcessing();
-        registrationLoading.value = false;
-        return;
-      }
-    } catch (error) {
-      registrationError.value = 'Network error. Please try again.';
-      cartSummaryRef.value?.resetProcessing();
-      registrationLoading.value = false;
-      return;
-    }
-  }
-  
-  // Create entries
-  registrationError.value = null;
-  try {
-    const response = await auth.authFetch('/api/v1/entries/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dancer_id: savedDancer.value!.id,
-        competition_ids: selectedCompetitions.value.map(c => c.id),
-        pay_later: payLater
-      })
-    });
-    
-    if (response.ok) {
-      const result = await response.json();
-      console.log('Registration complete:', result);
-      registrationStep.value = 'success';
-    } else {
-      const error = await response.json();
-      registrationError.value = error.detail || 'Failed to complete registration';
-      cartSummaryRef.value?.resetProcessing();
-    }
-  } catch (error) {
-    registrationError.value = 'Network error. Please try again.';
-    cartSummaryRef.value?.resetProcessing();
-    console.error('Failed to create entries:', error);
-  } finally {
-    registrationLoading.value = false;
-  }
-};
-
 const handleLoginRequired = () => {
   openLogin();
+};
+
+// Handle checkout completion from CartSummary (new Phase 3 flow)
+const handleCheckoutComplete = (orderId: string) => {
+  console.log('Checkout complete, order:', orderId);
+  registrationStep.value = 'success';
 };
 
 const goToCart = () => {
@@ -1062,9 +997,10 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             <CartSummary
               ref="cartSummaryRef"
               :items="cartItems"
+              :feis-id="selectedRegistrationFeis?.id || ''"
               :is-logged-in="auth.isAuthenticated"
               @remove="handleCartRemove"
-              @checkout="handleCheckout"
+              @checkout-complete="handleCheckoutComplete"
               @login-required="handleLoginRequired"
             />
           </div>
@@ -1286,6 +1222,21 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 <h3 class="text-lg font-bold text-slate-800 mb-1">Generate Syllabus</h3>
                 <p class="text-slate-600 text-sm">Auto-create competitions from template</p>
               </button>
+
+              <!-- Feis Settings -->
+              <button
+                @click="adminView = 'feis-settings'"
+                class="bg-white rounded-xl p-6 shadow-lg border border-slate-200 hover:border-rose-300 hover:shadow-xl transition-all text-left"
+              >
+                <div class="w-12 h-12 rounded-lg bg-rose-100 flex items-center justify-center mb-4">
+                  <svg class="w-6 h-6 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-1">Settings</h3>
+                <p class="text-slate-600 text-sm">Pricing, fees, registration & payments</p>
+              </button>
             </div>
           </div>
 
@@ -1345,6 +1296,26 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               :feis-id="selectedFeis.id"
               :feis-name="selectedFeis.name"
               @saved="() => {}"
+            />
+          </div>
+
+          <!-- Feis Settings View -->
+          <div v-else-if="adminView === 'feis-settings' && selectedFeis">
+            <div class="mb-6">
+              <button
+                @click="adminView = 'feis-detail'"
+                class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1 mb-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to {{ selectedFeis.name }}
+              </button>
+            </div>
+            <FeisSettingsManager
+              :feis-id="selectedFeis.id"
+              :feis-name="selectedFeis.name"
+              @close="adminView = 'feis-detail'"
             />
           </div>
 

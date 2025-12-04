@@ -123,7 +123,7 @@ const generateSyllabus = async () => {
   error.value = null;
   generationResult.value = null;
 
-  const request: SyllabusGenerationRequest & { price_cents: number; scoring_method: ScoringMethod } = {
+  const request: SyllabusGenerationRequest & { price_cents: number; scoring_method: string } = {
     feis_id: props.feisId,
     levels: Array.from(selectedLevels.value),
     min_age: minAge.value,
@@ -131,7 +131,7 @@ const generateSyllabus = async () => {
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
     price_cents: priceDollars.value * 100,
-    scoring_method: scoringMethod.value,
+    scoring_method: scoringMethod.value.toUpperCase(),  // Backend expects uppercase enum
   };
 
   try {
@@ -142,14 +142,26 @@ const generateSyllabus = async () => {
 
     if (!response.ok) {
       const data = await response.json();
-      throw new Error(data.detail || 'Failed to generate syllabus');
+      // Handle different error formats from FastAPI
+      let errorMessage = 'Failed to generate syllabus';
+      if (data.detail) {
+        if (typeof data.detail === 'string') {
+          errorMessage = data.detail;
+        } else if (Array.isArray(data.detail)) {
+          // FastAPI validation errors come as array of objects
+          errorMessage = data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join(', ');
+        } else if (typeof data.detail === 'object') {
+          errorMessage = JSON.stringify(data.detail);
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     const result: SyllabusGenerationResponse = await response.json();
     generationResult.value = result;
     emit('generated', result);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'An error occurred';
+    error.value = err instanceof Error ? err.message : String(err);
   } finally {
     isGenerating.value = false;
   }

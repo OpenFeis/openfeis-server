@@ -38,7 +38,9 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Smart Registration** — Select from saved dancers or create new ones when registering
 - **Eligibility Filtering** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
 - **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
-- **Family Cap** — Never pay more than $150 per feis, no matter how many competitions
+- **Family Maximum Cap** — Automatic savings when fees exceed the family cap (e.g., $150) 🆕
+- **Late Fee Transparency** — Clear display of late fees when registering after the deadline 🆕
+- **Server-Side Cart Calculation** — Accurate pricing with itemized breakdown 🆕
 - **Registration History** — View all past registrations grouped by dancer
 
 ### For Judges (Adjudicators)
@@ -53,10 +55,16 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Competition Manager** — View, filter, and manage all competitions in a feis
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
 - **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
-- **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages 🆕
-- **Stage Management** — Create and manage multiple stages/areas for your feis 🆕
-- **Time Estimation** — Automatic duration estimates based on entry count and dance parameters 🆕
-- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts) 🆕
+- **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages
+- **Stage Management** — Create and manage multiple stages/areas for your feis
+- **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
+- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts)
+- **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis 🆕
+- **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap 🆕
+- **Late Fee Management** — Configure late fee amount and cutoff date 🆕
+- **Fee Items** — Add custom fees like venue levy, program book, etc. 🆕
+- **Order Tracking** — View all orders with payment status and itemized breakdowns 🆕
+- **Stripe Connect Ready** — Payment infrastructure ready for online payments (stubbed) 🆕
 - **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
@@ -184,7 +192,9 @@ openfeis-server/
 │   ├── services/
 │   │   ├── email.py            # Email service (Resend integration)
 │   │   ├── number_cards.py     # PDF generation for competitor numbers
-│   │   └── scheduling.py       # Time estimation & conflict detection 🆕
+│   │   ├── scheduling.py       # Time estimation & conflict detection
+│   │   ├── cart.py             # Cart calculation with family cap logic 🆕
+│   │   └── stripe.py           # Stripe Connect integration (stubbed) 🆕
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
 │       ├── models.py           # Round, JudgeScore models
@@ -198,7 +208,8 @@ openfeis-server/
 │   │   │   │   ├── CompetitionManager.vue  # Competition listing/management
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
 │   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
-│   │   │   │   ├── ScheduleGantt.vue       # Visual drag-and-drop scheduler 🆕
+│   │   │   │   ├── ScheduleGantt.vue       # Visual drag-and-drop scheduler
+│   │   │   │   ├── FeisSettingsManager.vue # Pricing, fees & registration config 🆕
 │   │   │   │   ├── SiteSettings.vue        # Email & site configuration
 │   │   │   │   └── CloudSync.vue           # Offline-to-cloud sync UI
 │   │   │   ├── account/
@@ -343,7 +354,7 @@ openfeis-server/
 | `PUT` | `/api/v1/stages/{stage_id}` | Update a stage | Organizer/Admin |
 | `DELETE` | `/api/v1/stages/{stage_id}` | Delete a stage | Organizer/Admin |
 
-### Scheduling 🆕
+### Scheduling
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
@@ -351,6 +362,25 @@ openfeis-server/
 | `PUT` | `/api/v1/competitions/{id}/schedule` | Update competition schedule (stage, time, duration) | Organizer/Admin |
 | `POST` | `/api/v1/feis/{feis_id}/schedule/batch` | Batch update multiple competition schedules | Organizer/Admin |
 | `GET` | `/api/v1/feis/{feis_id}/scheduling-conflicts` | Detect and return scheduling conflicts | Organizer/Admin |
+
+### Financial Engine 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/settings` | Get feis pricing/registration settings | No |
+| `PUT` | `/api/v1/feis/{feis_id}/settings` | Update feis settings | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/fee-items` | List additional fee items | No |
+| `POST` | `/api/v1/feis/{feis_id}/fee-items` | Create a fee item (venue levy, etc.) | Organizer/Admin |
+| `PUT` | `/api/v1/fee-items/{id}` | Update a fee item | Organizer/Admin |
+| `DELETE` | `/api/v1/fee-items/{id}` | Delete a fee item | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/registration-status` | Check if registration is open, payment methods | No |
+| `POST` | `/api/v1/cart/calculate` | Calculate cart with family cap & late fees | Yes |
+| `POST` | `/api/v1/checkout` | Complete checkout (pay now or pay later) | Yes |
+| `GET` | `/api/v1/checkout/success` | Handle successful payment redirect | No |
+| `GET` | `/api/v1/orders` | List orders for current user | Yes |
+| `GET` | `/api/v1/orders/{id}` | Get order details | Yes |
+| `GET` | `/api/v1/feis/{feis_id}/stripe-status` | Check Stripe connection status | No |
+| `POST` | `/api/v1/feis/{feis_id}/stripe-onboarding` | Start Stripe Connect onboarding | Organizer/Admin |
 
 ### Example: Login
 
@@ -697,6 +727,43 @@ class Entry:
     competitor_number: Optional[int]
     paid: bool
     pay_later: bool  # "Pay at Door" registration
+    order_id: Optional[UUID]  # FK to Order 🆕
+
+class FeisSettings:  # 🆕 Phase 3
+    id: UUID
+    feis_id: UUID  # FK to Feis (unique)
+    base_entry_fee_cents: int  # e.g., 2500 = $25.00
+    per_competition_fee_cents: int  # e.g., 1000 = $10.00
+    family_max_cents: Optional[int]  # e.g., 15000 = $150.00
+    late_fee_cents: int  # e.g., 500 = $5.00
+    late_fee_date: Optional[date]
+    change_fee_cents: int
+    registration_opens: Optional[datetime]
+    registration_closes: Optional[datetime]
+
+class FeeItem:  # 🆕 Phase 3
+    id: UUID
+    feis_id: UUID  # FK to Feis
+    name: str  # e.g., "Venue Levy", "Program Book"
+    amount_cents: int
+    category: FeeCategory  # QUALIFYING or NON_QUALIFYING
+    required: bool  # Auto-add to every order
+
+class Order:  # 🆕 Phase 3
+    id: UUID
+    feis_id: UUID
+    parent_id: UUID  # FK to User
+    order_date: datetime
+    total_cents: int
+    status: PaymentStatus  # PENDING, PAID, REFUNDED, FAILED
+    stripe_checkout_session_id: Optional[str]
+
+class OrderItem:  # 🆕 Phase 3
+    id: UUID
+    order_id: UUID  # FK to Order
+    description: str
+    amount_cents: int
+    category: FeeCategory  # Track which items count toward cap
 ```
 
 ### Scoring Models
@@ -921,7 +988,15 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 
 ## 🗺️ Roadmap
 
-### ✅ Recently Completed (Phase 2)
+### ✅ Recently Completed (Phase 3)
+
+- [x] **Financial Engine** — Complex pricing rules with family caps, late fees, and fee categories 🆕
+- [x] **Feis Settings** — Per-feis configuration for pricing, fees, and registration windows 🆕
+- [x] **Server-Side Cart** — Accurate cart calculation with itemized breakdown 🆕
+- [x] **Order Tracking** — Complete order history with payment status 🆕
+- [x] **Stripe Connect Ready** — Infrastructure in place, API stubbed for future activation 🆕
+
+### ✅ Previously Completed (Phase 2)
 
 - [x] **Schedule Builder** — Visual drag-and-drop scheduler for competitions
 - [x] **Stage Management** — Create and manage multiple stages per feis
@@ -929,9 +1004,9 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 - [x] **Conflict Detection** — Identify sibling overlaps, adjudicator conflicts, and time clashes
 - [x] **Competition Metadata** — Dance type, tempo, bars, scoring method fields
 
-### 🔜 Coming Soon (Phase 3-4)
+### 🔜 Coming Soon (Phase 4)
 
-- [ ] **Stripe Connect** — Payment processing for online registration
+- [ ] **Stripe Connect Activation** — Enable live payment processing
 - [ ] **Teacher Portal** — Bulk registration & school management
 - [ ] **Digital Signage** — Stage-side displays for "Now Dancing / On Deck"
 - [ ] **Audit Log** — Track every score change with timestamps

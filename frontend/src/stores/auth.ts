@@ -32,6 +32,14 @@ export const useAuthStore = defineStore('auth', () => {
   // Email verification
   const isEmailVerified = computed(() => user.value?.email_verified ?? false);
   
+  // Auth headers for manual fetch calls
+  const authHeaders = computed((): Record<string, string> => {
+    if (token.value) {
+      return { 'Authorization': `Bearer ${token.value}` };
+    }
+    return {};
+  });
+  
   // Can access admin features
   const canAccessAdmin = computed(() => 
     user.value?.role === 'super_admin' || user.value?.role === 'organizer'
@@ -249,6 +257,7 @@ export const useAuthStore = defineStore('auth', () => {
     canAccessAdmin,
     canAccessJudge,
     isEmailVerified,
+    authHeaders,
     
     // Actions
     login,

@@ -2,7 +2,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, datetime
 from uuid import UUID
-from backend.scoring_engine.models_platform import CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod
+from backend.scoring_engine.models_platform import (
+    CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod,
+    FeeCategory, PaymentStatus
+)
 
 # ============= Syllabus Generation =============
 
@@ -482,3 +485,221 @@ class SchedulerViewResponse(BaseModel):
     stages: List[StageResponse]
     competitions: List[ScheduledCompetition]
     conflicts: List[ScheduleConflict]
+
+
+# ============= Financial Engine (Phase 3) =============
+
+class FeisSettingsCreate(BaseModel):
+    """Request to create feis settings."""
+    feis_id: str
+    base_entry_fee_cents: int = 2500
+    per_competition_fee_cents: int = 1000
+    family_max_cents: Optional[int] = 15000
+    late_fee_cents: int = 500
+    late_fee_date: Optional[date] = None
+    change_fee_cents: int = 1000
+    registration_opens: Optional[datetime] = None
+    registration_closes: Optional[datetime] = None
+
+
+class FeisSettingsUpdate(BaseModel):
+    """Request to update feis settings."""
+    base_entry_fee_cents: Optional[int] = None
+    per_competition_fee_cents: Optional[int] = None
+    family_max_cents: Optional[int] = None  # Use -1 to remove cap
+    late_fee_cents: Optional[int] = None
+    late_fee_date: Optional[date] = None
+    change_fee_cents: Optional[int] = None
+    registration_opens: Optional[datetime] = None
+    registration_closes: Optional[datetime] = None
+
+
+class FeisSettingsResponse(BaseModel):
+    """Response with feis settings."""
+    id: str
+    feis_id: str
+    base_entry_fee_cents: int
+    per_competition_fee_cents: int
+    family_max_cents: Optional[int]
+    late_fee_cents: int
+    late_fee_date: Optional[date]
+    change_fee_cents: int
+    registration_opens: Optional[datetime]
+    registration_closes: Optional[datetime]
+    # Stripe status
+    stripe_account_id: Optional[str]
+    stripe_onboarding_complete: bool
+
+    class Config:
+        from_attributes = True
+
+
+class FeeItemCreate(BaseModel):
+    """Request to create a fee item."""
+    feis_id: str
+    name: str
+    description: Optional[str] = None
+    amount_cents: int
+    category: FeeCategory = FeeCategory.NON_QUALIFYING
+    required: bool = False
+    max_quantity: int = 1
+
+
+class FeeItemUpdate(BaseModel):
+    """Request to update a fee item."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    amount_cents: Optional[int] = None
+    category: Optional[FeeCategory] = None
+    required: Optional[bool] = None
+    max_quantity: Optional[int] = None
+    active: Optional[bool] = None
+
+
+class FeeItemResponse(BaseModel):
+    """Response with fee item details."""
+    id: str
+    feis_id: str
+    name: str
+    description: Optional[str]
+    amount_cents: int
+    category: FeeCategory
+    required: bool
+    max_quantity: int
+    active: bool
+
+    class Config:
+        from_attributes = True
+
+
+# ============= Cart & Checkout =============
+
+class CartLineItemResponse(BaseModel):
+    """A single line item in the cart."""
+    id: str
+    type: str  # 'competition', 'base_fee', or 'fee_item'
+    name: str
+    description: Optional[str]
+    dancer_id: Optional[str]
+    dancer_name: Optional[str]
+    unit_price_cents: int
+    quantity: int
+    total_cents: int
+    category: FeeCategory
+
+
+class CartCalculationRequest(BaseModel):
+    """Request to calculate cart totals."""
+    feis_id: str
+    items: List["CartItemRequest"]
+    fee_items: Optional[dict] = None  # {fee_item_id: quantity}
+
+
+class CartItemRequest(BaseModel):
+    """A single item in the cart calculation request."""
+    competition_id: str
+    dancer_id: str
+
+
+class CartCalculationResponse(BaseModel):
+    """Response with calculated cart totals."""
+    line_items: List[CartLineItemResponse]
+    
+    # Subtotals
+    qualifying_subtotal_cents: int
+    non_qualifying_subtotal_cents: int
+    subtotal_cents: int
+    
+    # Discounts
+    family_discount_cents: int
+    family_cap_applied: bool
+    family_cap_cents: Optional[int]
+    
+    # Late fee
+    late_fee_cents: int
+    late_fee_applied: bool
+    late_fee_date: Optional[date]
+    
+    # Final
+    total_cents: int
+    
+    # Info
+    dancer_count: int
+    competition_count: int
+    savings_percent: int
+
+    class Config:
+        from_attributes = True
+
+
+class CheckoutRequest(BaseModel):
+    """Request to start checkout."""
+    feis_id: str
+    items: List[CartItemRequest]
+    fee_items: Optional[dict] = None
+    pay_at_door: bool = False
+
+
+class CheckoutResponse(BaseModel):
+    """Response from checkout initiation."""
+    success: bool
+    order_id: Optional[str]
+    checkout_url: Optional[str]  # URL to redirect to for payment
+    is_test_mode: bool
+    message: str
+
+
+class OrderResponse(BaseModel):
+    """Response with order details."""
+    id: str
+    feis_id: str
+    user_id: str
+    subtotal_cents: int
+    qualifying_subtotal_cents: int
+    non_qualifying_subtotal_cents: int
+    family_discount_cents: int
+    late_fee_cents: int
+    total_cents: int
+    status: PaymentStatus
+    created_at: datetime
+    paid_at: Optional[datetime]
+    entry_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class RegistrationStatusResponse(BaseModel):
+    """Response with registration status for a feis."""
+    is_open: bool
+    message: str
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    is_late: bool
+    late_fee_cents: int
+    stripe_enabled: bool
+    payment_methods: List[str]  # ['stripe', 'pay_at_door']
+
+
+class StripeOnboardingRequest(BaseModel):
+    """Request to start Stripe Connect onboarding."""
+    feis_id: str
+    return_url: str
+    refresh_url: str
+
+
+class StripeOnboardingResponse(BaseModel):
+    """Response with Stripe onboarding URL."""
+    success: bool
+    onboarding_url: Optional[str]
+    is_test_mode: bool
+    error: Optional[str]
+
+
+class StripeStatusResponse(BaseModel):
+    """Response with Stripe configuration status."""
+    stripe_configured: bool  # Global Stripe config
+    stripe_mode: str  # 'live', 'test', or 'disabled'
+    feis_connected: bool  # This feis has connected account
+    onboarding_complete: bool
+    message: str

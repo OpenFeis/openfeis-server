@@ -1,28 +1,34 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import type { Dancer, CartItem } from '../../models/types';
+import { ref, computed, watch, onMounted } from 'vue';
+import { useAuthStore } from '../../stores/auth';
+import type { Dancer, CartItem, CartCalculationResponse, CheckoutResponse, RegistrationStatus } from '../../models/types';
 
 // Props
 const props = withDefaults(defineProps<{
   items: CartItem[];
-  familyCap?: number;
-  baseEntryFee?: number;
-  perCompetitionFee?: number;
+  feisId: string;
   currency?: 'USD' | 'EUR' | 'GBP';
   isLoggedIn?: boolean;
 }>(), {
-  familyCap: 150,
-  baseEntryFee: 25,
-  perCompetitionFee: 10,
   currency: 'USD',
   isLoggedIn: false
 });
 
 const emit = defineEmits<{
   (e: 'remove', item: CartItem): void;
-  (e: 'checkout', payLater: boolean): void;
+  (e: 'checkout-complete', orderId: string): void;
   (e: 'login-required'): void;
 }>();
+
+const authStore = useAuthStore();
+
+// State
+const cartData = ref<CartCalculationResponse | null>(null);
+const registrationStatus = ref<RegistrationStatus | null>(null);
+const loading = ref(false);
+const checkoutLoading = ref(false);
+const checkoutError = ref<string | null>(null);
+const processingType = ref<'stripe' | 'pay_later' | null>(null);
 
 // Currency formatting
 const currencySymbols: Record<string, string> = {
@@ -31,9 +37,9 @@ const currencySymbols: Record<string, string> = {
   GBP: '£'
 };
 
-const formatCurrency = (amount: number): string => {
+const formatCurrency = (cents: number): string => {
   const symbol = currencySymbols[props.currency] || '$';
-  return `${symbol}${amount.toFixed(2)}`;
+  return `${symbol}${(cents / 100).toFixed(2)}`;
 };
 
 // Group items by dancer
@@ -47,7 +53,6 @@ const itemsByDancer = computed(() => {
         items: []
       };
     }
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const group = groups[item.dancer.id]!;
     group.items.push(item);
   });
@@ -55,79 +60,163 @@ const itemsByDancer = computed(() => {
   return Object.values(groups);
 });
 
-// Calculate fees
-const subtotal = computed(() => {
-  if (props.items.length === 0) return 0;
+// API functions
+const API_BASE = '/api/v1';
+
+async function fetchRegistrationStatus() {
+  if (!props.feisId) return;
   
-  // Base entry fee per dancer
-  const dancers = new Set(props.items.map(i => i.dancer.id));
-  const baseFees = dancers.size * props.baseEntryFee;
+  try {
+    const res = await fetch(`${API_BASE}/feis/${props.feisId}/registration-status`);
+    if (res.ok) {
+      registrationStatus.value = await res.json();
+    }
+  } catch (err) {
+    console.error('Failed to fetch registration status:', err);
+  }
+}
+
+async function calculateCart() {
+  if (props.items.length === 0 || !props.isLoggedIn || !props.feisId) {
+    cartData.value = null;
+    return;
+  }
   
-  // Per-competition fee
-  const competitionFees = props.items.length * props.perCompetitionFee;
+  loading.value = true;
   
-  return baseFees + competitionFees;
-});
+  try {
+    const res = await fetch(`${API_BASE}/cart/calculate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authStore.authHeaders
+      },
+      body: JSON.stringify({
+        feis_id: props.feisId,
+        items: props.items.map(item => ({
+          competition_id: item.competition.id,
+          dancer_id: item.dancer.id
+        }))
+      })
+    });
+    
+    if (res.ok) {
+      cartData.value = await res.json();
+    } else {
+      console.error('Cart calculation failed');
+      cartData.value = null;
+    }
+  } catch (err) {
+    console.error('Failed to calculate cart:', err);
+    cartData.value = null;
+  } finally {
+    loading.value = false;
+  }
+}
 
-// Family cap discount
-const familyCapDiscount = computed(() => {
-  if (subtotal.value <= props.familyCap) return 0;
-  return subtotal.value - props.familyCap;
-});
-
-// Is cap applied?
-const isCapApplied = computed(() => familyCapDiscount.value > 0);
-
-// Final total
-const total = computed(() => {
-  return Math.min(subtotal.value, props.familyCap);
-});
-
-// Savings percentage
-const savingsPercent = computed(() => {
-  if (subtotal.value === 0) return 0;
-  return Math.round((familyCapDiscount.value / subtotal.value) * 100);
-});
-
-// Processing state
-const isProcessing = ref(false);
-const processingType = ref<'stripe' | 'pay_later' | null>(null);
-
-const handleCheckout = () => {
+async function handleCheckout(payAtDoor: boolean) {
   if (props.items.length === 0) return;
   if (!props.isLoggedIn) {
     emit('login-required');
     return;
   }
-  isProcessing.value = true;
-  processingType.value = 'stripe';
-  emit('checkout', false);  // payLater = false
+  
+  checkoutLoading.value = true;
+  checkoutError.value = null;
+  processingType.value = payAtDoor ? 'pay_later' : 'stripe';
+  
+  try {
+    const res = await fetch(`${API_BASE}/checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authStore.authHeaders
+      },
+      body: JSON.stringify({
+        feis_id: props.feisId,
+        items: props.items.map(item => ({
+          competition_id: item.competition.id,
+          dancer_id: item.dancer.id
+        })),
+        pay_at_door: payAtDoor
+      })
+    });
+    
+    const data: CheckoutResponse = await res.json();
+    
+    if (!data.success) {
+      checkoutError.value = data.message;
+      return;
+    }
+    
+    if (payAtDoor || data.is_test_mode) {
+      // Complete - registration done
+      if (data.order_id) {
+        emit('checkout-complete', data.order_id);
+      }
+    } else if (data.checkout_url) {
+      // Redirect to Stripe
+      window.location.href = data.checkout_url;
+    }
+  } catch (err: any) {
+    checkoutError.value = err.message || 'Checkout failed. Please try again.';
+  } finally {
+    checkoutLoading.value = false;
+    processingType.value = null;
+  }
+}
+
+// Watch for cart changes
+watch(() => props.items, calculateCart, { deep: true });
+
+// Also watch for login state changes
+watch(() => props.isLoggedIn, calculateCart);
+
+// Fetch on mount
+onMounted(() => {
+  fetchRegistrationStatus();
+  if (props.isLoggedIn && props.items.length > 0) {
+    calculateCart();
+  }
+});
+
+// Get dancer's total from cart data
+const getDancerTotal = (dancerId: string): number => {
+  if (!cartData.value) {
+    // Fallback to simple calculation
+    const items = props.items.filter(i => i.dancer.id === dancerId);
+    return items.reduce((sum, item) => sum + (item.competition.price_cents || 1000), 0);
+  }
+  
+  // Sum line items for this dancer
+  return cartData.value.line_items
+    .filter(li => li.dancer_id === dancerId)
+    .reduce((sum, li) => sum + li.total_cents, 0);
 };
 
-const handlePayLater = () => {
-  if (props.items.length === 0) return;
-  if (!props.isLoggedIn) {
-    emit('login-required');
-    return;
-  }
-  isProcessing.value = true;
-  processingType.value = 'pay_later';
-  emit('checkout', true);  // payLater = true
-};
+// Computed values from cart data (with fallbacks)
+const subtotal = computed(() => cartData.value?.subtotal_cents || 0);
+const familyCapDiscount = computed(() => cartData.value?.family_discount_cents || 0);
+const isCapApplied = computed(() => cartData.value?.family_cap_applied || false);
+const familyCap = computed(() => cartData.value?.family_cap_cents || 15000);
+const lateFee = computed(() => cartData.value?.late_fee_cents || 0);
+const isLate = computed(() => cartData.value?.late_fee_applied || false);
+const total = computed(() => cartData.value?.total_cents || 0);
+const savingsPercent = computed(() => cartData.value?.savings_percent || 0);
+
+// Check if online payments are available
+const canPayOnline = computed(() => {
+  return registrationStatus.value?.payment_methods.includes('stripe') || false;
+});
 
 // Reset processing state (called from parent after API call completes)
 const resetProcessing = () => {
-  isProcessing.value = false;
+  checkoutLoading.value = false;
   processingType.value = null;
 };
 
 // Expose reset function to parent
 defineExpose({ resetProcessing });
-
-// Get dancer's total competitions
-const getDancerTotal = (dancerId: string): number => {
-  return props.items.filter(i => i.dancer.id === dancerId).length * props.perCompetitionFee + props.baseEntryFee;
-};
 </script>
 
 <template>
@@ -161,6 +250,32 @@ const getDancerTotal = (dancerId: string): number => {
 
       <!-- Cart Items by Dancer -->
       <div v-else class="space-y-6">
+        <!-- Registration Closed Warning -->
+        <div v-if="registrationStatus && !registrationStatus.is_open" class="p-4 bg-red-50 border border-red-200 rounded-xl">
+          <div class="flex items-center gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p class="font-semibold text-red-800">Registration Closed</p>
+              <p class="text-sm text-red-600">{{ registrationStatus.message }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Late Fee Warning -->
+        <div v-else-if="isLate && lateFee > 0" class="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <div class="flex items-center gap-3">
+            <svg class="w-6 h-6 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p class="font-semibold text-amber-800">Late Registration</p>
+              <p class="text-sm text-amber-600">A late fee of {{ formatCurrency(lateFee) }} has been applied.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Dancer Groups -->
         <div 
           v-for="group in itemsByDancer" 
@@ -184,9 +299,6 @@ const getDancerTotal = (dancerId: string): number => {
               <div class="text-sm font-semibold text-slate-700">
                 {{ formatCurrency(getDancerTotal(group.dancer.id)) }}
               </div>
-              <div class="text-xs text-slate-500">
-                {{ formatCurrency(baseEntryFee) }} base + {{ formatCurrency(group.items.length * perCompetitionFee) }}
-              </div>
             </div>
           </div>
 
@@ -206,7 +318,7 @@ const getDancerTotal = (dancerId: string): number => {
                 </div>
               </div>
               <div class="flex items-center gap-3">
-                <span class="text-sm text-slate-600">{{ formatCurrency(perCompetitionFee) }}</span>
+                <span class="text-sm text-slate-600">{{ formatCurrency(item.competition.price_cents || 1000) }}</span>
                 <button 
                   @click="emit('remove', item)"
                   class="w-6 h-6 rounded-full bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors"
@@ -222,64 +334,98 @@ const getDancerTotal = (dancerId: string): number => {
 
         <!-- Fee Breakdown -->
         <div class="border-t border-slate-200 pt-4 space-y-3">
-          <!-- Subtotal -->
-          <div class="flex justify-between text-sm">
-            <span class="text-slate-600">Subtotal</span>
-            <span class="text-slate-800 font-medium">{{ formatCurrency(subtotal) }}</span>
+          <!-- Loading indicator -->
+          <div v-if="loading" class="flex items-center justify-center py-4">
+            <div class="animate-spin rounded-full h-6 w-6 border-2 border-rose-200 border-t-rose-600"></div>
+            <span class="ml-2 text-sm text-slate-500">Calculating...</span>
           </div>
           
-          <!-- Fee explanation -->
-          <div class="flex justify-between text-xs text-slate-500">
-            <span>{{ itemsByDancer.length }} dancer{{ itemsByDancer.length !== 1 ? 's' : '' }} × {{ formatCurrency(baseEntryFee) }} base</span>
-            <span>{{ formatCurrency(itemsByDancer.length * baseEntryFee) }}</span>
-          </div>
-          <div class="flex justify-between text-xs text-slate-500">
-            <span>{{ items.length }} competition{{ items.length !== 1 ? 's' : '' }} × {{ formatCurrency(perCompetitionFee) }}</span>
-            <span>{{ formatCurrency(items.length * perCompetitionFee) }}</span>
-          </div>
+          <template v-else-if="cartData">
+            <!-- Subtotal -->
+            <div class="flex justify-between text-sm">
+              <span class="text-slate-600">Subtotal</span>
+              <span class="text-slate-800 font-medium">{{ formatCurrency(subtotal) }}</span>
+            </div>
+            
+            <!-- Fee breakdown from line items -->
+            <div class="flex justify-between text-xs text-slate-500">
+              <span>{{ cartData.dancer_count }} dancer{{ cartData.dancer_count !== 1 ? 's' : '' }} base fee</span>
+              <span>{{ formatCurrency(cartData.line_items.filter(li => li.type === 'base_fee').reduce((sum, li) => sum + li.total_cents, 0)) }}</span>
+            </div>
+            <div class="flex justify-between text-xs text-slate-500">
+              <span>{{ cartData.competition_count }} competition{{ cartData.competition_count !== 1 ? 's' : '' }}</span>
+              <span>{{ formatCurrency(cartData.line_items.filter(li => li.type === 'competition').reduce((sum, li) => sum + li.total_cents, 0)) }}</span>
+            </div>
 
-          <!-- Family Cap Discount -->
-          <div 
-            v-if="isCapApplied"
-            class="flex justify-between text-sm bg-gradient-to-r from-emerald-50 to-teal-50 -mx-6 px-6 py-3 border-y border-emerald-100"
-          >
-            <div class="flex items-center gap-2">
-              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            <!-- Family Cap Discount -->
+            <div 
+              v-if="isCapApplied"
+              class="flex justify-between text-sm bg-gradient-to-r from-emerald-50 to-teal-50 -mx-6 px-6 py-3 border-y border-emerald-100"
+            >
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+                <div>
+                  <span class="text-emerald-700 font-semibold">Family Cap Applied!</span>
+                  <span class="text-emerald-600 text-xs ml-2">Save {{ savingsPercent }}%</span>
+                </div>
+              </div>
+              <span class="text-emerald-700 font-semibold">-{{ formatCurrency(familyCapDiscount) }}</span>
+            </div>
+
+            <!-- Family Cap Info -->
+            <div 
+              v-if="!isCapApplied && subtotal > 0 && familyCap"
+              class="text-xs text-slate-500 bg-slate-50 rounded-lg p-3"
+            >
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-              </span>
-              <div>
-                <span class="text-emerald-700 font-semibold">Family Cap Applied!</span>
-                <span class="text-emerald-600 text-xs ml-2">Save {{ savingsPercent }}%</span>
+                <span>
+                  <strong>Family Cap:</strong> Add {{ formatCurrency(familyCap - subtotal) }} more to reach {{ formatCurrency(familyCap) }} max
+                </span>
               </div>
             </div>
-            <span class="text-emerald-700 font-semibold">-{{ formatCurrency(familyCapDiscount) }}</span>
-          </div>
 
-          <!-- Family Cap Info -->
-          <div 
-            v-if="!isCapApplied && subtotal > 0"
-            class="text-xs text-slate-500 bg-slate-50 rounded-lg p-3"
-          >
-            <div class="flex items-center gap-2">
-              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>
-                <strong>Family Cap:</strong> Add {{ formatCurrency(familyCap - subtotal) }} more to reach {{ formatCurrency(familyCap) }} max
-              </span>
+            <!-- Late Fee -->
+            <div v-if="isLate && lateFee > 0" class="flex justify-between text-sm text-amber-700">
+              <span>Late Fee</span>
+              <span>+{{ formatCurrency(lateFee) }}</span>
             </div>
-          </div>
 
-          <!-- Total -->
-          <div class="flex justify-between items-center pt-3 border-t border-slate-200">
-            <span class="text-lg font-bold text-slate-800">Total</span>
-            <div class="text-right">
-              <span class="text-2xl font-black text-rose-600">{{ formatCurrency(total) }}</span>
-              <div v-if="isCapApplied" class="text-xs text-slate-500">
-                <span class="line-through">{{ formatCurrency(subtotal) }}</span>
+            <!-- Total -->
+            <div class="flex justify-between items-center pt-3 border-t border-slate-200">
+              <span class="text-lg font-bold text-slate-800">Total</span>
+              <div class="text-right">
+                <span class="text-2xl font-black text-rose-600">{{ formatCurrency(total) }}</span>
+                <div v-if="isCapApplied" class="text-xs text-slate-500">
+                  <span class="line-through">{{ formatCurrency(subtotal + familyCapDiscount) }}</span>
+                </div>
               </div>
+            </div>
+          </template>
+          
+          <!-- Fallback for logged out users -->
+          <template v-else-if="!isLoggedIn">
+            <div class="text-center py-4 text-sm text-slate-500">
+              Sign in to see your cart total with family cap applied
+            </div>
+          </template>
+        </div>
+
+        <!-- Checkout Error -->
+        <div v-if="checkoutError" class="p-4 bg-red-50 border border-red-200 rounded-xl">
+          <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p class="font-medium text-red-800">Checkout Error</p>
+              <p class="text-sm text-red-600">{{ checkoutError }}</p>
             </div>
           </div>
         </div>
@@ -301,18 +447,19 @@ const getDancerTotal = (dancerId: string): number => {
 
         <!-- Checkout Buttons -->
         <div class="space-y-3">
-          <!-- Pay Now Button (Stripe - Coming Soon) -->
+          <!-- Pay Now Button (Stripe) -->
           <button
-            @click="handleCheckout"
-            :disabled="isProcessing || items.length === 0"
+            v-if="canPayOnline"
+            @click="handleCheckout(false)"
+            :disabled="checkoutLoading || items.length === 0 || !!(registrationStatus && !registrationStatus.is_open)"
             :class="[
               'w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2',
-              isProcessing || items.length === 0
+              checkoutLoading || items.length === 0 || !!(registrationStatus && !registrationStatus.is_open)
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-lg shadow-rose-200 hover:shadow-xl hover:shadow-rose-300 transform hover:-translate-y-0.5'
             ]"
           >
-            <template v-if="isProcessing && processingType === 'stripe'">
+            <template v-if="checkoutLoading && processingType === 'stripe'">
               <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
               Processing...
             </template>
@@ -320,12 +467,12 @@ const getDancerTotal = (dancerId: string): number => {
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
-              Pay Now {{ formatCurrency(total) }}
+              Pay Now {{ cartData ? formatCurrency(total) : '' }}
             </template>
           </button>
 
-          <!-- Divider -->
-          <div class="flex items-center gap-4">
+          <!-- Divider (only if both options available) -->
+          <div v-if="canPayOnline" class="flex items-center gap-4">
             <div class="flex-1 h-px bg-slate-200"></div>
             <span class="text-sm text-slate-400 font-medium">or</span>
             <div class="flex-1 h-px bg-slate-200"></div>
@@ -333,16 +480,18 @@ const getDancerTotal = (dancerId: string): number => {
 
           <!-- Pay at Door Button -->
           <button
-            @click="handlePayLater"
-            :disabled="isProcessing || items.length === 0"
+            @click="handleCheckout(true)"
+            :disabled="checkoutLoading || items.length === 0 || !!(registrationStatus && !registrationStatus.is_open)"
             :class="[
               'w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 border-2',
-              isProcessing || items.length === 0
+              checkoutLoading || items.length === 0 || !!(registrationStatus && !registrationStatus.is_open)
                 ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
-                : 'bg-white text-emerald-700 border-emerald-500 hover:bg-emerald-50 hover:border-emerald-600'
+                : canPayOnline
+                  ? 'bg-white text-emerald-700 border-emerald-500 hover:bg-emerald-50 hover:border-emerald-600'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-transparent shadow-lg shadow-emerald-200 hover:shadow-xl hover:shadow-emerald-300 transform hover:-translate-y-0.5'
             ]"
           >
-            <template v-if="isProcessing && processingType === 'pay_later'">
+            <template v-if="checkoutLoading && processingType === 'pay_later'">
               <div class="animate-spin rounded-full h-5 w-5 border-2 border-emerald-600 border-t-transparent"></div>
               Registering...
             </template>
@@ -351,12 +500,16 @@ const getDancerTotal = (dancerId: string): number => {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              Pay at Door (Check-in)
+              {{ canPayOnline ? 'Pay at Door (Check-in)' : 'Register Now - Pay at Door' }}
+              <span v-if="!canPayOnline && cartData" class="ml-1">{{ formatCurrency(total) }}</span>
             </template>
           </button>
 
           <p class="text-xs text-slate-500 text-center">
-            Choose "Pay at Door" to complete registration now and pay at the event check-in.
+            {{ canPayOnline 
+              ? 'Choose "Pay at Door" to complete registration now and pay at the event check-in.'
+              : 'Complete your registration now and pay at the event check-in desk.'
+            }}
           </p>
         </div>
 

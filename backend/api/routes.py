@@ -8,7 +8,7 @@ from sqlmodel import Session, select, func
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
 from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings,
-    Stage, DanceType, ScoringMethod
+    Stage, DanceType, ScoringMethod, FeisSettings, FeeItem, FeeCategory, Order, OrderItem, PaymentStatus
 )
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
@@ -29,7 +29,13 @@ from backend.api.schemas import (
     StageCreate, StageUpdate, StageResponse,
     DurationEstimateRequest, DurationEstimateResponse,
     ScheduleCompetitionRequest, BulkScheduleRequest, BulkScheduleResponse,
-    ScheduleConflict, ConflictCheckResponse, ScheduledCompetition, SchedulerViewResponse
+    ScheduleConflict, ConflictCheckResponse, ScheduledCompetition, SchedulerViewResponse,
+    # Financial Engine schemas (Phase 3)
+    FeisSettingsCreate, FeisSettingsUpdate, FeisSettingsResponse,
+    FeeItemCreate, FeeItemUpdate, FeeItemResponse,
+    CartCalculationRequest, CartCalculationResponse, CartLineItemResponse, CartItemRequest,
+    CheckoutRequest, CheckoutResponse, OrderResponse,
+    RegistrationStatusResponse, StripeOnboardingRequest, StripeOnboardingResponse, StripeStatusResponse
 )
 from backend.services.scheduling import (
     estimate_duration, estimate_competition_duration, detect_all_conflicts,
@@ -2655,3 +2661,684 @@ async def generate_single_number_card(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
     )
+
+
+# ============= Financial Engine (Phase 3) =============
+# Imports for cart and stripe services
+from backend.services.cart import (
+    calculate_cart, create_order, get_feis_settings as get_cart_feis_settings,
+    is_registration_open, is_late_registration, CartTotals
+)
+from backend.services.stripe import (
+    is_stripe_configured, get_stripe_mode, is_organizer_connected,
+    create_checkout_session, handle_checkout_success,
+    create_organizer_onboarding_link, check_onboarding_status
+)
+
+
+# ============= Feis Settings Endpoints =============
+
+@router.get("/feis/{feis_id}/settings", response_model=FeisSettingsResponse)
+async def get_feis_settings(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get feis settings (pricing, registration windows, etc.)."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == feis.id)
+    ).first()
+    
+    if not settings:
+        # Return defaults
+        settings = FeisSettings(feis_id=feis.id)
+        # Don't persist, just return defaults
+    
+    return FeisSettingsResponse(
+        id=str(settings.id) if settings.id else "",
+        feis_id=str(feis.id),
+        base_entry_fee_cents=settings.base_entry_fee_cents,
+        per_competition_fee_cents=settings.per_competition_fee_cents,
+        family_max_cents=settings.family_max_cents,
+        late_fee_cents=settings.late_fee_cents,
+        late_fee_date=settings.late_fee_date,
+        change_fee_cents=settings.change_fee_cents,
+        registration_opens=settings.registration_opens,
+        registration_closes=settings.registration_closes,
+        stripe_account_id=settings.stripe_account_id,
+        stripe_onboarding_complete=settings.stripe_onboarding_complete
+    )
+
+
+@router.put("/feis/{feis_id}/settings", response_model=FeisSettingsResponse)
+async def update_feis_settings(
+    feis_id: str,
+    settings_data: FeisSettingsUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Update feis settings. Requires organizer (owner) or super_admin role."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update settings for your own feis")
+    
+    # Get or create settings
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == feis.id)
+    ).first()
+    
+    if not settings:
+        settings = FeisSettings(feis_id=feis.id)
+        session.add(settings)
+    
+    # Apply updates
+    if settings_data.base_entry_fee_cents is not None:
+        settings.base_entry_fee_cents = settings_data.base_entry_fee_cents
+    if settings_data.per_competition_fee_cents is not None:
+        settings.per_competition_fee_cents = settings_data.per_competition_fee_cents
+    if settings_data.family_max_cents is not None:
+        # -1 means no cap
+        settings.family_max_cents = None if settings_data.family_max_cents == -1 else settings_data.family_max_cents
+    if settings_data.late_fee_cents is not None:
+        settings.late_fee_cents = settings_data.late_fee_cents
+    if settings_data.late_fee_date is not None:
+        settings.late_fee_date = settings_data.late_fee_date
+    if settings_data.change_fee_cents is not None:
+        settings.change_fee_cents = settings_data.change_fee_cents
+    if settings_data.registration_opens is not None:
+        settings.registration_opens = settings_data.registration_opens
+    if settings_data.registration_closes is not None:
+        settings.registration_closes = settings_data.registration_closes
+    
+    session.add(settings)
+    session.commit()
+    session.refresh(settings)
+    
+    return FeisSettingsResponse(
+        id=str(settings.id),
+        feis_id=str(feis.id),
+        base_entry_fee_cents=settings.base_entry_fee_cents,
+        per_competition_fee_cents=settings.per_competition_fee_cents,
+        family_max_cents=settings.family_max_cents,
+        late_fee_cents=settings.late_fee_cents,
+        late_fee_date=settings.late_fee_date,
+        change_fee_cents=settings.change_fee_cents,
+        registration_opens=settings.registration_opens,
+        registration_closes=settings.registration_closes,
+        stripe_account_id=settings.stripe_account_id,
+        stripe_onboarding_complete=settings.stripe_onboarding_complete
+    )
+
+
+# ============= Fee Item Endpoints =============
+
+@router.get("/feis/{feis_id}/fee-items", response_model=List[FeeItemResponse])
+async def list_fee_items(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    active_only: bool = True
+):
+    """List fee items for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    statement = select(FeeItem).where(FeeItem.feis_id == feis.id)
+    if active_only:
+        statement = statement.where(FeeItem.active == True)
+    
+    items = session.exec(statement).all()
+    
+    return [
+        FeeItemResponse(
+            id=str(item.id),
+            feis_id=str(item.feis_id),
+            name=item.name,
+            description=item.description,
+            amount_cents=item.amount_cents,
+            category=item.category,
+            required=item.required,
+            max_quantity=item.max_quantity,
+            active=item.active
+        )
+        for item in items
+    ]
+
+
+@router.post("/feis/{feis_id}/fee-items", response_model=FeeItemResponse)
+async def create_fee_item(
+    feis_id: str,
+    item_data: FeeItemCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Create a fee item. Requires organizer (owner) or super_admin role."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only create fee items for your own feis")
+    
+    item = FeeItem(
+        feis_id=feis.id,
+        name=item_data.name,
+        description=item_data.description,
+        amount_cents=item_data.amount_cents,
+        category=item_data.category,
+        required=item_data.required,
+        max_quantity=item_data.max_quantity
+    )
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    
+    return FeeItemResponse(
+        id=str(item.id),
+        feis_id=str(item.feis_id),
+        name=item.name,
+        description=item.description,
+        amount_cents=item.amount_cents,
+        category=item.category,
+        required=item.required,
+        max_quantity=item.max_quantity,
+        active=item.active
+    )
+
+
+@router.put("/fee-items/{item_id}", response_model=FeeItemResponse)
+async def update_fee_item(
+    item_id: str,
+    item_data: FeeItemUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Update a fee item."""
+    item = session.get(FeeItem, UUID(item_id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Fee item not found")
+    
+    feis = session.get(Feis, item.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update fee items for your own feis")
+    
+    if item_data.name is not None:
+        item.name = item_data.name
+    if item_data.description is not None:
+        item.description = item_data.description
+    if item_data.amount_cents is not None:
+        item.amount_cents = item_data.amount_cents
+    if item_data.category is not None:
+        item.category = item_data.category
+    if item_data.required is not None:
+        item.required = item_data.required
+    if item_data.max_quantity is not None:
+        item.max_quantity = item_data.max_quantity
+    if item_data.active is not None:
+        item.active = item_data.active
+    
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    
+    return FeeItemResponse(
+        id=str(item.id),
+        feis_id=str(item.feis_id),
+        name=item.name,
+        description=item.description,
+        amount_cents=item.amount_cents,
+        category=item.category,
+        required=item.required,
+        max_quantity=item.max_quantity,
+        active=item.active
+    )
+
+
+@router.delete("/fee-items/{item_id}")
+async def delete_fee_item(
+    item_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Delete (soft-delete by deactivating) a fee item."""
+    item = session.get(FeeItem, UUID(item_id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Fee item not found")
+    
+    feis = session.get(Feis, item.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete fee items for your own feis")
+    
+    # Soft delete - deactivate instead of removing
+    item.active = False
+    session.add(item)
+    session.commit()
+    
+    return {"message": f"Fee item '{item.name}' deactivated"}
+
+
+# ============= Cart & Checkout Endpoints =============
+
+@router.get("/feis/{feis_id}/registration-status", response_model=RegistrationStatusResponse)
+async def get_registration_status(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get registration status for a feis (open/closed, late fees, payment methods)."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    settings = get_cart_feis_settings(session, feis.id)
+    is_open, message = is_registration_open(settings)
+    is_late = is_late_registration(settings)
+    
+    # Check Stripe status
+    stripe_connected, _ = is_organizer_connected(feis, session)
+    stripe_enabled = is_stripe_configured() and stripe_connected
+    
+    # Determine available payment methods
+    payment_methods = ["pay_at_door"]  # Always available
+    if stripe_enabled:
+        payment_methods.insert(0, "stripe")
+    
+    return RegistrationStatusResponse(
+        is_open=is_open,
+        message=message,
+        opens_at=settings.registration_opens,
+        closes_at=settings.registration_closes,
+        is_late=is_late,
+        late_fee_cents=settings.late_fee_cents if is_late else 0,
+        stripe_enabled=stripe_enabled,
+        payment_methods=payment_methods
+    )
+
+
+@router.post("/cart/calculate", response_model=CartCalculationResponse)
+async def calculate_cart_totals(
+    cart_data: CartCalculationRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Calculate cart totals with family cap and late fees.
+    
+    This is a stateless calculation endpoint - it doesn't create orders.
+    Used by the frontend to show live pricing updates.
+    """
+    competition_ids = [UUID(item.competition_id) for item in cart_data.items]
+    dancer_ids = [UUID(item.dancer_id) for item in cart_data.items]
+    
+    try:
+        cart_totals = calculate_cart(
+            session=session,
+            feis_id=UUID(cart_data.feis_id),
+            user_id=current_user.id,
+            competition_ids=competition_ids,
+            dancer_ids=dancer_ids,
+            fee_item_quantities=cart_data.fee_items
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    return CartCalculationResponse(
+        line_items=[
+            CartLineItemResponse(
+                id=li.id,
+                type=li.type,
+                name=li.name,
+                description=li.description,
+                dancer_id=li.dancer_id,
+                dancer_name=li.dancer_name,
+                unit_price_cents=li.unit_price_cents,
+                quantity=li.quantity,
+                total_cents=li.total_cents,
+                category=li.category
+            )
+            for li in cart_totals.line_items
+        ],
+        qualifying_subtotal_cents=cart_totals.qualifying_subtotal_cents,
+        non_qualifying_subtotal_cents=cart_totals.non_qualifying_subtotal_cents,
+        subtotal_cents=cart_totals.subtotal_cents,
+        family_discount_cents=cart_totals.family_discount_cents,
+        family_cap_applied=cart_totals.family_cap_applied,
+        family_cap_cents=cart_totals.family_cap_cents,
+        late_fee_cents=cart_totals.late_fee_cents,
+        late_fee_applied=cart_totals.late_fee_applied,
+        late_fee_date=cart_totals.late_fee_date,
+        total_cents=cart_totals.total_cents,
+        dancer_count=cart_totals.dancer_count,
+        competition_count=cart_totals.competition_count,
+        savings_percent=cart_totals.savings_percent
+    )
+
+
+@router.post("/checkout", response_model=CheckoutResponse)
+async def checkout(
+    checkout_data: CheckoutRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Start checkout process.
+    
+    For pay_at_door=True: Creates order and entries immediately with PAY_AT_DOOR status.
+    For pay_at_door=False: Creates order and returns Stripe checkout URL.
+    """
+    feis = session.get(Feis, UUID(checkout_data.feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check registration is open
+    settings = get_cart_feis_settings(session, feis.id)
+    is_open, message = is_registration_open(settings)
+    if not is_open:
+        raise HTTPException(status_code=400, detail=message)
+    
+    # Validate dancers belong to current user
+    competition_ids = [UUID(item.competition_id) for item in checkout_data.items]
+    dancer_ids = [UUID(item.dancer_id) for item in checkout_data.items]
+    
+    for dancer_id in set(dancer_ids):
+        dancer = session.get(Dancer, dancer_id)
+        if not dancer:
+            raise HTTPException(status_code=404, detail=f"Dancer not found")
+        if current_user.role == RoleType.PARENT and dancer.parent_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only register your own dancers")
+    
+    # Calculate cart
+    try:
+        cart_totals = calculate_cart(
+            session=session,
+            feis_id=feis.id,
+            user_id=current_user.id,
+            competition_ids=competition_ids,
+            dancer_ids=dancer_ids,
+            fee_item_quantities=checkout_data.fee_items
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Create order
+    order = create_order(
+        session=session,
+        feis_id=feis.id,
+        user_id=current_user.id,
+        cart_totals=cart_totals,
+        pay_at_door=checkout_data.pay_at_door
+    )
+    
+    if checkout_data.pay_at_door:
+        # Done - entries created, will pay at door
+        return CheckoutResponse(
+            success=True,
+            order_id=str(order.id),
+            checkout_url=None,
+            is_test_mode=False,
+            message=f"Registration complete! Please pay ${order.total_cents / 100:.2f} at check-in."
+        )
+    
+    # Online payment - create Stripe checkout session
+    # Note: These URLs would need to be configured properly in production
+    base_url = settings.site_url if hasattr(settings, 'site_url') else "http://localhost:5173"
+    site_settings = get_site_settings(session)
+    base_url = site_settings.site_url
+    
+    success_url = f"{base_url}/registration/success"
+    cancel_url = f"{base_url}/registration/cancel"
+    
+    result = create_checkout_session(
+        session=session,
+        order=order,
+        cart_totals=cart_totals,
+        success_url=success_url,
+        cancel_url=cancel_url
+    )
+    
+    if not result.success:
+        return CheckoutResponse(
+            success=False,
+            order_id=str(order.id),
+            checkout_url=None,
+            is_test_mode=result.is_test_mode,
+            message=result.error or "Failed to create checkout session"
+        )
+    
+    return CheckoutResponse(
+        success=True,
+        order_id=str(order.id),
+        checkout_url=result.checkout_url,
+        is_test_mode=result.is_test_mode,
+        message="Redirecting to payment..." if not result.is_test_mode else "Test mode: Simulating successful payment"
+    )
+
+
+@router.get("/checkout/success")
+async def checkout_success(
+    session_id: str,
+    test_mode: bool = False,
+    session: Session = Depends(get_session)
+):
+    """
+    Handle successful checkout return.
+    
+    Called when user is redirected back from Stripe (or test mode).
+    Marks the order as paid.
+    """
+    success, order, error = handle_checkout_success(
+        session=session,
+        checkout_session_id=session_id,
+        is_test_mode=test_mode
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=error or "Payment verification failed")
+    
+    return {
+        "success": True,
+        "order_id": str(order.id),
+        "message": "Payment successful! Your registration is confirmed."
+    }
+
+
+@router.get("/orders", response_model=List[OrderResponse])
+async def list_my_orders(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    feis_id: Optional[str] = None
+):
+    """List orders for the current user."""
+    statement = select(Order).where(Order.user_id == current_user.id)
+    
+    if feis_id:
+        statement = statement.where(Order.feis_id == UUID(feis_id))
+    
+    statement = statement.order_by(Order.created_at.desc())
+    orders = session.exec(statement).all()
+    
+    result = []
+    for order in orders:
+        entry_count = session.exec(
+            select(func.count(Entry.id)).where(Entry.order_id == order.id)
+        ).one()
+        
+        result.append(OrderResponse(
+            id=str(order.id),
+            feis_id=str(order.feis_id),
+            user_id=str(order.user_id),
+            subtotal_cents=order.subtotal_cents,
+            qualifying_subtotal_cents=order.qualifying_subtotal_cents,
+            non_qualifying_subtotal_cents=order.non_qualifying_subtotal_cents,
+            family_discount_cents=order.family_discount_cents,
+            late_fee_cents=order.late_fee_cents,
+            total_cents=order.total_cents,
+            status=order.status,
+            created_at=order.created_at,
+            paid_at=order.paid_at,
+            entry_count=entry_count
+        ))
+    
+    return result
+
+
+@router.get("/orders/{order_id}", response_model=OrderResponse)
+async def get_order(
+    order_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific order."""
+    order = session.get(Order, UUID(order_id))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Check ownership
+    if order.user_id != current_user.id and current_user.role not in [RoleType.SUPER_ADMIN, RoleType.ORGANIZER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    entry_count = session.exec(
+        select(func.count(Entry.id)).where(Entry.order_id == order.id)
+    ).one()
+    
+    return OrderResponse(
+        id=str(order.id),
+        feis_id=str(order.feis_id),
+        user_id=str(order.user_id),
+        subtotal_cents=order.subtotal_cents,
+        qualifying_subtotal_cents=order.qualifying_subtotal_cents,
+        non_qualifying_subtotal_cents=order.non_qualifying_subtotal_cents,
+        family_discount_cents=order.family_discount_cents,
+        late_fee_cents=order.late_fee_cents,
+        total_cents=order.total_cents,
+        status=order.status,
+        created_at=order.created_at,
+        paid_at=order.paid_at,
+        entry_count=entry_count
+    )
+
+
+# ============= Stripe Connect Endpoints =============
+
+@router.get("/feis/{feis_id}/stripe-status", response_model=StripeStatusResponse)
+async def get_stripe_status(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get Stripe configuration status for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    stripe_configured = is_stripe_configured()
+    stripe_mode = get_stripe_mode()
+    feis_connected, _ = is_organizer_connected(feis, session)
+    
+    # Check onboarding status
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == feis.id)
+    ).first()
+    onboarding_complete = settings.stripe_onboarding_complete if settings else False
+    
+    # Build message
+    if not stripe_configured:
+        message = "Stripe is not configured. Online payments are disabled. Use 'Pay at Door' option."
+    elif not feis_connected:
+        message = "This feis has not connected a Stripe account yet."
+    elif not onboarding_complete:
+        message = "Stripe onboarding is in progress."
+    else:
+        message = f"Stripe is ready to accept payments ({stripe_mode} mode)."
+    
+    return StripeStatusResponse(
+        stripe_configured=stripe_configured,
+        stripe_mode=stripe_mode,
+        feis_connected=feis_connected,
+        onboarding_complete=onboarding_complete,
+        message=message
+    )
+
+
+@router.post("/feis/{feis_id}/stripe-onboarding", response_model=StripeOnboardingResponse)
+async def start_stripe_onboarding(
+    feis_id: str,
+    onboarding_data: StripeOnboardingRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Start Stripe Connect onboarding for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only configure Stripe for your own feis")
+    
+    result = create_organizer_onboarding_link(
+        session=session,
+        feis_id=feis.id,
+        return_url=onboarding_data.return_url,
+        refresh_url=onboarding_data.refresh_url
+    )
+    
+    return StripeOnboardingResponse(
+        success=result.success,
+        onboarding_url=result.onboarding_url,
+        is_test_mode=result.is_test_mode,
+        error=result.error
+    )
+
+
+@router.post("/feis/{feis_id}/stripe-onboarding/complete")
+async def complete_stripe_onboarding(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Check and mark Stripe onboarding as complete.
+    
+    Called after returning from Stripe onboarding flow.
+    In test mode, this immediately marks onboarding as complete.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only configure Stripe for your own feis")
+    
+    # In test mode, just mark as complete
+    if not is_stripe_configured():
+        settings = session.exec(
+            select(FeisSettings).where(FeisSettings.feis_id == feis.id)
+        ).first()
+        
+        if not settings:
+            settings = FeisSettings(feis_id=feis.id)
+        
+        settings.stripe_account_id = f"test_acct_{feis.id}"
+        settings.stripe_onboarding_complete = True
+        session.add(settings)
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": "Test mode: Stripe onboarding marked as complete",
+            "is_test_mode": True
+        }
+    
+    # Real Stripe - check account status
+    is_complete, message = check_onboarding_status(session, feis.id)
+    
+    return {
+        "success": is_complete,
+        "message": message,
+        "is_test_mode": False
+    }
