@@ -96,6 +96,18 @@ export interface Competition {
   entry_count?: number;
 }
 
+export interface StageJudgeCoverage {
+  id: string;
+  stage_id: string;
+  stage_name: string;
+  feis_adjudicator_id: string;
+  adjudicator_name: string;
+  feis_day: string; // ISO date
+  start_time: string; // HH:MM
+  end_time: string;   // HH:MM
+  note?: string;
+}
+
 export interface Stage {
   id: string;
   feis_id: string;
@@ -103,6 +115,7 @@ export interface Stage {
   color?: string; // Hex color, e.g., "#FF5733"
   sequence: number;
   competition_count?: number;
+  judge_coverage: StageJudgeCoverage[];
 }
 
 export interface Entry {
@@ -726,3 +739,214 @@ export function getWaitlistStatusBadge(status: WaitlistStatus): { color: string;
   };
   return badges[status] || { color: 'bg-slate-100 text-slate-600', label: 'Unknown' };
 }
+
+
+// ============= Phase 6: Adjudicator Roster Management =============
+
+export type AdjudicatorStatus = 'invited' | 'confirmed' | 'active' | 'declined';
+export type AvailabilityType = 'available' | 'unavailable' | 'lunch';
+
+// --- Adjudicator Roster ---
+
+export interface FeisAdjudicator {
+  id: string;
+  feis_id: string;
+  user_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  credential: string | null;  // e.g., "TCRG", "ADCRG", "TMRF"
+  organization: string | null;  // e.g., "CLRG", "NAFC", "CRN"
+  school_affiliation_id: string | null;  // FK to User (teacher) for conflict detection
+  school_affiliation_name: string | null;  // Display name
+  status: AdjudicatorStatus;
+  invite_sent_at: string | null;
+  invite_expires_at: string | null;
+  has_access_pin: boolean;
+  created_at: string;
+  confirmed_at: string | null;
+}
+
+export interface AdjudicatorListResponse {
+  feis_id: string;
+  feis_name: string;
+  total_adjudicators: number;
+  confirmed_count: number;
+  invited_count: number;
+  active_count: number;
+  adjudicators: FeisAdjudicator[];
+}
+
+export interface AdjudicatorCreateRequest {
+  name: string;
+  email?: string;
+  phone?: string;
+  credential?: string;
+  organization?: string;
+  school_affiliation_id?: string;
+  user_id?: string;
+}
+
+export interface AdjudicatorUpdateRequest {
+  name?: string;
+  email?: string;
+  phone?: string;
+  credential?: string;
+  organization?: string;
+  school_affiliation_id?: string;
+  status?: AdjudicatorStatus;
+  user_id?: string;
+}
+
+// --- Adjudicator Availability ---
+
+export interface AvailabilityBlock {
+  id: string;
+  feis_adjudicator_id: string;
+  feis_day: string;  // ISO date
+  start_time: string;  // Time string, e.g., "08:00"
+  end_time: string;  // Time string, e.g., "17:00"
+  availability_type: AvailabilityType;
+  note: string | null;
+  created_at: string;
+}
+
+export interface AdjudicatorAvailabilityResponse {
+  adjudicator_id: string;
+  adjudicator_name: string;
+  feis_id: string;
+  feis_dates: string[];  // All dates of the feis
+  availability_blocks: AvailabilityBlock[];
+}
+
+export interface AvailabilityBlockCreateRequest {
+  feis_day: string;  // ISO date
+  start_time: string;  // e.g., "08:00"
+  end_time: string;  // e.g., "17:00"
+  availability_type: AvailabilityType;
+  note?: string;
+}
+
+export interface BulkAvailabilityCreateRequest {
+  blocks: AvailabilityBlockCreateRequest[];
+  replace_existing: boolean;
+}
+
+// --- Adjudicator Invites ---
+
+export interface AdjudicatorInviteResponse {
+  success: boolean;
+  adjudicator_id: string;
+  invite_link: string;
+  expires_at: string;
+  message: string;
+}
+
+export interface AdjudicatorAcceptInviteRequest {
+  token: string;
+}
+
+export interface AdjudicatorAcceptInviteResponse {
+  success: boolean;
+  feis_id: string;
+  feis_name: string;
+  adjudicator_name: string;
+  message: string;
+  access_token: string | null;
+  user: User | null;
+}
+
+// --- Day-of PIN Access ---
+
+export interface GeneratePinResponse {
+  success: boolean;
+  adjudicator_id: string;
+  adjudicator_name: string;
+  pin: string;  // Only shown once!
+  message: string;
+}
+
+export interface PinLoginRequest {
+  feis_id: string;
+  pin: string;
+}
+
+export interface PinLoginResponse {
+  success: boolean;
+  access_token: string;
+  feis_id: string;
+  feis_name: string;
+  adjudicator_name: string;
+  message: string;
+}
+
+// --- Capacity Metrics ---
+
+export interface AdjudicatorCapacity {
+  feis_id: string;
+  feis_name: string;
+  total_adjudicators: number;
+  confirmed_count: number;
+  active_count: number;
+  grades_judges_per_stage: number;
+  champs_judges_per_panel: number;
+  max_grade_stages: number;
+  max_champs_panels: number;
+  recommendation: string;
+}
+
+// --- Scheduling Defaults ---
+
+export interface SchedulingDefaults {
+  feis_id: string;
+  grades_judges_per_stage: number;
+  champs_judges_per_panel: number;
+  lunch_duration_minutes: number;
+  lunch_window_start: string | null;  // Time string, e.g., "11:00"
+  lunch_window_end: string | null;  // Time string, e.g., "13:00"
+}
+
+export interface SchedulingDefaultsUpdateRequest {
+  grades_judges_per_stage?: number;
+  champs_judges_per_panel?: number;
+  lunch_duration_minutes?: number;
+  lunch_window_start?: string;
+  lunch_window_end?: string;
+}
+
+// Helper: Get adjudicator status badge
+export function getAdjudicatorStatusBadge(status: AdjudicatorStatus): { color: string; label: string } {
+  const badges: Record<AdjudicatorStatus, { color: string; label: string }> = {
+    invited: { color: 'bg-amber-100 text-amber-800', label: 'Invited' },
+    confirmed: { color: 'bg-green-100 text-green-800', label: 'Confirmed' },
+    active: { color: 'bg-blue-100 text-blue-800', label: 'Active' },
+    declined: { color: 'bg-red-100 text-red-800', label: 'Declined' },
+  };
+  return badges[status] || { color: 'bg-slate-100 text-slate-600', label: 'Unknown' };
+}
+
+// Helper: Get availability type badge
+export function getAvailabilityTypeBadge(type: AvailabilityType): { color: string; label: string } {
+  const badges: Record<AvailabilityType, { color: string; label: string }> = {
+    available: { color: 'bg-green-100 text-green-800', label: 'Available' },
+    unavailable: { color: 'bg-red-100 text-red-800', label: 'Unavailable' },
+    lunch: { color: 'bg-amber-100 text-amber-800', label: 'Lunch' },
+  };
+  return badges[type] || { color: 'bg-slate-100 text-slate-600', label: 'Unknown' };
+}
+
+// Common credential types for autocomplete
+export const ADJUDICATOR_CREDENTIALS = [
+  { value: 'TCRG', label: 'TCRG (Teacher)' },
+  { value: 'ADCRG', label: 'ADCRG (Adjudicator)' },
+  { value: 'TMRF', label: 'TMRF (Teacher of Music)' },
+  { value: 'SDCRG', label: 'SDCRG (Examiner)' },
+];
+
+// Common dance organizations for autocomplete
+export const DANCE_ORGANIZATIONS = [
+  { value: 'CLRG', label: 'CLRG - An Coimisiún' },
+  { value: 'NAFC', label: 'NAFC - North American Feis Commission' },
+  { value: 'CRN', label: 'CRN - An Comhdháil' },
+  { value: 'WIDA', label: 'WIDA - World Irish Dance Association' },
+];

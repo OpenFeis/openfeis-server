@@ -6,7 +6,10 @@ import type {
   ScheduleConflict, 
   SchedulerViewResponse,
   CompetitionLevel,
-  DanceType
+  DanceType,
+  FeisAdjudicator,
+  AdjudicatorListResponse,
+  StageJudgeCoverage
 } from '../../models/types';
 import { DANCE_TYPE_INFO } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
@@ -32,10 +35,27 @@ const competitions = ref<ScheduledCompetition[]>([]);
 const conflicts = ref<ScheduleConflict[]>([]);
 const feisDate = ref<string>('');
 
+// Adjudicator data
+const adjudicators = ref<FeisAdjudicator[]>([]);
+const showAdjudicatorModal = ref(false);
+const selectedCompetition = ref<ScheduledCompetition | null>(null);
+const selectedAdjudicatorId = ref<string>('');
+
 // Stage management
 const showStageModal = ref(false);
 const editingStage = ref<Stage | null>(null);
 const stageForm = ref({ name: '', color: '#6366f1' });
+
+// Coverage management
+const showCoverageModal = ref(false);
+const coverageStage = ref<Stage | null>(null);
+const coverageForm = ref({
+  feis_adjudicator_id: '',
+  feis_day: '',
+  start_time: '09:00',
+  end_time: '12:00',
+  note: ''
+});
 
 // Drag and drop state
 const draggedComp = ref<ScheduledCompetition | null>(null);
@@ -108,6 +128,52 @@ const loadSchedulerData = async () => {
   }
 };
 
+// Fetch adjudicators for assignment dropdown
+const loadAdjudicators = async () => {
+  try {
+    const response = await auth.authFetch(`/api/v1/feis/${props.feisId}/adjudicators`);
+    if (response.ok) {
+      const data: AdjudicatorListResponse = await response.json();
+      adjudicators.value = data.adjudicators;
+    }
+  } catch (err) {
+    console.error('Failed to load adjudicators:', err);
+  }
+};
+
+// Open adjudicator assignment modal
+const openAdjudicatorModal = (comp: ScheduledCompetition) => {
+  selectedCompetition.value = comp;
+  // Find current adjudicator if any (would need to extend ScheduledCompetition type)
+  selectedAdjudicatorId.value = '';
+  showAdjudicatorModal.value = true;
+};
+
+// Assign adjudicator to competition
+const assignAdjudicator = async () => {
+  if (!selectedCompetition.value) return;
+  
+  try {
+    const response = await auth.authFetch(`/api/v1/competitions/${selectedCompetition.value.id}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        adjudicator_id: selectedAdjudicatorId.value || null
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to assign adjudicator');
+    }
+    
+    showAdjudicatorModal.value = false;
+    selectedCompetition.value = null;
+    await loadSchedulerData();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to assign adjudicator';
+  }
+};
+
+
 // Create or update a stage
 const saveStage = async () => {
   try {
@@ -162,6 +228,60 @@ const openStageModal = (stage?: Stage) => {
     ? { name: stage.name, color: stage.color || '#6366f1' }
     : { name: '', color: '#6366f1' };
   showStageModal.value = true;
+};
+
+// Open coverage modal for a stage
+const openCoverageModal = (stage: Stage) => {
+  coverageStage.value = stage;
+  const today = new Date().toISOString().split('T')[0] ?? '';
+  coverageForm.value = {
+    feis_adjudicator_id: '',
+    feis_day: feisDate.value || today,
+    start_time: '09:00',
+    end_time: '12:00',
+    note: ''
+  };
+  showCoverageModal.value = true;
+};
+
+// Add coverage block
+const addCoverage = async () => {
+  if (!coverageStage.value || !coverageForm.value.feis_adjudicator_id) return;
+  
+  try {
+    const response = await auth.authFetch(`/api/v1/stages/${coverageStage.value.id}/coverage`, {
+      method: 'POST',
+      body: JSON.stringify(coverageForm.value)
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to add coverage');
+    }
+    
+    showCoverageModal.value = false;
+    await loadSchedulerData(); // Refresh to show new coverage
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to add coverage';
+  }
+};
+
+// Delete coverage block
+const deleteCoverage = async (coverage: StageJudgeCoverage) => {
+  if (!confirm(`Remove ${coverage.adjudicator_name}'s coverage (${coverage.start_time}-${coverage.end_time})?`)) {
+    return;
+  }
+  
+  try {
+    const response = await auth.authFetch(`/api/v1/stage-coverage/${coverage.id}`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) throw new Error('Failed to delete coverage');
+    await loadSchedulerData();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to delete coverage';
+  }
 };
 
 // Drag and drop handlers
@@ -248,6 +368,27 @@ const getBlockStyle = (comp: ScheduledCompetition) => {
   };
 };
 
+// Calculate coverage block position and width
+const getCoverageStyle = (cov: StageJudgeCoverage) => {
+  const startParts = cov.start_time.split(':');
+  const endParts = cov.end_time.split(':');
+  const startHourNum = parseInt(startParts[0] || '0', 10);
+  const startMinNum = parseInt(startParts[1] || '0', 10);
+  const endHourNum = parseInt(endParts[0] || '0', 10);
+  const endMinNum = parseInt(endParts[1] || '0', 10);
+  
+  const startMinutes = (startHourNum - startHour.value) * 60 + startMinNum;
+  const endMinutes = (endHourNum - startHour.value) * 60 + endMinNum;
+  
+  const left = startMinutes * pixelsPerMinute.value;
+  const width = (endMinutes - startMinutes) * pixelsPerMinute.value;
+  
+  return {
+    left: `${Math.max(left, 0)}px`,
+    width: `${Math.max(width, 20)}px`
+  };
+};
+
 // Save all changes to the server
 const saveSchedule = async () => {
   saving.value = true;
@@ -330,6 +471,7 @@ const stageColors = [
 
 onMounted(() => {
   loadSchedulerData();
+  loadAdjudicators();
 });
 
 watch(() => props.feisId, () => {
@@ -440,7 +582,7 @@ watch(() => props.feisId, () => {
       <!-- Gantt View -->
       <div v-else class="space-y-6">
         <!-- Timeline Header -->
-        <div class="relative ml-32 overflow-x-auto">
+        <div class="relative ml-48 overflow-x-auto">
           <div class="flex border-b border-slate-200 pb-2" :style="{ width: `${timelineWidth}px` }">
             <div
               v-for="marker in hourMarkers"
@@ -462,12 +604,46 @@ watch(() => props.feisId, () => {
           >
             <!-- Stage Label -->
             <div 
-              class="w-32 flex-shrink-0 rounded-l-xl p-3 flex flex-col justify-center"
+              class="w-48 flex-shrink-0 rounded-l-xl p-3 flex flex-col"
               :style="{ backgroundColor: stage.color || '#6366f1' }"
             >
               <div class="font-bold text-white truncate">{{ stage.name }}</div>
-              <div class="text-white/70 text-xs">{{ scheduledByStage[stage.id]?.length || 0 }} competitions</div>
+              <div class="text-white/70 text-xs">{{ scheduledByStage[stage.id]?.length || 0 }} comps</div>
+              
+              <!-- Judge Coverage Summary -->
+              <div class="mt-2 space-y-1">
+                <div v-if="stage.judge_coverage?.length > 0" class="space-y-1">
+                  <div 
+                    v-for="cov in stage.judge_coverage.slice(0, 2)" 
+                    :key="cov.id"
+                    class="flex items-center justify-between text-xs bg-white/20 rounded px-1.5 py-0.5 group"
+                  >
+                    <span class="truncate text-white/90 flex-1">
+                      {{ cov.adjudicator_name.split(' ')[0] }}
+                    </span>
+                    <span class="text-white/70 text-[10px]">{{ cov.start_time }}-{{ cov.end_time }}</span>
+                    <button
+                      @click.stop="deleteCoverage(cov)"
+                      class="ml-1 text-white/50 hover:text-red-300 opacity-0 group-hover:opacity-100"
+                    >×</button>
+                  </div>
+                  <div v-if="stage.judge_coverage.length > 2" class="text-white/60 text-[10px]">
+                    +{{ stage.judge_coverage.length - 2 }} more
+                  </div>
+                </div>
+                <div v-else class="text-white/50 text-xs italic">No coverage</div>
+              </div>
+              
               <div class="flex gap-1 mt-2">
+                <button
+                  @click="openCoverageModal(stage)"
+                  class="p-1 bg-white/20 hover:bg-white/30 rounded text-white"
+                  title="Add judge coverage"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </button>
                 <button
                   @click="openStageModal(stage)"
                   class="p-1 bg-white/20 hover:bg-white/30 rounded text-white"
@@ -506,11 +682,22 @@ watch(() => props.feisId, () => {
                   :style="{ left: `${marker.position}px` }"
                 ></div>
 
+                <!-- Judge Coverage Blocks (background) -->
+                <div
+                  v-for="cov in stage.judge_coverage"
+                  :key="'cov-' + cov.id"
+                  class="absolute bottom-0 h-5 bg-emerald-200/50 border-t border-emerald-400/30"
+                  :style="getCoverageStyle(cov)"
+                  :title="`${cov.adjudicator_name}: ${cov.start_time}-${cov.end_time}`"
+                >
+                  <span class="text-[10px] text-emerald-700 px-1 truncate">{{ cov.adjudicator_name.split(' ')[0] }}</span>
+                </div>
+
                 <!-- Scheduled competitions -->
                 <div
                   v-for="comp in scheduledByStage[stage.id]"
                   :key="comp.id"
-                  class="absolute top-2 h-14 rounded-lg shadow-md cursor-move flex items-center px-2 gap-1 text-white text-sm font-medium overflow-hidden"
+                  class="absolute top-2 h-14 rounded-lg shadow-md cursor-move flex items-center px-2 gap-1 text-white text-sm font-medium overflow-hidden group"
                   :class="[getLevelColor(comp.level), { 'ring-2 ring-red-500': comp.has_conflicts }]"
                   :style="getBlockStyle(comp)"
                   draggable="true"
@@ -519,15 +706,26 @@ watch(() => props.feisId, () => {
                 >
                   <span class="text-lg flex-shrink-0">{{ getDanceIcon(comp.dance_type) }}</span>
                   <span class="truncate">{{ comp.name }}</span>
-                  <button
-                    @click.stop="unscheduleCompetition(comp)"
-                    class="ml-auto p-1 hover:bg-white/20 rounded flex-shrink-0"
-                    title="Remove from schedule"
-                  >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                  <div class="ml-auto flex items-center gap-1 flex-shrink-0">
+                    <button
+                      @click.stop="openAdjudicatorModal(comp)"
+                      class="p-1 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Assign adjudicator"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </button>
+                    <button
+                      @click.stop="unscheduleCompetition(comp)"
+                      class="p-1 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Remove from schedule"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 <!-- Drop indicator -->
@@ -642,6 +840,10 @@ watch(() => props.feisId, () => {
               </div>
             </div>
           </div>
+          
+          <p class="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+            <strong>Tip:</strong> After creating the stage, use the 👤 button to add judge coverage blocks with specific time ranges.
+          </p>
         </div>
         
         <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
@@ -657,6 +859,188 @@ watch(() => props.feisId, () => {
             class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {{ editingStage ? 'Save Changes' : 'Create Stage' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adjudicator Assignment Modal -->
+    <div
+      v-if="showAdjudicatorModal && selectedCompetition"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="showAdjudicatorModal = false"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
+          <h3 class="text-lg font-bold text-white">Assign Adjudicator</h3>
+          <p class="text-emerald-100 text-sm">{{ selectedCompetition.name }}</p>
+        </div>
+        
+        <div class="p-6 space-y-4">
+          <div v-if="adjudicators.length === 0" class="text-center py-4">
+            <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-100 flex items-center justify-center">
+              <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <p class="text-slate-500">No adjudicators on roster yet.</p>
+            <p class="text-slate-400 text-sm">Add adjudicators from the Adjudicator Manager.</p>
+          </div>
+          
+          <div v-else>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Select Adjudicator</label>
+            <select
+              v-model="selectedAdjudicatorId"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+            >
+              <option value="">-- No adjudicator assigned --</option>
+              <option 
+                v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
+                :key="adj.id" 
+                :value="adj.user_id || adj.id"
+              >
+                {{ adj.name }}
+                <template v-if="adj.credential"> ({{ adj.credential }})</template>
+              </option>
+            </select>
+            
+            <div v-if="adjudicators.filter(a => a.status === 'invited').length > 0" class="mt-3 text-sm text-amber-600">
+              <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              {{ adjudicators.filter(a => a.status === 'invited').length }} adjudicator(s) pending confirmation
+            </div>
+          </div>
+        </div>
+        
+        <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+          <button
+            @click="showAdjudicatorModal = false"
+            class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            @click="assignAdjudicator"
+            class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+          >
+            Assign
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Judge Coverage Modal -->
+    <div
+      v-if="showCoverageModal && coverageStage"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="showCoverageModal = false"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
+          <h3 class="text-lg font-bold text-white">Add Judge Coverage</h3>
+          <p class="text-emerald-100 text-sm">{{ coverageStage.name }}</p>
+        </div>
+        
+        <div class="p-6 space-y-4">
+          <!-- Existing Coverage -->
+          <div v-if="coverageStage.judge_coverage?.length > 0" class="mb-4">
+            <h4 class="text-sm font-semibold text-slate-700 mb-2">Current Coverage</h4>
+            <div class="space-y-2">
+              <div 
+                v-for="cov in coverageStage.judge_coverage" 
+                :key="cov.id"
+                class="flex items-center justify-between bg-emerald-50 rounded-lg px-3 py-2"
+              >
+                <div>
+                  <span class="font-medium text-emerald-800">{{ cov.adjudicator_name }}</span>
+                  <span class="text-emerald-600 text-sm ml-2">{{ cov.start_time }} - {{ cov.end_time }}</span>
+                </div>
+                <button
+                  @click="deleteCoverage(cov)"
+                  class="text-red-500 hover:text-red-700 text-sm"
+                >Remove</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="adjudicators.length === 0" class="text-center py-4">
+            <p class="text-slate-500">No adjudicators on roster yet.</p>
+            <p class="text-slate-400 text-sm">Add adjudicators from the Adjudicator Manager first.</p>
+          </div>
+          
+          <div v-else class="space-y-4">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Judge</label>
+              <select
+                v-model="coverageForm.feis_adjudicator_id"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+              >
+                <option value="">-- Select a judge --</option>
+                <option 
+                  v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
+                  :key="adj.id" 
+                  :value="adj.id"
+                >
+                  {{ adj.name }}
+                  <template v-if="adj.credential"> ({{ adj.credential }})</template>
+                </option>
+              </select>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Date</label>
+              <input
+                v-model="coverageForm.feis_day"
+                type="date"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+              />
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Start Time</label>
+                <input
+                  v-model="coverageForm.start_time"
+                  type="time"
+                  class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-2">End Time</label>
+                <input
+                  v-model="coverageForm.end_time"
+                  type="time"
+                  class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Note (optional)</label>
+              <input
+                v-model="coverageForm.note"
+                type="text"
+                placeholder="e.g., Grades only, Covering for lunch"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+          <button
+            @click="showCoverageModal = false"
+            class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+          >
+            Close
+          </button>
+          <button
+            @click="addCoverage"
+            :disabled="!coverageForm.feis_adjudicator_id || !coverageForm.feis_day"
+            class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add Coverage
           </button>
         </div>
       </div>

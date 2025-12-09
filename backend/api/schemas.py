@@ -1,10 +1,10 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
 from backend.scoring_engine.models_platform import (
     CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod,
-    FeeCategory, PaymentStatus
+    FeeCategory, PaymentStatus, AdjudicatorStatus, AvailabilityType
 )
 
 # ============= Syllabus Generation =============
@@ -127,6 +127,31 @@ class StageUpdate(BaseModel):
     color: Optional[str] = None
     sequence: Optional[int] = None
 
+
+# ============= Stage Judge Coverage =============
+
+class StageJudgeCoverageCreate(BaseModel):
+    """Create a time-based judge assignment to a stage."""
+    feis_adjudicator_id: str  # UUID of the adjudicator on the feis roster
+    feis_day: str  # ISO date string (YYYY-MM-DD)
+    start_time: str  # HH:MM format
+    end_time: str    # HH:MM format
+    note: Optional[str] = None
+
+class StageJudgeCoverageResponse(BaseModel):
+    id: str
+    stage_id: str
+    stage_name: str
+    feis_adjudicator_id: str
+    adjudicator_name: str
+    feis_day: str
+    start_time: str
+    end_time: str
+    note: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class StageResponse(BaseModel):
     id: str
     feis_id: str
@@ -134,6 +159,8 @@ class StageResponse(BaseModel):
     color: Optional[str] = None
     sequence: int = 0
     competition_count: int = 0
+    # Coverage blocks for this stage
+    judge_coverage: List[StageJudgeCoverageResponse] = []
 
     class Config:
         from_attributes = True
@@ -1139,3 +1166,214 @@ class DemoDataStatus(BaseModel):
     """Status of demo data in the system."""
     has_demo_data: bool
     message: str
+
+
+# ============= Phase 6: Adjudicator Roster Management =============
+
+class AdjudicatorCreate(BaseModel):
+    """Request to add an adjudicator to a feis roster."""
+    name: str  # Required even without account
+    email: Optional[str] = None  # For sending invites
+    phone: Optional[str] = None
+    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "TMRF"
+    organization: Optional[str] = None  # e.g., "CLRG", "NAFC", "CRN"
+    school_affiliation_id: Optional[str] = None  # User ID of their school (for conflict detection)
+    user_id: Optional[str] = None  # If linking to existing user account
+
+
+class AdjudicatorUpdate(BaseModel):
+    """Request to update an adjudicator's details."""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    credential: Optional[str] = None
+    organization: Optional[str] = None
+    school_affiliation_id: Optional[str] = None
+    status: Optional[AdjudicatorStatus] = None
+    user_id: Optional[str] = None
+
+
+class AdjudicatorResponse(BaseModel):
+    """Response with adjudicator details."""
+    id: str
+    feis_id: str
+    user_id: Optional[str]
+    name: str
+    email: Optional[str]
+    phone: Optional[str]
+    credential: Optional[str]
+    organization: Optional[str]
+    school_affiliation_id: Optional[str]
+    school_affiliation_name: Optional[str]  # Teacher's name for display
+    status: AdjudicatorStatus
+    invite_sent_at: Optional[datetime]
+    invite_expires_at: Optional[datetime]
+    has_access_pin: bool  # True if a PIN has been generated
+    created_at: datetime
+    confirmed_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+
+class AdjudicatorListResponse(BaseModel):
+    """Response with list of adjudicators for a feis."""
+    feis_id: str
+    feis_name: str
+    total_adjudicators: int
+    confirmed_count: int
+    invited_count: int
+    active_count: int
+    adjudicators: List[AdjudicatorResponse]
+
+
+class AdjudicatorInviteRequest(BaseModel):
+    """Request to send or resend an invite to an adjudicator."""
+    adjudicator_id: str
+    custom_message: Optional[str] = None  # Optional personalized message
+
+
+class AdjudicatorInviteResponse(BaseModel):
+    """Response after sending an invite."""
+    success: bool
+    adjudicator_id: str
+    invite_link: str  # The magic link URL
+    expires_at: datetime
+    message: str
+
+
+class AdjudicatorAcceptInviteRequest(BaseModel):
+    """Request to accept an adjudicator invite via magic link."""
+    token: str  # The magic link token
+
+
+class AdjudicatorAcceptInviteResponse(BaseModel):
+    """Response after accepting an invite."""
+    success: bool
+    feis_id: str
+    feis_name: str
+    adjudicator_name: str
+    message: str
+    access_token: Optional[str]  # JWT if new account created
+    user: Optional[UserResponse]
+
+
+class GeneratePinRequest(BaseModel):
+    """Request to generate a day-of access PIN."""
+    adjudicator_id: str
+
+
+class GeneratePinResponse(BaseModel):
+    """Response with generated PIN (only shown once!)."""
+    success: bool
+    adjudicator_id: str
+    adjudicator_name: str
+    pin: str  # The 6-digit PIN (show once, cannot be retrieved again)
+    message: str
+
+
+class PinLoginRequest(BaseModel):
+    """Request to login using a day-of PIN."""
+    feis_id: str
+    pin: str
+
+
+class PinLoginResponse(BaseModel):
+    """Response after PIN login."""
+    success: bool
+    access_token: str
+    feis_id: str
+    feis_name: str
+    adjudicator_name: str
+    message: str
+
+
+# --- Adjudicator Availability ---
+
+class AvailabilityBlockCreate(BaseModel):
+    """Request to create an availability block for an adjudicator."""
+    feis_day: date  # Which day of the feis
+    start_time: time  # e.g., "08:00"
+    end_time: time  # e.g., "17:00"
+    availability_type: AvailabilityType = AvailabilityType.AVAILABLE
+    note: Optional[str] = None
+
+
+class AvailabilityBlockUpdate(BaseModel):
+    """Request to update an availability block."""
+    feis_day: Optional[date] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    availability_type: Optional[AvailabilityType] = None
+    note: Optional[str] = None
+
+
+class AvailabilityBlockResponse(BaseModel):
+    """Response with availability block details."""
+    id: str
+    feis_adjudicator_id: str
+    feis_day: date
+    start_time: time
+    end_time: time
+    availability_type: AvailabilityType
+    note: Optional[str]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class AdjudicatorAvailabilityResponse(BaseModel):
+    """Response with all availability blocks for an adjudicator."""
+    adjudicator_id: str
+    adjudicator_name: str
+    feis_id: str
+    feis_dates: List[date]  # All dates of the feis (for multi-day support)
+    availability_blocks: List[AvailabilityBlockResponse]
+
+
+class BulkAvailabilityCreate(BaseModel):
+    """Request to set multiple availability blocks at once."""
+    blocks: List[AvailabilityBlockCreate]
+    replace_existing: bool = False  # If true, deletes existing blocks for those days
+
+
+# --- Capacity Metrics ---
+
+class AdjudicatorCapacityResponse(BaseModel):
+    """Response with derived scheduling capacity metrics."""
+    feis_id: str
+    feis_name: str
+    total_adjudicators: int
+    confirmed_count: int
+    active_count: int
+    # Derived metrics based on scheduling defaults
+    grades_judges_per_stage: int
+    champs_judges_per_panel: int
+    max_grade_stages: int  # How many single-judge stages can run concurrently
+    max_champs_panels: int  # How many championship panels can run concurrently
+    recommendation: str  # Human-readable recommendation
+
+
+# --- Scheduling Defaults (to be added to FeisSettings) ---
+
+class SchedulingDefaultsUpdate(BaseModel):
+    """Request to update scheduling defaults for a feis."""
+    grades_judges_per_stage: Optional[int] = None  # Default 1
+    champs_judges_per_panel: Optional[int] = None  # Default 3
+    lunch_duration_minutes: Optional[int] = None  # Default 30
+    lunch_window_start: Optional[time] = None  # e.g., 11:00
+    lunch_window_end: Optional[time] = None  # e.g., 13:00
+
+
+class SchedulingDefaultsResponse(BaseModel):
+    """Response with scheduling defaults."""
+    feis_id: str
+    grades_judges_per_stage: int
+    champs_judges_per_panel: int
+    lunch_duration_minutes: int
+    lunch_window_start: Optional[time]
+    lunch_window_end: Optional[time]
+    
+    class Config:
+        from_attributes = True

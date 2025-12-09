@@ -57,7 +57,7 @@ def seed_data():
                 name="Boys U12 Championship",
                 min_age=10,
                 max_age=12,
-                level=CompetitionLevel.CHAMPIONSHIP
+                level=CompetitionLevel.OPEN_CHAMPIONSHIP
             )
             session.add(comp)
             session.commit()

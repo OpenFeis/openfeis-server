@@ -1,6 +1,6 @@
 from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID, uuid4
-from datetime import date, datetime
+from datetime import date, datetime, time
 from sqlmodel import SQLModel, Field, Relationship
 from enum import Enum
 
@@ -79,6 +79,21 @@ class WaitlistStatus(str, Enum):
     CANCELLED = "cancelled"   # User cancelled
 
 
+class AdjudicatorStatus(str, Enum):
+    """Status of an adjudicator's participation in a feis."""
+    INVITED = "invited"       # Invite sent, not yet confirmed
+    CONFIRMED = "confirmed"   # Accepted, will attend
+    ACTIVE = "active"         # Currently judging at the event
+    DECLINED = "declined"     # Declined invitation
+
+
+class AvailabilityType(str, Enum):
+    """Type of availability block for an adjudicator."""
+    AVAILABLE = "available"       # Judge is available to work
+    UNAVAILABLE = "unavailable"   # Judge cannot work during this time
+    LUNCH = "lunch"               # Scheduled lunch break
+
+
 # --- Database Models ---
 
 class User(SQLModel, table=True):
@@ -131,6 +146,7 @@ class Feis(SQLModel, table=True):
     settings: Optional["FeisSettings"] = Relationship(back_populates="feis")
     fee_items: List["FeeItem"] = Relationship(back_populates="feis")
     orders: List["Order"] = Relationship(back_populates="feis")
+    adjudicators: List["FeisAdjudicator"] = Relationship(back_populates="feis")
 
 
 class Stage(SQLModel, table=True):
@@ -144,6 +160,31 @@ class Stage(SQLModel, table=True):
     # Relationships
     feis: Feis = Relationship(back_populates="stages")
     competitions: List["Competition"] = Relationship(back_populates="stage")
+    judge_coverage: List["StageJudgeCoverage"] = Relationship(back_populates="stage")
+
+
+class StageJudgeCoverage(SQLModel, table=True):
+    """
+    Time-based judge assignment to a stage.
+    Judges can cover multiple stages at different times throughout a feis.
+    """
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    stage_id: UUID = Field(foreign_key="stage.id", index=True)
+    feis_adjudicator_id: UUID = Field(foreign_key="feisadjudicator.id", index=True)
+    
+    # Time range for this coverage
+    feis_day: date  # Which day of the feis
+    start_time: time  # e.g., 09:00
+    end_time: time    # e.g., 12:30
+    
+    # Optional note (e.g., "covering lunch break", "grades only")
+    note: Optional[str] = None
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    stage: Stage = Relationship(back_populates="judge_coverage")
+    feis_adjudicator: "FeisAdjudicator" = Relationship(back_populates="stage_coverage")
 
 class Dancer(SQLModel, table=True):
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
@@ -272,6 +313,13 @@ class FeisSettings(SQLModel, table=True):
     # Stripe settings (per-feis, for Stripe Connect)
     stripe_account_id: Optional[str] = None  # Connected Stripe account ID
     stripe_onboarding_complete: bool = Field(default=False)
+    
+    # Scheduling defaults (Phase 6)
+    grades_judges_per_stage: int = Field(default=1)  # Typically 1 judge for grade comps
+    champs_judges_per_panel: int = Field(default=3)  # Typically 3 judges for champs
+    lunch_duration_minutes: int = Field(default=30)  # Standard lunch break duration
+    lunch_window_start: Optional[time] = None  # e.g., 11:00 - preferred lunch window start
+    lunch_window_end: Optional[time] = None  # e.g., 13:00 - preferred lunch window end
     
     # Relationships
     feis: "Feis" = Relationship(back_populates="settings")
@@ -542,4 +590,88 @@ class RefundLog(SQLModel, table=True):
     
     # Relationships
     order: "Order" = Relationship()
+
+
+# ============= Phase 6: Adjudicator Roster Management =============
+
+class FeisAdjudicator(SQLModel, table=True):
+    """
+    Links adjudicators to a specific feis roster.
+    
+    Enables roster-driven adjudicator management where organizers can:
+    - Build a roster before judges have accounts
+    - Track invitation and confirmation status
+    - Manage day-of access via PINs
+    - Detect school affiliation conflicts
+    """
+    __tablename__ = "feisadjudicator"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    feis_id: UUID = Field(foreign_key="feis.id", index=True)
+    user_id: Optional[UUID] = Field(default=None, foreign_key="user.id")  # Null until they accept/create account
+    
+    # Identity (can exist before account)
+    name: str  # Required even without account
+    email: Optional[str] = Field(default=None, index=True)  # For sending invites
+    phone: Optional[str] = None  # Optional contact
+    
+    # Credentials
+    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "TMRF"
+    organization: Optional[str] = None  # e.g., "CLRG", "NAFC", "CRN"
+    school_affiliation_id: Optional[UUID] = Field(default=None, foreign_key="user.id")  # FK to User (teacher) for conflict detection
+    
+    # Status
+    status: AdjudicatorStatus = Field(default=AdjudicatorStatus.INVITED)
+    
+    # Access - Magic link invite
+    invite_token: Optional[str] = Field(default=None, index=True)  # Magic link token
+    invite_sent_at: Optional[datetime] = None
+    invite_expires_at: Optional[datetime] = None
+    
+    # Access - Day-of PIN
+    access_pin_hash: Optional[str] = None  # 6-digit day-of PIN (hashed)
+    pin_generated_at: Optional[datetime] = None
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    confirmed_at: Optional[datetime] = None
+    
+    # Relationships
+    feis: "Feis" = Relationship(back_populates="adjudicators")
+    user: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[FeisAdjudicator.user_id]"}
+    )
+    school_affiliation: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[FeisAdjudicator.school_affiliation_id]"}
+    )
+    availability_blocks: List["AdjudicatorAvailability"] = Relationship(back_populates="adjudicator")
+    stage_coverage: List["StageJudgeCoverage"] = Relationship(back_populates="feis_adjudicator")
+
+
+class AdjudicatorAvailability(SQLModel, table=True):
+    """
+    Time blocks when an adjudicator can or cannot work.
+    
+    Supports multi-day feiseanna where availability varies by day.
+    Used by the scheduler to prevent assigning judges outside their available times.
+    """
+    __tablename__ = "adjudicatoravailability"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    feis_adjudicator_id: UUID = Field(foreign_key="feisadjudicator.id", index=True)
+    
+    # Multi-day support - which day of the feis
+    feis_day: date
+    
+    # Time window
+    start_time: time  # e.g., 08:00
+    end_time: time    # e.g., 17:00
+    availability_type: AvailabilityType = Field(default=AvailabilityType.AVAILABLE)
+    note: Optional[str] = None  # e.g., "Lunch with organizer", "Flight arrives at 10am"
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    adjudicator: "FeisAdjudicator" = Relationship(back_populates="availability_blocks")
 

@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from sqlmodel import Session, select
 
 from backend.scoring_engine.models_platform import (
-    Competition, Entry, Dancer, Stage, Feis, User, DanceType
+    Competition, Entry, Dancer, Stage, Feis, User, DanceType,
+    FeisAdjudicator, AdjudicatorAvailability, AvailabilityType
 )
 
 
@@ -229,6 +230,10 @@ def detect_adjudicator_conflicts(
     """
     Find cases where a judge is assigned to a competition containing their own students.
     
+    Checks both:
+    1. Dancer's school_id matching the adjudicator's user_id
+    2. FeisAdjudicator's school_affiliation_id matching dancer's school
+    
     This is a blocking conflict that must be resolved.
     """
     conflicts: List[Conflict] = []
@@ -240,30 +245,182 @@ def detect_adjudicator_conflicts(
         .where(Competition.adjudicator_id.isnot(None))
     ).all()
     
+    # Build a map of user_id -> school_affiliation_id from FeisAdjudicator roster
+    roster = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.feis_id == feis_id)
+    ).all()
+    adjudicator_schools: Dict[UUID, Optional[UUID]] = {}
+    for adj in roster:
+        if adj.user_id:
+            adjudicator_schools[adj.user_id] = adj.school_affiliation_id
+    
     for comp in competitions:
         adjudicator = session.get(User, comp.adjudicator_id)
         if not adjudicator:
             continue
+        
+        # Get the adjudicator's school affiliation from the roster
+        adj_school_id = adjudicator_schools.get(comp.adjudicator_id)
         
         # Get all entries for this competition
         entries = session.exec(
             select(Entry).where(Entry.competition_id == comp.id)
         ).all()
         
-        # Check if any dancer's school_id matches the adjudicator
+        # Check if any dancer's school_id matches the adjudicator or their school affiliation
         conflicting_dancers = []
         for entry in entries:
             dancer = session.get(Dancer, entry.dancer_id)
-            if dancer and dancer.school_id == comp.adjudicator_id:
+            if not dancer:
+                continue
+            
+            # Check direct match (adjudicator IS the teacher)
+            if dancer.school_id == comp.adjudicator_id:
+                conflicting_dancers.append(dancer.id)
+            # Check school affiliation match (adjudicator is affiliated with the school)
+            elif adj_school_id and dancer.school_id == adj_school_id:
                 conflicting_dancers.append(dancer.id)
         
         if conflicting_dancers:
             conflicts.append(Conflict(
-                conflict_type="adjudicator",
+                conflict_type="adjudicator_school",
                 severity="error",
                 message=f"Judge '{adjudicator.name}' assigned to competition with their own students",
                 affected_competition_ids=[str(comp.id)],
                 affected_dancer_ids=[str(d) for d in conflicting_dancers],
+                affected_stage_ids=[str(comp.stage_id)] if comp.stage_id else []
+            ))
+    
+    return conflicts
+
+
+def detect_adjudicator_double_booking(
+    feis_id: UUID,
+    session: Session
+) -> List[Conflict]:
+    """
+    Find cases where the same adjudicator is assigned to overlapping competitions.
+    
+    This is a blocking conflict - a judge can only be in one place at a time!
+    """
+    conflicts: List[Conflict] = []
+    
+    # Get all scheduled competitions with adjudicators
+    competitions = session.exec(
+        select(Competition)
+        .where(Competition.feis_id == feis_id)
+        .where(Competition.adjudicator_id.isnot(None))
+        .where(Competition.scheduled_time.isnot(None))
+    ).all()
+    
+    if len(competitions) < 2:
+        return conflicts
+    
+    # Group competitions by adjudicator
+    adj_to_comps: Dict[UUID, List[Competition]] = {}
+    for comp in competitions:
+        if comp.adjudicator_id not in adj_to_comps:
+            adj_to_comps[comp.adjudicator_id] = []
+        adj_to_comps[comp.adjudicator_id].append(comp)
+    
+    # Check each adjudicator's competitions for overlaps
+    for adj_id, adj_comps in adj_to_comps.items():
+        if len(adj_comps) < 2:
+            continue
+        
+        adjudicator = session.get(User, adj_id)
+        adj_name = adjudicator.name if adjudicator else "Unknown"
+        
+        # Sort by scheduled time
+        adj_comps.sort(key=lambda c: c.scheduled_time)
+        
+        for i in range(len(adj_comps) - 1):
+            comp1 = adj_comps[i]
+            comp2 = adj_comps[i + 1]
+            
+            if _times_overlap(comp1, comp2):
+                conflicts.append(Conflict(
+                    conflict_type="adjudicator_double_booked",
+                    severity="error",
+                    message=f"Judge '{adj_name}' is double-booked for overlapping competitions",
+                    affected_competition_ids=[str(comp1.id), str(comp2.id)],
+                    affected_dancer_ids=[],
+                    affected_stage_ids=[str(comp1.stage_id), str(comp2.stage_id)] if comp1.stage_id and comp2.stage_id else []
+                ))
+    
+    return conflicts
+
+
+def detect_adjudicator_availability_conflicts(
+    feis_id: UUID,
+    session: Session
+) -> List[Conflict]:
+    """
+    Find cases where a competition is scheduled outside an adjudicator's availability.
+    
+    This is a warning - the organizer may need to adjust the schedule or find a different judge.
+    """
+    conflicts: List[Conflict] = []
+    
+    # Get all scheduled competitions with adjudicators
+    competitions = session.exec(
+        select(Competition)
+        .where(Competition.feis_id == feis_id)
+        .where(Competition.adjudicator_id.isnot(None))
+        .where(Competition.scheduled_time.isnot(None))
+    ).all()
+    
+    # Get the roster to map user_id -> feis_adjudicator_id
+    roster = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.feis_id == feis_id)
+    ).all()
+    user_to_feis_adj: Dict[UUID, UUID] = {}
+    for adj in roster:
+        if adj.user_id:
+            user_to_feis_adj[adj.user_id] = adj.id
+    
+    for comp in competitions:
+        feis_adj_id = user_to_feis_adj.get(comp.adjudicator_id)
+        if not feis_adj_id:
+            continue
+        
+        # Get availability blocks for this adjudicator
+        availability = session.exec(
+            select(AdjudicatorAvailability)
+            .where(AdjudicatorAvailability.feis_adjudicator_id == feis_adj_id)
+            .where(AdjudicatorAvailability.availability_type == AvailabilityType.AVAILABLE)
+        ).all()
+        
+        # If no availability set, skip (assume fully available)
+        if not availability:
+            continue
+        
+        # Check if competition falls within any availability block
+        comp_date = comp.scheduled_time.date()
+        comp_time = comp.scheduled_time.time()
+        
+        # Calculate end time
+        duration = comp.estimated_duration_minutes or 30
+        comp_end = (comp.scheduled_time + timedelta(minutes=duration)).time()
+        
+        is_available = False
+        for block in availability:
+            if block.feis_day == comp_date:
+                # Check if competition falls within this block
+                if block.start_time <= comp_time and block.end_time >= comp_end:
+                    is_available = True
+                    break
+        
+        if not is_available:
+            adjudicator = session.get(User, comp.adjudicator_id)
+            adj_name = adjudicator.name if adjudicator else "Unknown"
+            
+            conflicts.append(Conflict(
+                conflict_type="adjudicator_unavailable",
+                severity="warning",
+                message=f"Judge '{adj_name}' may not be available for {comp.name} at the scheduled time",
+                affected_competition_ids=[str(comp.id)],
+                affected_dancer_ids=[],
                 affected_stage_ids=[str(comp.stage_id)] if comp.stage_id else []
             ))
     
@@ -336,10 +493,19 @@ def detect_all_conflicts(
 ) -> List[Conflict]:
     """
     Run all conflict detection checks for a feis.
+    
+    Includes:
+    - Sibling conflicts (same family on different stages at same time)
+    - Adjudicator school conflicts (judge assigned to own students)
+    - Adjudicator double-booking (same judge on overlapping competitions)
+    - Adjudicator availability conflicts (comp scheduled outside judge's hours)
+    - Dancer time overlap conflicts (dancer in multiple overlapping comps)
     """
     conflicts = []
     conflicts.extend(detect_sibling_conflicts(feis_id, session))
     conflicts.extend(detect_adjudicator_conflicts(feis_id, session))
+    conflicts.extend(detect_adjudicator_double_booking(feis_id, session))
+    conflicts.extend(detect_adjudicator_availability_conflicts(feis_id, session))
     conflicts.extend(detect_time_overlap_conflicts(feis_id, session))
     return conflicts
 

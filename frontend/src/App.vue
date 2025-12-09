@@ -14,6 +14,7 @@ import CloudSync from './components/admin/CloudSync.vue';
 import ScheduleGantt from './components/admin/ScheduleGantt.vue';
 import FeisSettingsManager from './components/admin/FeisSettingsManager.vue';
 import UserManager from './components/admin/UserManager.vue';
+import AdjudicatorManager from './components/admin/AdjudicatorManager.vue';
 import TeacherDashboard from './components/teacher/TeacherDashboard.vue';
 import CheckInDashboard from './components/checkin/CheckInDashboard.vue';
 import StageMonitor from './components/checkin/StageMonitor.vue';
@@ -90,7 +91,7 @@ const navigateTo = (newView: ViewType) => {
 const verificationToken = ref<string | undefined>(undefined);
 
 // Admin navigation state
-type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler' | 'feis-settings' | 'users';
+type AdminViewType = 'feis-list' | 'feis-detail' | 'entries' | 'competitions' | 'syllabus' | 'settings' | 'cloud-sync' | 'scheduler' | 'feis-settings' | 'users' | 'adjudicators';
 const adminView = ref<AdminViewType>('feis-list');
 const selectedFeis = ref<{ id: string; name: string } | null>(null);
 
@@ -1328,6 +1329,20 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 <h3 class="text-lg font-bold text-slate-800 mb-1">Settings</h3>
                 <p class="text-slate-600 text-sm">Pricing, fees, registration & payments</p>
               </button>
+
+              <!-- Adjudicators -->
+              <button
+                @click="adminView = 'adjudicators'"
+                class="bg-white rounded-xl p-6 shadow-lg border border-slate-200 hover:border-blue-300 hover:shadow-xl transition-all text-left"
+              >
+                <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center mb-4">
+                  <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-1">Adjudicators</h3>
+                <p class="text-slate-600 text-sm">Manage judge roster & availability</p>
+              </button>
             </div>
           </div>
 
@@ -1404,6 +1419,26 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
               </button>
             </div>
             <FeisSettingsManager
+              :feis-id="selectedFeis.id"
+              :feis-name="selectedFeis.name"
+              @close="adminView = 'feis-detail'"
+            />
+          </div>
+
+          <!-- Adjudicator Manager View -->
+          <div v-else-if="adminView === 'adjudicators' && selectedFeis">
+            <div class="mb-6">
+              <button
+                @click="adminView = 'feis-detail'"
+                class="text-slate-600 hover:text-slate-800 text-sm font-medium flex items-center gap-1 mb-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to {{ selectedFeis.name }}
+              </button>
+            </div>
+            <AdjudicatorManager
               :feis-id="selectedFeis.id"
               :feis-name="selectedFeis.name"
               @close="adminView = 'feis-detail'"

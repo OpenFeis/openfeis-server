@@ -8,7 +8,8 @@ from sqlmodel import Session, select, func
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
 from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings,
-    Stage, DanceType, ScoringMethod, FeisSettings, FeeItem, FeeCategory, Order, OrderItem, PaymentStatus
+    Stage, DanceType, ScoringMethod, FeisSettings, FeeItem, FeeCategory, Order, OrderItem, PaymentStatus,
+    FeisAdjudicator, AdjudicatorAvailability, AdjudicatorStatus, AvailabilityType, StageJudgeCoverage
 )
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
@@ -27,7 +28,7 @@ from backend.api.schemas import (
     CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse,
     TabulatorResultItem, TabulatorResults, CompetitionWithScores,
     # New scheduling schemas
-    StageCreate, StageUpdate, StageResponse,
+    StageCreate, StageUpdate, StageResponse, StageJudgeCoverageCreate, StageJudgeCoverageResponse,
     DurationEstimateRequest, DurationEstimateResponse,
     ScheduleCompetitionRequest, BulkScheduleRequest, BulkScheduleResponse,
     ScheduleConflict, ConflictCheckResponse, ScheduledCompetition, SchedulerViewResponse,
@@ -36,7 +37,16 @@ from backend.api.schemas import (
     FeeItemCreate, FeeItemUpdate, FeeItemResponse,
     CartCalculationRequest, CartCalculationResponse, CartLineItemResponse, CartItemRequest,
     CheckoutRequest, CheckoutResponse, OrderResponse,
-    RegistrationStatusResponse, StripeOnboardingRequest, StripeOnboardingResponse, StripeStatusResponse
+    RegistrationStatusResponse, StripeOnboardingRequest, StripeOnboardingResponse, StripeStatusResponse,
+    # Adjudicator Roster schemas (Phase 6)
+    AdjudicatorCreate, AdjudicatorUpdate, AdjudicatorResponse, AdjudicatorListResponse,
+    AdjudicatorCapacityResponse,
+    AvailabilityBlockCreate, AvailabilityBlockUpdate, AvailabilityBlockResponse,
+    AdjudicatorAvailabilityResponse, BulkAvailabilityCreate,
+    AdjudicatorInviteRequest, AdjudicatorInviteResponse,
+    AdjudicatorAcceptInviteRequest, AdjudicatorAcceptInviteResponse,
+    GeneratePinRequest, GeneratePinResponse, PinLoginRequest, PinLoginResponse,
+    SchedulingDefaultsUpdate, SchedulingDefaultsResponse
 )
 from backend.services.scheduling import (
     estimate_duration, estimate_competition_duration, detect_all_conflicts,
@@ -61,6 +71,9 @@ from backend.services.email import (
 )
 from backend.api.websocket import manager as ws_manager
 import asyncio
+import secrets
+import random
+from datetime import timedelta
 
 router = APIRouter()
 calculator = IrishPointsCalculator()
@@ -1024,7 +1037,7 @@ async def generate_syllabus(
 
 @router.get("/feis/{feis_id}/stages", response_model=List[StageResponse])
 async def list_stages(feis_id: str, session: Session = Depends(get_session)):
-    """List all stages for a feis."""
+    """List all stages for a feis, including judge coverage blocks."""
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
@@ -1040,13 +1053,37 @@ async def list_stages(feis_id: str, session: Session = Depends(get_session)):
         comp_count = session.exec(
             select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
         ).one()
+        
+        # Get judge coverage blocks for this stage
+        coverage_blocks = session.exec(
+            select(StageJudgeCoverage)
+            .where(StageJudgeCoverage.stage_id == stage.id)
+            .order_by(StageJudgeCoverage.feis_day, StageJudgeCoverage.start_time)
+        ).all()
+        
+        coverage_responses = []
+        for cov in coverage_blocks:
+            adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+            coverage_responses.append(StageJudgeCoverageResponse(
+                id=str(cov.id),
+                stage_id=str(cov.stage_id),
+                stage_name=stage.name,
+                feis_adjudicator_id=str(cov.feis_adjudicator_id),
+                adjudicator_name=adj.name if adj else "Unknown",
+                feis_day=cov.feis_day.isoformat(),
+                start_time=cov.start_time.strftime("%H:%M"),
+                end_time=cov.end_time.strftime("%H:%M"),
+                note=cov.note
+            ))
+        
         result.append(StageResponse(
             id=str(stage.id),
             feis_id=str(stage.feis_id),
             name=stage.name,
             color=stage.color,
             sequence=stage.sequence,
-            competition_count=comp_count
+            competition_count=comp_count,
+            judge_coverage=coverage_responses
         ))
     
     return result
@@ -1122,13 +1159,36 @@ async def update_stage(
         select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
     ).one()
     
+    # Get judge coverage blocks
+    coverage_blocks = session.exec(
+        select(StageJudgeCoverage)
+        .where(StageJudgeCoverage.stage_id == stage.id)
+        .order_by(StageJudgeCoverage.feis_day, StageJudgeCoverage.start_time)
+    ).all()
+    
+    coverage_responses = []
+    for cov in coverage_blocks:
+        adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+        coverage_responses.append(StageJudgeCoverageResponse(
+            id=str(cov.id),
+            stage_id=str(cov.stage_id),
+            stage_name=stage.name,
+            feis_adjudicator_id=str(cov.feis_adjudicator_id),
+            adjudicator_name=adj.name if adj else "Unknown",
+            feis_day=cov.feis_day.isoformat(),
+            start_time=cov.start_time.strftime("%H:%M"),
+            end_time=cov.end_time.strftime("%H:%M"),
+            note=cov.note
+        ))
+    
     return StageResponse(
         id=str(stage.id),
         feis_id=str(stage.feis_id),
         name=stage.name,
         color=stage.color,
         sequence=stage.sequence,
-        competition_count=comp_count
+        competition_count=comp_count,
+        judge_coverage=coverage_responses
     )
 
 
@@ -1163,6 +1223,198 @@ async def delete_stage(
     session.commit()
     
     return {"message": f"Stage '{stage.name}' deleted"}
+
+
+# ============= Stage Judge Coverage Endpoints =============
+
+@router.get("/stages/{stage_id}/coverage", response_model=List[StageJudgeCoverageResponse])
+async def list_stage_coverage(
+    stage_id: str,
+    session: Session = Depends(get_session)
+):
+    """List all judge coverage blocks for a stage."""
+    stage = session.get(Stage, UUID(stage_id))
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    coverage_blocks = session.exec(
+        select(StageJudgeCoverage)
+        .where(StageJudgeCoverage.stage_id == stage.id)
+        .order_by(StageJudgeCoverage.feis_day, StageJudgeCoverage.start_time)
+    ).all()
+    
+    result = []
+    for cov in coverage_blocks:
+        adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+        result.append(StageJudgeCoverageResponse(
+            id=str(cov.id),
+            stage_id=str(cov.stage_id),
+            stage_name=stage.name,
+            feis_adjudicator_id=str(cov.feis_adjudicator_id),
+            adjudicator_name=adj.name if adj else "Unknown",
+            feis_day=cov.feis_day.isoformat(),
+            start_time=cov.start_time.strftime("%H:%M"),
+            end_time=cov.end_time.strftime("%H:%M"),
+            note=cov.note
+        ))
+    
+    return result
+
+
+@router.post("/stages/{stage_id}/coverage", response_model=StageJudgeCoverageResponse)
+async def create_stage_coverage(
+    stage_id: str,
+    coverage_data: StageJudgeCoverageCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Add a judge coverage block to a stage."""
+    from datetime import time as dt_time
+    
+    stage = session.get(Stage, UUID(stage_id))
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    feis = session.get(Feis, stage.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only modify stages for your own feis")
+    
+    # Verify adjudicator is on the feis roster
+    adj = session.get(FeisAdjudicator, UUID(coverage_data.feis_adjudicator_id))
+    if not adj or adj.feis_id != feis.id:
+        raise HTTPException(status_code=400, detail="Adjudicator not found on this feis roster")
+    
+    # Parse time strings
+    try:
+        start_parts = coverage_data.start_time.split(":")
+        end_parts = coverage_data.end_time.split(":")
+        start_time = dt_time(int(start_parts[0]), int(start_parts[1]))
+        end_time = dt_time(int(end_parts[0]), int(end_parts[1]))
+        feis_day = date.fromisoformat(coverage_data.feis_day)
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid time/date format: {str(e)}")
+    
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    
+    # Check for overlapping coverage blocks for the same judge on the same day
+    existing = session.exec(
+        select(StageJudgeCoverage)
+        .where(StageJudgeCoverage.feis_adjudicator_id == adj.id)
+        .where(StageJudgeCoverage.feis_day == feis_day)
+    ).all()
+    
+    for block in existing:
+        # Check for time overlap
+        if not (end_time <= block.start_time or start_time >= block.end_time):
+            other_stage = session.get(Stage, block.stage_id)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Judge '{adj.name}' already has coverage on {other_stage.name if other_stage else 'another stage'} from {block.start_time.strftime('%H:%M')} to {block.end_time.strftime('%H:%M')}"
+            )
+    
+    # Create coverage block
+    coverage = StageJudgeCoverage(
+        stage_id=stage.id,
+        feis_adjudicator_id=adj.id,
+        feis_day=feis_day,
+        start_time=start_time,
+        end_time=end_time,
+        note=coverage_data.note
+    )
+    
+    session.add(coverage)
+    session.commit()
+    session.refresh(coverage)
+    
+    return StageJudgeCoverageResponse(
+        id=str(coverage.id),
+        stage_id=str(coverage.stage_id),
+        stage_name=stage.name,
+        feis_adjudicator_id=str(coverage.feis_adjudicator_id),
+        adjudicator_name=adj.name,
+        feis_day=coverage.feis_day.isoformat(),
+        start_time=coverage.start_time.strftime("%H:%M"),
+        end_time=coverage.end_time.strftime("%H:%M"),
+        note=coverage.note
+    )
+
+
+@router.delete("/stage-coverage/{coverage_id}")
+async def delete_stage_coverage(
+    coverage_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Delete a judge coverage block."""
+    coverage = session.get(StageJudgeCoverage, UUID(coverage_id))
+    if not coverage:
+        raise HTTPException(status_code=404, detail="Coverage block not found")
+    
+    stage = session.get(Stage, coverage.stage_id)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    feis = session.get(Feis, stage.feis_id)
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only modify stages for your own feis")
+    
+    session.delete(coverage)
+    session.commit()
+    
+    return {"message": "Coverage block deleted"}
+
+
+@router.get("/feis/{feis_id}/judge-schedule", response_model=List[StageJudgeCoverageResponse])
+async def get_feis_judge_schedule(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get all judge coverage blocks for a feis (cross-stage view for judges)."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get all stages for this feis
+    stages = session.exec(select(Stage).where(Stage.feis_id == feis.id)).all()
+    stage_ids = [s.id for s in stages]
+    stage_map = {s.id: s for s in stages}
+    
+    if not stage_ids:
+        return []
+    
+    # Get all coverage blocks for these stages
+    coverage_blocks = session.exec(
+        select(StageJudgeCoverage)
+        .where(StageJudgeCoverage.stage_id.in_(stage_ids))
+        .order_by(StageJudgeCoverage.feis_day, StageJudgeCoverage.start_time)
+    ).all()
+    
+    result = []
+    for cov in coverage_blocks:
+        adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+        stage = stage_map.get(cov.stage_id)
+        result.append(StageJudgeCoverageResponse(
+            id=str(cov.id),
+            stage_id=str(cov.stage_id),
+            stage_name=stage.name if stage else "Unknown",
+            feis_adjudicator_id=str(cov.feis_adjudicator_id),
+            adjudicator_name=adj.name if adj else "Unknown",
+            feis_day=cov.feis_day.isoformat(),
+            start_time=cov.start_time.strftime("%H:%M"),
+            end_time=cov.end_time.strftime("%H:%M"),
+            note=cov.note
+        ))
+    
+    return result
 
 
 # ============= Scheduling Endpoints =============
@@ -1217,13 +1469,37 @@ async def get_scheduler_view(
         comp_count = session.exec(
             select(func.count(Competition.id)).where(Competition.stage_id == stage.id)
         ).one()
+        
+        # Get judge coverage blocks for this stage
+        coverage_blocks = session.exec(
+            select(StageJudgeCoverage)
+            .where(StageJudgeCoverage.stage_id == stage.id)
+            .order_by(StageJudgeCoverage.feis_day, StageJudgeCoverage.start_time)
+        ).all()
+        
+        coverage_responses = []
+        for cov in coverage_blocks:
+            adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+            coverage_responses.append(StageJudgeCoverageResponse(
+                id=str(cov.id),
+                stage_id=str(cov.stage_id),
+                stage_name=stage.name,
+                feis_adjudicator_id=str(cov.feis_adjudicator_id),
+                adjudicator_name=adj.name if adj else "Unknown",
+                feis_day=cov.feis_day.isoformat(),
+                start_time=cov.start_time.strftime("%H:%M"),
+                end_time=cov.end_time.strftime("%H:%M"),
+                note=cov.note
+            ))
+        
         stage_responses.append(StageResponse(
             id=str(stage.id),
             feis_id=str(stage.feis_id),
             name=stage.name,
             color=stage.color,
             sequence=stage.sequence,
-            competition_count=comp_count
+            competition_count=comp_count,
+            judge_coverage=coverage_responses
         ))
     
     # Get competitions with entry counts and estimated durations
@@ -4738,6 +5014,982 @@ async def get_feis_refund_statistics(
         raise HTTPException(status_code=404, detail="Feis not found")
     
     return get_feis_refund_stats(session, UUID(feis_id))
+
+
+# ============= Adjudicator Roster Management (Phase 6) =============
+
+@router.get("/feis/{feis_id}/adjudicators", response_model=AdjudicatorListResponse)
+async def list_feis_adjudicators(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get all adjudicators on the roster for a feis.
+    Public endpoint - anyone can view the roster.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    adjudicators = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.feis_id == UUID(feis_id))
+    ).all()
+    
+    # Build response with school affiliation names
+    adjudicator_responses = []
+    confirmed_count = 0
+    invited_count = 0
+    active_count = 0
+    
+    for adj in adjudicators:
+        # Get school affiliation name if set
+        school_name = None
+        if adj.school_affiliation_id:
+            school = session.get(User, adj.school_affiliation_id)
+            if school:
+                school_name = school.name
+        
+        # Count by status
+        if adj.status == AdjudicatorStatus.CONFIRMED:
+            confirmed_count += 1
+        elif adj.status == AdjudicatorStatus.INVITED:
+            invited_count += 1
+        elif adj.status == AdjudicatorStatus.ACTIVE:
+            active_count += 1
+        
+        adjudicator_responses.append(AdjudicatorResponse(
+            id=str(adj.id),
+            feis_id=str(adj.feis_id),
+            user_id=str(adj.user_id) if adj.user_id else None,
+            name=adj.name,
+            email=adj.email,
+            phone=adj.phone,
+            credential=adj.credential,
+            organization=adj.organization,
+            school_affiliation_id=str(adj.school_affiliation_id) if adj.school_affiliation_id else None,
+            school_affiliation_name=school_name,
+            status=adj.status,
+            invite_sent_at=adj.invite_sent_at,
+            invite_expires_at=adj.invite_expires_at,
+            has_access_pin=adj.access_pin_hash is not None,
+            created_at=adj.created_at,
+            confirmed_at=adj.confirmed_at
+        ))
+    
+    return AdjudicatorListResponse(
+        feis_id=feis_id,
+        feis_name=feis.name,
+        total_adjudicators=len(adjudicators),
+        confirmed_count=confirmed_count,
+        invited_count=invited_count,
+        active_count=active_count,
+        adjudicators=adjudicator_responses
+    )
+
+
+@router.post("/feis/{feis_id}/adjudicators", response_model=AdjudicatorResponse)
+async def add_feis_adjudicator(
+    feis_id: str,
+    adjudicator_data: AdjudicatorCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Add an adjudicator to the feis roster.
+    Requires organizer or admin role.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Verify user is the feis organizer or admin
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can add adjudicators")
+    
+    # Check if this adjudicator is already on the roster (by email or user_id)
+    existing = None
+    if adjudicator_data.email:
+        existing = session.exec(
+            select(FeisAdjudicator)
+            .where(FeisAdjudicator.feis_id == UUID(feis_id))
+            .where(FeisAdjudicator.email == adjudicator_data.email)
+        ).first()
+    
+    if not existing and adjudicator_data.user_id:
+        existing = session.exec(
+            select(FeisAdjudicator)
+            .where(FeisAdjudicator.feis_id == UUID(feis_id))
+            .where(FeisAdjudicator.user_id == UUID(adjudicator_data.user_id))
+        ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="This adjudicator is already on the roster")
+    
+    # Create the adjudicator
+    adjudicator = FeisAdjudicator(
+        feis_id=UUID(feis_id),
+        user_id=UUID(adjudicator_data.user_id) if adjudicator_data.user_id else None,
+        name=adjudicator_data.name,
+        email=adjudicator_data.email,
+        phone=adjudicator_data.phone,
+        credential=adjudicator_data.credential,
+        organization=adjudicator_data.organization,
+        school_affiliation_id=UUID(adjudicator_data.school_affiliation_id) if adjudicator_data.school_affiliation_id else None,
+        status=AdjudicatorStatus.CONFIRMED if adjudicator_data.user_id else AdjudicatorStatus.INVITED
+    )
+    
+    session.add(adjudicator)
+    session.commit()
+    session.refresh(adjudicator)
+    
+    # Get school affiliation name
+    school_name = None
+    if adjudicator.school_affiliation_id:
+        school = session.get(User, adjudicator.school_affiliation_id)
+        if school:
+            school_name = school.name
+    
+    return AdjudicatorResponse(
+        id=str(adjudicator.id),
+        feis_id=str(adjudicator.feis_id),
+        user_id=str(adjudicator.user_id) if adjudicator.user_id else None,
+        name=adjudicator.name,
+        email=adjudicator.email,
+        phone=adjudicator.phone,
+        credential=adjudicator.credential,
+        organization=adjudicator.organization,
+        school_affiliation_id=str(adjudicator.school_affiliation_id) if adjudicator.school_affiliation_id else None,
+        school_affiliation_name=school_name,
+        status=adjudicator.status,
+        invite_sent_at=adjudicator.invite_sent_at,
+        invite_expires_at=adjudicator.invite_expires_at,
+        has_access_pin=adjudicator.access_pin_hash is not None,
+        created_at=adjudicator.created_at,
+        confirmed_at=adjudicator.confirmed_at
+    )
+
+
+@router.get("/adjudicators/{adjudicator_id}", response_model=AdjudicatorResponse)
+async def get_adjudicator(
+    adjudicator_id: str,
+    session: Session = Depends(get_session)
+):
+    """Get a specific adjudicator by ID."""
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Get school affiliation name
+    school_name = None
+    if adjudicator.school_affiliation_id:
+        school = session.get(User, adjudicator.school_affiliation_id)
+        if school:
+            school_name = school.name
+    
+    return AdjudicatorResponse(
+        id=str(adjudicator.id),
+        feis_id=str(adjudicator.feis_id),
+        user_id=str(adjudicator.user_id) if adjudicator.user_id else None,
+        name=adjudicator.name,
+        email=adjudicator.email,
+        phone=adjudicator.phone,
+        credential=adjudicator.credential,
+        organization=adjudicator.organization,
+        school_affiliation_id=str(adjudicator.school_affiliation_id) if adjudicator.school_affiliation_id else None,
+        school_affiliation_name=school_name,
+        status=adjudicator.status,
+        invite_sent_at=adjudicator.invite_sent_at,
+        invite_expires_at=adjudicator.invite_expires_at,
+        has_access_pin=adjudicator.access_pin_hash is not None,
+        created_at=adjudicator.created_at,
+        confirmed_at=adjudicator.confirmed_at
+    )
+
+
+@router.put("/adjudicators/{adjudicator_id}", response_model=AdjudicatorResponse)
+async def update_adjudicator(
+    adjudicator_id: str,
+    update_data: AdjudicatorUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Update an adjudicator's details.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can update adjudicators")
+    
+    # Update fields
+    if update_data.name is not None:
+        adjudicator.name = update_data.name
+    if update_data.email is not None:
+        adjudicator.email = update_data.email
+    if update_data.phone is not None:
+        adjudicator.phone = update_data.phone
+    if update_data.credential is not None:
+        adjudicator.credential = update_data.credential
+    if update_data.organization is not None:
+        adjudicator.organization = update_data.organization
+    if update_data.school_affiliation_id is not None:
+        adjudicator.school_affiliation_id = UUID(update_data.school_affiliation_id) if update_data.school_affiliation_id else None
+    if update_data.status is not None:
+        adjudicator.status = update_data.status
+        if update_data.status == AdjudicatorStatus.CONFIRMED and not adjudicator.confirmed_at:
+            adjudicator.confirmed_at = datetime.utcnow()
+    if update_data.user_id is not None:
+        adjudicator.user_id = UUID(update_data.user_id) if update_data.user_id else None
+    
+    session.add(adjudicator)
+    session.commit()
+    session.refresh(adjudicator)
+    
+    # Get school affiliation name
+    school_name = None
+    if adjudicator.school_affiliation_id:
+        school = session.get(User, adjudicator.school_affiliation_id)
+        if school:
+            school_name = school.name
+    
+    return AdjudicatorResponse(
+        id=str(adjudicator.id),
+        feis_id=str(adjudicator.feis_id),
+        user_id=str(adjudicator.user_id) if adjudicator.user_id else None,
+        name=adjudicator.name,
+        email=adjudicator.email,
+        phone=adjudicator.phone,
+        credential=adjudicator.credential,
+        organization=adjudicator.organization,
+        school_affiliation_id=str(adjudicator.school_affiliation_id) if adjudicator.school_affiliation_id else None,
+        school_affiliation_name=school_name,
+        status=adjudicator.status,
+        invite_sent_at=adjudicator.invite_sent_at,
+        invite_expires_at=adjudicator.invite_expires_at,
+        has_access_pin=adjudicator.access_pin_hash is not None,
+        created_at=adjudicator.created_at,
+        confirmed_at=adjudicator.confirmed_at
+    )
+
+
+@router.delete("/adjudicators/{adjudicator_id}")
+async def delete_adjudicator(
+    adjudicator_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Remove an adjudicator from the feis roster.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can remove adjudicators")
+    
+    # Check if adjudicator is assigned to any competitions
+    assigned_comps = session.exec(
+        select(Competition).where(Competition.adjudicator_id == adjudicator.user_id)
+    ).all() if adjudicator.user_id else []
+    
+    if assigned_comps:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot remove adjudicator who is assigned to {len(assigned_comps)} competition(s). Unassign them first."
+        )
+    
+    # Delete availability blocks first
+    session.exec(
+        select(AdjudicatorAvailability).where(AdjudicatorAvailability.feis_adjudicator_id == UUID(adjudicator_id))
+    )
+    for block in session.exec(select(AdjudicatorAvailability).where(AdjudicatorAvailability.feis_adjudicator_id == UUID(adjudicator_id))).all():
+        session.delete(block)
+    
+    session.delete(adjudicator)
+    session.commit()
+    
+    return {"message": "Adjudicator removed from roster", "adjudicator_id": adjudicator_id}
+
+
+# --- Adjudicator Availability ---
+
+@router.get("/adjudicators/{adjudicator_id}/availability", response_model=AdjudicatorAvailabilityResponse)
+async def get_adjudicator_availability(
+    adjudicator_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get all availability blocks for an adjudicator.
+    Public endpoint.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    feis = session.get(Feis, adjudicator.feis_id)
+    
+    # Get availability blocks
+    blocks = session.exec(
+        select(AdjudicatorAvailability)
+        .where(AdjudicatorAvailability.feis_adjudicator_id == UUID(adjudicator_id))
+        .order_by(AdjudicatorAvailability.feis_day, AdjudicatorAvailability.start_time)
+    ).all()
+    
+    # Calculate feis dates (for multi-day support - using feis.date as single day for now)
+    feis_dates = [feis.date]
+    
+    block_responses = [
+        AvailabilityBlockResponse(
+            id=str(block.id),
+            feis_adjudicator_id=str(block.feis_adjudicator_id),
+            feis_day=block.feis_day,
+            start_time=block.start_time,
+            end_time=block.end_time,
+            availability_type=block.availability_type,
+            note=block.note,
+            created_at=block.created_at
+        )
+        for block in blocks
+    ]
+    
+    return AdjudicatorAvailabilityResponse(
+        adjudicator_id=adjudicator_id,
+        adjudicator_name=adjudicator.name,
+        feis_id=str(adjudicator.feis_id),
+        feis_dates=feis_dates,
+        availability_blocks=block_responses
+    )
+
+
+@router.post("/adjudicators/{adjudicator_id}/availability", response_model=AvailabilityBlockResponse)
+async def create_availability_block(
+    adjudicator_id: str,
+    block_data: AvailabilityBlockCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Create an availability block for an adjudicator.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can manage adjudicator availability")
+    
+    # Validate time range
+    if block_data.start_time >= block_data.end_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    
+    # Create the block
+    block = AdjudicatorAvailability(
+        feis_adjudicator_id=UUID(adjudicator_id),
+        feis_day=block_data.feis_day,
+        start_time=block_data.start_time,
+        end_time=block_data.end_time,
+        availability_type=block_data.availability_type,
+        note=block_data.note
+    )
+    
+    session.add(block)
+    session.commit()
+    session.refresh(block)
+    
+    return AvailabilityBlockResponse(
+        id=str(block.id),
+        feis_adjudicator_id=str(block.feis_adjudicator_id),
+        feis_day=block.feis_day,
+        start_time=block.start_time,
+        end_time=block.end_time,
+        availability_type=block.availability_type,
+        note=block.note,
+        created_at=block.created_at
+    )
+
+
+@router.post("/adjudicators/{adjudicator_id}/availability/bulk", response_model=List[AvailabilityBlockResponse])
+async def create_bulk_availability(
+    adjudicator_id: str,
+    bulk_data: BulkAvailabilityCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Create multiple availability blocks at once.
+    Optionally replaces existing blocks for the specified days.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can manage adjudicator availability")
+    
+    # If replacing existing, delete blocks for the days being set
+    if bulk_data.replace_existing:
+        days_to_replace = set(block.feis_day for block in bulk_data.blocks)
+        for day in days_to_replace:
+            existing = session.exec(
+                select(AdjudicatorAvailability)
+                .where(AdjudicatorAvailability.feis_adjudicator_id == UUID(adjudicator_id))
+                .where(AdjudicatorAvailability.feis_day == day)
+            ).all()
+            for existing_block in existing:
+                session.delete(existing_block)
+    
+    # Create new blocks
+    created_blocks = []
+    for block_data in bulk_data.blocks:
+        if block_data.start_time >= block_data.end_time:
+            raise HTTPException(status_code=400, detail=f"End time must be after start time for day {block_data.feis_day}")
+        
+        block = AdjudicatorAvailability(
+            feis_adjudicator_id=UUID(adjudicator_id),
+            feis_day=block_data.feis_day,
+            start_time=block_data.start_time,
+            end_time=block_data.end_time,
+            availability_type=block_data.availability_type,
+            note=block_data.note
+        )
+        session.add(block)
+        created_blocks.append(block)
+    
+    session.commit()
+    
+    # Refresh and return
+    responses = []
+    for block in created_blocks:
+        session.refresh(block)
+        responses.append(AvailabilityBlockResponse(
+            id=str(block.id),
+            feis_adjudicator_id=str(block.feis_adjudicator_id),
+            feis_day=block.feis_day,
+            start_time=block.start_time,
+            end_time=block.end_time,
+            availability_type=block.availability_type,
+            note=block.note,
+            created_at=block.created_at
+        ))
+    
+    return responses
+
+
+@router.put("/adjudicator-availability/{block_id}", response_model=AvailabilityBlockResponse)
+async def update_availability_block(
+    block_id: str,
+    update_data: AvailabilityBlockUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Update an availability block.
+    Requires organizer or admin role.
+    """
+    block = session.get(AdjudicatorAvailability, UUID(block_id))
+    if not block:
+        raise HTTPException(status_code=404, detail="Availability block not found")
+    
+    # Verify user is the feis organizer or admin
+    adjudicator = session.get(FeisAdjudicator, block.feis_adjudicator_id)
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can manage adjudicator availability")
+    
+    # Update fields
+    if update_data.feis_day is not None:
+        block.feis_day = update_data.feis_day
+    if update_data.start_time is not None:
+        block.start_time = update_data.start_time
+    if update_data.end_time is not None:
+        block.end_time = update_data.end_time
+    if update_data.availability_type is not None:
+        block.availability_type = update_data.availability_type
+    if update_data.note is not None:
+        block.note = update_data.note
+    
+    # Validate time range
+    if block.start_time >= block.end_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    
+    session.add(block)
+    session.commit()
+    session.refresh(block)
+    
+    return AvailabilityBlockResponse(
+        id=str(block.id),
+        feis_adjudicator_id=str(block.feis_adjudicator_id),
+        feis_day=block.feis_day,
+        start_time=block.start_time,
+        end_time=block.end_time,
+        availability_type=block.availability_type,
+        note=block.note,
+        created_at=block.created_at
+    )
+
+
+@router.delete("/adjudicator-availability/{block_id}")
+async def delete_availability_block(
+    block_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Delete an availability block.
+    Requires organizer or admin role.
+    """
+    block = session.get(AdjudicatorAvailability, UUID(block_id))
+    if not block:
+        raise HTTPException(status_code=404, detail="Availability block not found")
+    
+    # Verify user is the feis organizer or admin
+    adjudicator = session.get(FeisAdjudicator, block.feis_adjudicator_id)
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can manage adjudicator availability")
+    
+    session.delete(block)
+    session.commit()
+    
+    return {"message": "Availability block deleted", "block_id": block_id}
+
+
+# --- Adjudicator Invite Flow ---
+
+@router.post("/adjudicators/{adjudicator_id}/invite", response_model=AdjudicatorInviteResponse)
+async def send_adjudicator_invite(
+    adjudicator_id: str,
+    request: AdjudicatorInviteRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Send or resend an invitation to an adjudicator.
+    Generates a magic link token that can be used to accept the invite.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can send invites")
+    
+    # Generate invite token
+    invite_token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(days=7)  # Token valid for 7 days
+    
+    adjudicator.invite_token = invite_token
+    adjudicator.invite_sent_at = datetime.utcnow()
+    adjudicator.invite_expires_at = expires_at
+    adjudicator.status = AdjudicatorStatus.INVITED
+    
+    session.add(adjudicator)
+    session.commit()
+    session.refresh(adjudicator)
+    
+    # Get site settings for URL
+    settings = get_site_settings(session)
+    site_url = settings.site_url if settings else "http://localhost:5173"
+    invite_link = f"{site_url}/adjudicator-invite?token={invite_token}"
+    
+    # TODO: Send email with invite link if email is configured and adjudicator has email
+    # For now, just return the link for manual sharing
+    
+    return AdjudicatorInviteResponse(
+        success=True,
+        adjudicator_id=adjudicator_id,
+        invite_link=invite_link,
+        expires_at=expires_at,
+        message=f"Invite generated for {adjudicator.name}. Share the link with them to accept."
+    )
+
+
+@router.post("/adjudicator-invite/accept", response_model=AdjudicatorAcceptInviteResponse)
+async def accept_adjudicator_invite(
+    request: AdjudicatorAcceptInviteRequest,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    """
+    Accept an adjudicator invitation via magic link.
+    If the user is logged in, links their account to the roster entry.
+    If not logged in, returns info for account creation.
+    """
+    # Find adjudicator by invite token
+    adjudicator = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.invite_token == request.token)
+    ).first()
+    
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Invalid or expired invite token")
+    
+    # Check if token is expired
+    if adjudicator.invite_expires_at and adjudicator.invite_expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invite token has expired. Please request a new invite.")
+    
+    feis = session.get(Feis, adjudicator.feis_id)
+    
+    if current_user:
+        # Link existing account
+        adjudicator.user_id = current_user.id
+        adjudicator.status = AdjudicatorStatus.CONFIRMED
+        adjudicator.confirmed_at = datetime.utcnow()
+        adjudicator.invite_token = None  # Clear token after use
+        
+        # Update user role to adjudicator if they're just a parent
+        if current_user.role == RoleType.PARENT:
+            current_user.role = RoleType.ADJUDICATOR
+            session.add(current_user)
+        
+        session.add(adjudicator)
+        session.commit()
+        session.refresh(adjudicator)
+        
+        return AdjudicatorAcceptInviteResponse(
+            success=True,
+            feis_id=str(feis.id),
+            feis_name=feis.name,
+            adjudicator_name=adjudicator.name,
+            message=f"Successfully confirmed as adjudicator for {feis.name}",
+            access_token=None,
+            user=UserResponse(
+                id=str(current_user.id),
+                email=current_user.email,
+                name=current_user.name,
+                role=current_user.role,
+                email_verified=current_user.email_verified
+            )
+        )
+    else:
+        # Not logged in - return info for the frontend to show login/register
+        return AdjudicatorAcceptInviteResponse(
+            success=True,
+            feis_id=str(feis.id),
+            feis_name=feis.name,
+            adjudicator_name=adjudicator.name,
+            message="Please log in or create an account to confirm your position as adjudicator",
+            access_token=None,
+            user=None
+        )
+
+
+# --- Day-of PIN Access ---
+
+@router.post("/adjudicators/{adjudicator_id}/generate-pin", response_model=GeneratePinResponse)
+async def generate_adjudicator_pin(
+    adjudicator_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Generate a 6-digit PIN for day-of access.
+    The PIN is only shown once and cannot be retrieved again.
+    Requires organizer or admin role.
+    """
+    adjudicator = session.get(FeisAdjudicator, UUID(adjudicator_id))
+    if not adjudicator:
+        raise HTTPException(status_code=404, detail="Adjudicator not found")
+    
+    # Verify user is the feis organizer or admin
+    feis = session.get(Feis, adjudicator.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can generate PINs")
+    
+    # Generate 6-digit PIN
+    pin = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    
+    # Hash the PIN for storage
+    adjudicator.access_pin_hash = hash_password(pin)
+    adjudicator.pin_generated_at = datetime.utcnow()
+    
+    session.add(adjudicator)
+    session.commit()
+    
+    return GeneratePinResponse(
+        success=True,
+        adjudicator_id=adjudicator_id,
+        adjudicator_name=adjudicator.name,
+        pin=pin,  # Only shown once!
+        message=f"PIN generated for {adjudicator.name}. Write it down - it cannot be shown again."
+    )
+
+
+@router.post("/adjudicator-login/pin", response_model=PinLoginResponse)
+async def login_with_pin(
+    request: PinLoginRequest,
+    session: Session = Depends(get_session)
+):
+    """
+    Login as an adjudicator using a day-of PIN.
+    Creates a temporary session for scoring at the feis.
+    """
+    # Find adjudicators for this feis with a PIN set
+    adjudicators = session.exec(
+        select(FeisAdjudicator)
+        .where(FeisAdjudicator.feis_id == UUID(request.feis_id))
+        .where(FeisAdjudicator.access_pin_hash.isnot(None))
+    ).all()
+    
+    # Try to find a matching PIN
+    matched_adjudicator = None
+    for adj in adjudicators:
+        if verify_password(request.pin, adj.access_pin_hash):
+            matched_adjudicator = adj
+            break
+    
+    if not matched_adjudicator:
+        raise HTTPException(status_code=401, detail="Invalid PIN")
+    
+    feis = session.get(Feis, UUID(request.feis_id))
+    
+    # Mark adjudicator as active
+    matched_adjudicator.status = AdjudicatorStatus.ACTIVE
+    session.add(matched_adjudicator)
+    
+    # If adjudicator has a linked user account, use that for the token
+    if matched_adjudicator.user_id:
+        user = session.get(User, matched_adjudicator.user_id)
+        access_token = create_access_token(user.id, user.role)
+    else:
+        # Create a temporary user or use a special token
+        # For now, we'll create a simple session token
+        # In production, you might want to create a temporary user record
+        
+        # Check if there's already a user with adjudicator role for this email
+        if matched_adjudicator.email:
+            existing_user = session.exec(
+                select(User).where(User.email == matched_adjudicator.email)
+            ).first()
+            if existing_user:
+                matched_adjudicator.user_id = existing_user.id
+                session.add(matched_adjudicator)
+                access_token = create_access_token(existing_user.id, existing_user.role)
+            else:
+                # Create a new adjudicator user
+                temp_user = User(
+                    email=matched_adjudicator.email or f"adj_{matched_adjudicator.id}@temp.openfeis.local",
+                    password_hash=hash_password(secrets.token_urlsafe(32)),  # Random password
+                    name=matched_adjudicator.name,
+                    role=RoleType.ADJUDICATOR,
+                    email_verified=True  # Skip verification for PIN-created accounts
+                )
+                session.add(temp_user)
+                session.commit()
+                session.refresh(temp_user)
+                matched_adjudicator.user_id = temp_user.id
+                session.add(matched_adjudicator)
+                access_token = create_access_token(temp_user.id, temp_user.role)
+        else:
+            # No email - create with temporary identifier
+            temp_user = User(
+                email=f"adj_{matched_adjudicator.id}@pin.openfeis.local",
+                password_hash=hash_password(secrets.token_urlsafe(32)),
+                name=matched_adjudicator.name,
+                role=RoleType.ADJUDICATOR,
+                email_verified=True
+            )
+            session.add(temp_user)
+            session.commit()
+            session.refresh(temp_user)
+            matched_adjudicator.user_id = temp_user.id
+            session.add(matched_adjudicator)
+            access_token = create_access_token(temp_user.id, temp_user.role)
+    
+    session.commit()
+    
+    return PinLoginResponse(
+        success=True,
+        access_token=access_token,
+        feis_id=request.feis_id,
+        feis_name=feis.name,
+        adjudicator_name=matched_adjudicator.name,
+        message=f"Welcome, {matched_adjudicator.name}! You can now score competitions."
+    )
+
+
+# --- Adjudicator Capacity Metrics ---
+
+@router.get("/feis/{feis_id}/adjudicator-capacity", response_model=AdjudicatorCapacityResponse)
+async def get_adjudicator_capacity(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get derived scheduling capacity metrics based on the adjudicator roster.
+    Shows how many stages/panels can run concurrently.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get adjudicator counts
+    adjudicators = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.feis_id == UUID(feis_id))
+    ).all()
+    
+    total = len(adjudicators)
+    confirmed = len([a for a in adjudicators if a.status == AdjudicatorStatus.CONFIRMED])
+    active = len([a for a in adjudicators if a.status == AdjudicatorStatus.ACTIVE])
+    
+    # Get scheduling defaults from feis settings (or use defaults)
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == UUID(feis_id))
+    ).first()
+    
+    # Default values if not set
+    grades_per_stage = getattr(settings, 'grades_judges_per_stage', None) or 1
+    champs_per_panel = getattr(settings, 'champs_judges_per_panel', None) or 3
+    
+    # Calculate capacity based on confirmed + active judges
+    available_judges = confirmed + active
+    
+    # Maximum concurrent operations
+    max_grade_stages = available_judges // grades_per_stage if grades_per_stage > 0 else 0
+    max_champs_panels = available_judges // champs_per_panel if champs_per_panel > 0 else 0
+    
+    # Generate recommendation
+    if available_judges == 0:
+        recommendation = "No confirmed adjudicators yet. Add adjudicators to your roster to enable scheduling."
+    elif available_judges < champs_per_panel:
+        recommendation = f"With {available_judges} adjudicator(s), you can run up to {max_grade_stages} single-judge stage(s). You need at least {champs_per_panel} judges for championship panels."
+    else:
+        # Calculate mixed scenarios
+        remaining_after_one_panel = available_judges - champs_per_panel
+        grades_with_one_panel = remaining_after_one_panel // grades_per_stage
+        
+        recommendation = (
+            f"With {available_judges} confirmed adjudicator(s), you can run:\n"
+            f"- Up to {max_grade_stages} single-judge grade stages, OR\n"
+            f"- Up to {max_champs_panels} championship panel(s) ({champs_per_panel} judges each), OR\n"
+            f"- 1 championship panel + {grades_with_one_panel} grade stage(s)"
+        )
+    
+    return AdjudicatorCapacityResponse(
+        feis_id=feis_id,
+        feis_name=feis.name,
+        total_adjudicators=total,
+        confirmed_count=confirmed,
+        active_count=active,
+        grades_judges_per_stage=grades_per_stage,
+        champs_judges_per_panel=champs_per_panel,
+        max_grade_stages=max_grade_stages,
+        max_champs_panels=max_champs_panels,
+        recommendation=recommendation
+    )
+
+
+# --- Scheduling Defaults ---
+
+@router.get("/feis/{feis_id}/scheduling-defaults", response_model=SchedulingDefaultsResponse)
+async def get_scheduling_defaults(
+    feis_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Get scheduling defaults for a feis.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Get or create settings
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == UUID(feis_id))
+    ).first()
+    
+    if not settings:
+        # Return defaults if no settings exist
+        return SchedulingDefaultsResponse(
+            feis_id=feis_id,
+            grades_judges_per_stage=1,
+            champs_judges_per_panel=3,
+            lunch_duration_minutes=30,
+            lunch_window_start=None,
+            lunch_window_end=None
+        )
+    
+    return SchedulingDefaultsResponse(
+        feis_id=feis_id,
+        grades_judges_per_stage=settings.grades_judges_per_stage,
+        champs_judges_per_panel=settings.champs_judges_per_panel,
+        lunch_duration_minutes=settings.lunch_duration_minutes,
+        lunch_window_start=settings.lunch_window_start,
+        lunch_window_end=settings.lunch_window_end
+    )
+
+
+@router.put("/feis/{feis_id}/scheduling-defaults", response_model=SchedulingDefaultsResponse)
+async def update_scheduling_defaults(
+    feis_id: str,
+    update_data: SchedulingDefaultsUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Update scheduling defaults for a feis.
+    Requires organizer or admin role.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Verify user is the feis organizer or admin
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the feis organizer can update scheduling defaults")
+    
+    # Get or create settings
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == UUID(feis_id))
+    ).first()
+    
+    if not settings:
+        settings = FeisSettings(feis_id=UUID(feis_id))
+        session.add(settings)
+    
+    # Update fields
+    if update_data.grades_judges_per_stage is not None:
+        settings.grades_judges_per_stage = update_data.grades_judges_per_stage
+    if update_data.champs_judges_per_panel is not None:
+        settings.champs_judges_per_panel = update_data.champs_judges_per_panel
+    if update_data.lunch_duration_minutes is not None:
+        settings.lunch_duration_minutes = update_data.lunch_duration_minutes
+    if update_data.lunch_window_start is not None:
+        from datetime import time as time_type
+        settings.lunch_window_start = time_type.fromisoformat(update_data.lunch_window_start) if isinstance(update_data.lunch_window_start, str) else update_data.lunch_window_start
+    if update_data.lunch_window_end is not None:
+        from datetime import time as time_type
+        settings.lunch_window_end = time_type.fromisoformat(update_data.lunch_window_end) if isinstance(update_data.lunch_window_end, str) else update_data.lunch_window_end
+    
+    session.add(settings)
+    session.commit()
+    session.refresh(settings)
+    
+    return SchedulingDefaultsResponse(
+        feis_id=feis_id,
+        grades_judges_per_stage=settings.grades_judges_per_stage,
+        champs_judges_per_panel=settings.champs_judges_per_panel,
+        lunch_duration_minutes=settings.lunch_duration_minutes,
+        lunch_window_start=settings.lunch_window_start,
+        lunch_window_end=settings.lunch_window_end
+    )
 
 
 # ============= Demo Data Endpoints (Super Admin Only) =============

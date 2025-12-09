@@ -54,15 +54,17 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Feis Manager** — Create, edit, and manage feiseanna from the frontend (no SQL required)
 - **Syllabus Generator** — Auto-generate 100+ competitions with one click (Age × Gender × Level × Dance)
 - **Competition Manager** — View, filter, and manage all competitions in a feis
-- **Competition Codes** — Auto-generated codes (e.g., "407SJ") with organizer override 🆕
+- **Competition Codes** — Auto-generated codes (e.g., "407SJ") with organizer override
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
 - **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
-- **Cap Enforcement** — Set per-competition limits and global feis dancer caps 🆕
-- **Waitlist Management** — Automatic waitlisting with configurable offer windows 🆕
+- **Cap Enforcement** — Set per-competition limits and global feis dancer caps
+- **Waitlist Management** — Automatic waitlisting with configurable offer windows
 - **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages
 - **Stage Management** — Create and manage multiple stages/areas for your feis
+- **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations 🆕
+- **Judge Coverage Blocks** — Assign judges to stages with specific time ranges (e.g., "Mary: Stage A, 9am-12pm") 🆕
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
-- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts)
+- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking) 🆕
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
 - **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap
 - **Late Fee Management** — Configure late fee amount and cutoff date
@@ -245,8 +247,9 @@ openfeis-server/
 │   │   │   │   ├── CompetitionManager.vue  # Competition listing/management
 │   │   │   │   ├── EntryManager.vue        # Entry/registration management
 │   │   │   │   ├── SyllabusGenerator.vue   # Matrix-based competition generator
-│   │   │   │   ├── ScheduleGantt.vue       # Visual drag-and-drop scheduler
-│   │   │   │   ├── FeisSettingsManager.vue # Pricing, fees & registration config 🆕
+│   │   │   │   ├── ScheduleGantt.vue       # Visual drag-and-drop scheduler with coverage
+│   │   │   │   ├── AdjudicatorManager.vue  # Judge roster management 🆕
+│   │   │   │   ├── FeisSettingsManager.vue # Pricing, fees & registration config
 │   │   │   │   ├── SiteSettings.vue        # Email & site configuration
 │   │   │   │   └── CloudSync.vue           # Offline-to-cloud sync UI
 │   │   │   ├── account/
@@ -403,7 +406,28 @@ openfeis-server/
 | `POST` | `/api/v1/feis/{feis_id}/schedule/batch` | Batch update multiple competition schedules | Organizer/Admin |
 | `GET` | `/api/v1/feis/{feis_id}/scheduling-conflicts` | Detect and return scheduling conflicts | Organizer/Admin |
 
-### Financial Engine 🆕
+### Adjudicator Roster 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/adjudicators` | List adjudicators on a feis roster | No |
+| `POST` | `/api/v1/feis/{feis_id}/adjudicators` | Add adjudicator to roster (can link existing user or create placeholder) | Organizer/Admin |
+| `PUT` | `/api/v1/feis/{feis_id}/adjudicators/{id}` | Update adjudicator info | Organizer/Admin |
+| `DELETE` | `/api/v1/feis/{feis_id}/adjudicators/{id}` | Remove adjudicator from roster | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/adjudicator-capacity` | Get judge capacity metrics (how many stages/panels can run) | Organizer/Admin |
+| `POST` | `/api/v1/adjudicators/{id}/invite` | Send email invite to adjudicator | Organizer/Admin |
+| `POST` | `/api/v1/adjudicators/{id}/generate-pin` | Generate day-of access PIN | Organizer/Admin |
+
+### Stage Judge Coverage 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/stages/{stage_id}/coverage` | List judge coverage blocks for a stage | No |
+| `POST` | `/api/v1/stages/{stage_id}/coverage` | Add a coverage block (judge + date + time range) | Organizer/Admin |
+| `DELETE` | `/api/v1/stage-coverage/{coverage_id}` | Remove a coverage block | Organizer/Admin |
+| `GET` | `/api/v1/feis/{feis_id}/judge-schedule` | Get all coverage blocks across all stages (cross-stage view) | No |
+
+### Financial Engine
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
@@ -801,12 +825,35 @@ class Dancer:
     gender: Gender
     clrg_number: Optional[str]
 
-class Stage:  # 🆕 Phase 2
+class Stage:
     id: UUID
     feis_id: UUID  # FK to Feis
     name: str  # e.g., "Stage A", "Main Hall"
     color: Optional[str]  # Hex color for UI
     sequence: int  # Display order
+
+class FeisAdjudicator:  # 🆕 Phase 6 - Adjudicator Roster
+    id: UUID
+    feis_id: UUID  # FK to Feis
+    user_id: Optional[UUID]  # FK to User (null until they accept invite)
+    name: str  # Required even without account
+    email: Optional[str]  # For sending invites
+    phone: Optional[str]
+    credential: Optional[str]  # e.g., "TCRG", "ADCRG"
+    organization: Optional[str]  # e.g., "CLRG", "CRN"
+    school_affiliation_id: Optional[UUID]  # FK to teacher for conflict detection
+    status: AdjudicatorStatus  # invited, confirmed, active, declined
+    invite_token: Optional[str]  # Magic link token
+    access_pin_hash: Optional[str]  # Day-of PIN (hashed)
+
+class StageJudgeCoverage:  # 🆕 Phase 6 - Time-based judge assignment
+    id: UUID
+    stage_id: UUID  # FK to Stage
+    feis_adjudicator_id: UUID  # FK to FeisAdjudicator
+    feis_day: date  # Which day of the feis
+    start_time: time  # e.g., 09:00
+    end_time: time  # e.g., 12:30
+    note: Optional[str]  # e.g., "Grades only"
 
 class Competition:
     id: UUID
@@ -1149,7 +1196,7 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 - [x] **Entry Flagging** — Teachers can flag incorrect registrations
 - [x] **School Linking** — Link dancers to teacher accounts
 
-### ✅ Recently Completed (Phase 4.5) 🆕
+### ✅ Recently Completed (Phase 4.5)
 
 - [x] **Cap Enforcement** — Per-competition and global feis entry limits
 - [x] **Waitlist System** — Automatic waitlisting when capacity is reached, with timed offers
@@ -1160,18 +1207,25 @@ See [`docs/venue-deployment.md`](docs/venue-deployment.md) for detailed setup in
 - [x] **Expanded Competition Levels** — First Feis, Beginner 1, Beginner 2, Novice, Prizewinner, Prelim Champ, Open Champ
 - [x] **Refund Workflow** — Backend support for processing refunds with audit logging
 
-### 🔜 Coming Soon (Phase 5)
+### ✅ Recently Completed (Phase 6) 🆕
+
+- [x] **Adjudicator Roster** — Build a roster of judges for each feis, with identity separate from accounts
+- [x] **Judge Search & Linking** — Typeahead search for existing users when adding judges
+- [x] **Invite System** — Send magic link invites to judges via email
+- [x] **Day-of PIN Access** — Generate access PINs for judges without accounts
+- [x] **School Affiliation Tracking** — Track judge affiliations for conflict detection
+- [x] **Stage Judge Coverage** — Time-based judge assignments (judge → stage → date → time range)
+- [x] **Multi-Stage Support** — Judges can cover multiple stages at different times in a feis
+- [x] **Coverage Visualization** — See judge assignments on the schedule builder timeline
+- [x] **Double-Booking Prevention** — API validates that judges aren't scheduled in two places at once
+
+### 🔜 Coming Soon (Phase 7)
 
 - [ ] **Stripe Connect Activation** — Enable live payment processing
 - [ ] **Audit Log** — Track every score change with timestamps
 - [ ] **Print Schedules** — PDF export of stage schedules
-
-### 🔮 Future
-
-- [ ] Native iOS/Android apps
-- [ ] Multi-feis dashboard for organizations
-- [ ] Historical results & dancer statistics
-- [ ] Integration with CLRG Grade Exams
+- [ ] **Coverage Conflict Warnings** — Alert when scheduling comps without judge coverage
+- [ ] **Judge Personal Schedule** — View for judges to see their day across stages
 
 ---
 
@@ -1208,21 +1262,3 @@ All scoring logic is derived **strictly** from the official [CLRG Rules & Regula
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
-
-## 💚 Acknowledgments
-
-Built with love for the Irish Dance community. Special thanks to:
-
-- The CLRG for maintaining clear competition rules
-- The teachers and parents who shared their frustrations with existing systems
-- The adjudicators who tested offline scoring in the field
-
----
-
-<p align="center">
-  <strong>☘️ Sláinte! ☘️</strong><br>
-  <em>May your hard shoe be loud and your soft shoe be light.</em>
-</p>
-
