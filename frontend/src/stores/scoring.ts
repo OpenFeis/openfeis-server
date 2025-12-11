@@ -26,6 +26,8 @@ interface LocalScore {
 
 export const useScoringStore = defineStore('scoring', () => {
   // State
+  const feiseanna = ref<{id: string; name: string; date: string; location: string}[]>([]);
+  const selectedFeis = ref<{id: string; name: string} | null>(null);
   const competitions = ref<CompetitionForScoring[]>([]);
   const selectedCompetition = ref<CompetitionForScoring | null>(null);
   const competitors = ref<CompetitorForScoring[]>([]);
@@ -76,14 +78,56 @@ export const useScoringStore = defineStore('scoring', () => {
     return auth.authFetch;
   }
 
-  // Fetch competitions available for scoring
-  async function fetchCompetitions() {
+  // Fetch feiseanna available for judging
+  async function fetchFeiseanna() {
     isLoading.value = true;
     error.value = null;
     
     try {
       const authFetch = getAuthFetch();
-      const response = await authFetch(`${API_URL}/judge/competitions`);
+      const response = await authFetch(`${API_URL}/judge/feiseanna`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch feiseanna');
+      }
+      
+      feiseanna.value = await response.json();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch feiseanna';
+      feiseanna.value = [];
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // Select a feis and fetch its competitions
+  function selectFeis(feis: {id: string; name: string}) {
+    selectedFeis.value = feis;
+    selectedCompetition.value = null;
+    competitions.value = [];
+    fetchCompetitions(feis.id);
+  }
+
+  // Clear feis selection
+  function clearFeis() {
+    selectedFeis.value = null;
+    competitions.value = [];
+    selectedCompetition.value = null;
+    fetchFeiseanna(); // Refresh list
+  }
+
+  // Fetch competitions available for scoring
+  async function fetchCompetitions(feisId?: string) {
+    isLoading.value = true;
+    error.value = null;
+    
+    try {
+      const authFetch = getAuthFetch();
+      const url = feisId 
+        ? `${API_URL}/judge/competitions?feis_id=${feisId}` 
+        : `${API_URL}/judge/competitions`;
+      
+      const response = await authFetch(url);
       
       if (!response.ok) {
         const data = await response.json();
@@ -125,6 +169,7 @@ export const useScoringStore = defineStore('scoring', () => {
     }
     selectedCompetition.value = null;
     competitors.value = [];
+    // If we have a selected feis, we don't need to refetch competitions unless we want to refresh
   }
 
   // Fetch competitors for a competition
@@ -308,6 +353,8 @@ export const useScoringStore = defineStore('scoring', () => {
 
   return {
     // State
+    feiseanna,
+    selectedFeis,
     competitions,
     selectedCompetition,
     competitors,
@@ -317,6 +364,9 @@ export const useScoringStore = defineStore('scoring', () => {
     error,
     
     // Actions
+    fetchFeiseanna,
+    selectFeis,
+    clearFeis,
     fetchCompetitions,
     selectCompetition,
     clearCompetition,

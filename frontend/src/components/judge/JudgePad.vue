@@ -14,7 +14,7 @@ const notesInput = ref<string>('');
 const isSaving = ref(false);
 const saveSuccess = ref(false);
 
-// Group competitions by feis
+// Group competitions by feis (for display if needed, though we filter by feis now)
 const competitionsByFeis = computed(() => {
   const grouped: Record<string, { feisName: string; competitions: typeof store.competitions }> = {};
   
@@ -31,10 +31,10 @@ const competitionsByFeis = computed(() => {
   return grouped;
 });
 
-// Load competitions on mount
+// Load feiseanna on mount
 onMounted(async () => {
   if (auth.isAuthenticated) {
-    await store.fetchCompetitions();
+    await store.fetchFeiseanna();
   }
 });
 
@@ -118,13 +118,100 @@ function getScoreColor(competitor: CompetitorForScoring): string {
       </p>
     </div>
 
-    <!-- Competition Selector -->
-    <div v-else-if="!store.selectedCompetition" class="max-w-2xl mx-auto">
+    <!-- Feis Selector -->
+    <div v-else-if="!store.selectedFeis" class="max-w-2xl mx-auto">
       <div class="bg-white rounded-2xl shadow-lg p-6">
         <div class="flex items-center justify-between mb-6">
           <div>
             <h1 class="text-2xl font-bold text-slate-800">Judge Pad</h1>
-            <p class="text-slate-600">Select a competition to score</p>
+            <p class="text-slate-600">Select a feis to judge</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span 
+              :class="[
+                'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium',
+                store.isOnline 
+                  ? 'bg-emerald-100 text-emerald-700' 
+                  : 'bg-amber-100 text-amber-700'
+              ]"
+            >
+              <span :class="['w-2 h-2 rounded-full', store.isOnline ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+              {{ store.isOnline ? 'Online' : 'Offline' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="store.isLoading" class="py-12 text-center">
+          <div class="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p class="text-slate-600">Loading feiseanna...</p>
+        </div>
+
+        <!-- Error -->
+        <div v-else-if="store.error" class="py-8 text-center">
+          <p class="text-red-600 mb-4">{{ store.error }}</p>
+          <button 
+            @click="store.fetchFeiseanna()"
+            class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+
+        <!-- No Feiseanna -->
+        <div v-else-if="store.feiseanna.length === 0" class="py-12 text-center">
+          <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-800 mb-2">No Feiseanna Available</h3>
+          <p class="text-slate-600 text-sm">
+            You are not assigned to any upcoming feiseanna as an adjudicator.
+          </p>
+        </div>
+
+        <!-- Feis List -->
+        <div v-else class="space-y-4">
+          <button
+            v-for="feis in store.feiseanna"
+            :key="feis.id"
+            @click="store.selectFeis(feis)"
+            class="w-full p-4 bg-slate-50 hover:bg-slate-100 rounded-xl text-left transition-colors flex items-center justify-between group"
+          >
+            <div>
+              <p class="font-semibold text-slate-800 group-hover:text-emerald-700 transition-colors">
+                {{ feis.name }}
+              </p>
+              <p class="text-sm text-slate-500">
+                {{ feis.date }} • {{ feis.location }}
+              </p>
+            </div>
+            <svg class="w-5 h-5 text-slate-400 group-hover:text-emerald-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Competition Selector -->
+    <div v-else-if="!store.selectedCompetition" class="max-w-2xl mx-auto">
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center gap-3">
+             <button
+              @click="store.clearFeis()"
+              class="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div>
+              <h1 class="text-2xl font-bold text-slate-800">Judge Pad</h1>
+              <p class="text-slate-600">{{ store.selectedFeis.name }}</p>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <span 
@@ -151,7 +238,7 @@ function getScoreColor(competitor: CompetitorForScoring): string {
         <div v-else-if="store.error" class="py-8 text-center">
           <p class="text-red-600 mb-4">{{ store.error }}</p>
           <button 
-            @click="store.fetchCompetitions()"
+            @click="store.fetchCompetitions(store.selectedFeis.id)"
             class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
           >
             Try Again
@@ -165,19 +252,17 @@ function getScoreColor(competitor: CompetitorForScoring): string {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <h3 class="text-lg font-semibold text-slate-800 mb-2">No Competitions Available</h3>
+          <h3 class="text-lg font-semibold text-slate-800 mb-2">No Competitions Assigned</h3>
           <p class="text-slate-600 text-sm">
-            There are no competitions with assigned competitor numbers yet.<br>
-            Ask the organizer to assign numbers before scoring can begin.
+            There are no competitions assigned to you at this feis yet.<br>
+            If this is an error, please see the organizer.
           </p>
         </div>
 
         <!-- Competition List -->
         <div v-else class="space-y-6">
           <div v-for="(group, feisId) in competitionsByFeis" :key="feisId">
-            <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              {{ group.feisName }}
-            </h3>
+            <!-- We might not need the header since we selected the feis, but keeping structure is fine -->
             <div class="space-y-2">
               <button
                 v-for="comp in group.competitions"

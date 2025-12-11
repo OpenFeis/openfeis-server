@@ -362,8 +362,40 @@ async def get_round_results(round_id: str, session: Session = Depends(get_sessio
 
 # ============= Judge Pad Endpoints =============
 
+@router.get("/judge/feiseanna", response_model=List[FeisResponse])
+async def get_judge_feiseanna(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_adjudicator())
+):
+    """
+    Get all feiseanna the current user is authorized to judge.
+    Includes feiseanna where they are an adjudicator, organizer, or if they are super_admin.
+    """
+    if current_user.role == RoleType.SUPER_ADMIN:
+        feiseanna = session.exec(select(Feis)).all()
+        return [FeisResponse.model_validate(f) for f in feiseanna]
+    
+    # If organizer, return their feiseanna
+    organizer_feiseanna = session.exec(
+        select(Feis).where(Feis.organizer_id == current_user.id)
+    ).all()
+    
+    # If adjudicator, find feiseanna where they are listed
+    # We join FeisAdjudicator to get the Feis
+    adjudicator_feiseanna = session.exec(
+        select(Feis)
+        .join(FeisAdjudicator)
+        .where(FeisAdjudicator.user_id == current_user.id)
+    ).all()
+    
+    # Merge and unique
+    all_feiseanna = {f.id: f for f in organizer_feiseanna + adjudicator_feiseanna}
+    return [FeisResponse.model_validate(f) for f in all_feiseanna.values()]
+
+
 @router.get("/judge/competitions", response_model=List[CompetitionForScoring])
 async def get_competitions_for_scoring(
+    feis_id: Optional[str] = Query(None, description="Filter by Feis ID"),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_adjudicator())
 ):
@@ -371,15 +403,63 @@ async def get_competitions_for_scoring(
     Get all competitions available for scoring.
     Only shows competitions that have entries with assigned competitor numbers.
     """
-    # Get all feiseanna
+    # 1. Base query for competitions
+    query = select(Competition)
+    
+    if feis_id:
+        query = query.where(Competition.feis_id == UUID(feis_id))
+    
+    competitions = session.exec(query).all()
+    
+    # 2. Determine user role and permissions
+    is_admin = current_user.role == RoleType.SUPER_ADMIN
+    is_organizer = False
+    
+    # Check if organizer for the requested feis(s)
+    # We'll check per competition if needed, or check the feis if filtered
+    
+    # Get all feiseanna for map and organizer check
     feiseanna = session.exec(select(Feis)).all()
     feis_map = {f.id: f for f in feiseanna}
     
-    # Get all competitions
-    competitions = session.exec(select(Competition)).all()
+    # Pre-fetch assignments for this judge to filter efficiently
+    assigned_comp_ids = set()
+    covered_stage_ids = set()
     
+    if not is_admin:
+        # Direct assignments
+        assigned_comp_ids = {c.id for c in competitions if c.adjudicator_id == current_user.id}
+        
+        # Stage coverage
+        # Find all stages covered by this user
+        coverage_query = (
+            select(StageJudgeCoverage.stage_id)
+            .join(FeisAdjudicator)
+            .where(FeisAdjudicator.user_id == current_user.id)
+        )
+        if feis_id:
+            coverage_query = coverage_query.where(FeisAdjudicator.feis_id == UUID(feis_id))
+            
+        covered_stage_ids = set(session.exec(coverage_query).all())
+
     result = []
     for comp in competitions:
+        # Check permissions for this specific competition's feis
+        feis = feis_map.get(comp.feis_id)
+        is_comp_organizer = feis and feis.organizer_id == current_user.id
+        
+        # Filter logic: Show if Admin, Organizer, or Assigned
+        if not (is_admin or is_comp_organizer):
+            is_assigned = (
+                comp.id in assigned_comp_ids or 
+                (comp.stage_id and comp.stage_id in covered_stage_ids)
+            )
+            
+            # If not explicitly assigned, check if they are broadly allowed?
+            # User requested strict filtering: "only the events they're judging"
+            if not is_assigned:
+                continue
+
         # Count entries with assigned numbers (ready for scoring)
         entry_count = session.exec(
             select(func.count(Entry.id))
@@ -389,7 +469,6 @@ async def get_competitions_for_scoring(
         
         # Only include competitions with scorable entries
         if entry_count > 0:
-            feis = feis_map.get(comp.feis_id)
             result.append(CompetitionForScoring(
                 id=str(comp.id),
                 name=comp.name,

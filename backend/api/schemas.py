@@ -39,11 +39,11 @@ class FeisUpdate(BaseModel):
     stripe_account_id: Optional[str] = None
 
 class FeisResponse(BaseModel):
-    id: str
+    id: UUID
     name: str
     date: date
     location: str
-    organizer_id: str
+    organizer_id: UUID
     stripe_account_id: Optional[str] = None
     competition_count: int = 0
     entry_count: int = 0
