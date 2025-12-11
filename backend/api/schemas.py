@@ -1377,3 +1377,122 @@ class SchedulingDefaultsResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# ============= Instant Scheduler =============
+
+class InstantSchedulerRequest(BaseModel):
+    """Configuration options for the instant scheduler."""
+    min_comp_size: int = 5  # Minimum dancers for a viable competition
+    max_comp_size: int = 25  # Maximum dancers before splitting
+    lunch_window_start: Optional[str] = "11:00"  # HH:MM format
+    lunch_window_end: Optional[str] = "12:00"  # HH:MM format
+    lunch_duration_minutes: int = 30
+    allow_two_year_merge_up: bool = True  # Allow merging U8 into U10 if U9 doesn't exist
+    strict_no_exhibition: bool = False  # If true, force merges when possible
+    feis_start_time: Optional[str] = "08:00"  # HH:MM format
+    feis_end_time: Optional[str] = "17:00"  # HH:MM format
+    clear_existing: bool = True  # Clear existing schedule before generating
+    # Duration settings for competitions without entries
+    default_grade_duration_minutes: int = 15  # Default duration for grade comps with no entries
+    default_champ_duration_minutes: int = 30  # Default duration for champ comps with no entries
+
+
+class MergeActionResponse(BaseModel):
+    """Records a merge action."""
+    source_competition_id: str
+    target_competition_id: str
+    source_competition_name: str
+    target_competition_name: str
+    source_age_range: str  # e.g., "U8"
+    target_age_range: str  # e.g., "U9"
+    dancers_moved: int
+    reason: str
+    rationale: str
+
+
+class SplitActionResponse(BaseModel):
+    """Records a split action."""
+    original_competition_id: str
+    new_competition_id: str
+    competition_name: str
+    original_size: int
+    group_a_size: int
+    group_b_size: int
+    reason: str
+    assignment_method: str  # "random" or "birth_month"
+
+
+class SchedulerWarningResponse(BaseModel):
+    """A warning generated during scheduling."""
+    code: str  # Warning code enum value
+    message: str
+    competition_ids: List[str] = []
+    stage_ids: List[str] = []
+    severity: str = "warning"  # "warning" or "critical"
+
+
+class NormalizationResponse(BaseModel):
+    """Result of competition normalization."""
+    merges: List[MergeActionResponse] = []
+    splits: List[SplitActionResponse] = []
+    warnings: List[SchedulerWarningResponse] = []
+    final_competition_count: int = 0
+
+
+class StagePlanResponse(BaseModel):
+    """Plan for a stage based on judge coverage."""
+    stage_id: str
+    stage_name: str
+    coverage_block_count: int
+    is_championship_capable: bool
+    track: str  # "grades" or "championships"
+
+
+class PlacementResponse(BaseModel):
+    """A scheduled competition placement."""
+    competition_id: str
+    competition_name: str
+    stage_id: str
+    stage_name: str
+    scheduled_start: datetime
+    scheduled_end: datetime
+    duration_minutes: int
+    entry_count: int
+
+
+class LunchHoldResponse(BaseModel):
+    """A lunch break hold on a stage."""
+    stage_id: str
+    stage_name: str
+    start_time: datetime
+    end_time: datetime
+    duration_minutes: int
+
+
+class InstantSchedulerResponse(BaseModel):
+    """Full result from the instant scheduler."""
+    success: bool
+    message: str
+    
+    # Normalization results
+    normalized: NormalizationResponse
+    
+    # Stage plan
+    stage_plan: List[StagePlanResponse] = []
+    
+    # Placements
+    placements: List[PlacementResponse] = []
+    lunch_holds: List[LunchHoldResponse] = []
+    
+    # Warnings and conflicts
+    warnings: List[SchedulerWarningResponse] = []
+    conflicts: List[ScheduleConflict] = []
+    
+    # Summary stats
+    total_competitions_scheduled: int = 0
+    total_competitions_unscheduled: int = 0
+    merge_count: int = 0
+    split_count: int = 0
+    grade_competitions: int = 0
+    championship_competitions: int = 0

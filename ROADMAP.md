@@ -10,17 +10,17 @@ OpenFeis is an open-source Irish Dance competition management platform designed 
 
 **Core Philosophy:** Local-first, offline-resilient, CLRG-compliant.
 
-### Current State (v0.2.0)
+### Current State (v0.3.0)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Scoring Engine | ✅ 85% | Irish Points, split ties, drop high/low, recall |
 | Registration | ✅ 70% | Dancer profiles, eligibility filtering, pay-at-door |
 | Judge Pad | ✅ 80% | Offline IndexedDB, sync on reconnect |
-| Tabulator | ⚠️ 60% | Works but requires cloud API |
-| Admin | ⚠️ 65% | Feis/competition CRUD, syllabus generator |
-| Scheduling | ❌ 5% | Placeholder only |
-| Payments | ❌ 10% | No Stripe, no family max |
+| Tabulator | ✅ 80% | Local mode, WebSocket updates |
+| Admin | ✅ 75% | Feis/competition CRUD, syllabus generator |
+| Scheduling | ✅ 85% | Visual Gantt, Instant Scheduler, conflict detection |
+| Payments | ⚠️ 60% | Cart calculation, family max, Stripe stubbed |
 
 ---
 
@@ -149,11 +149,20 @@ class ConnectionManager:
 
 ---
 
-## Phase 2: Scheduling Engine
+## Phase 2: Scheduling Engine ✅ COMPLETE
 
 **Priority:** HIGH  
 **Goal:** Replace manual scheduling with intelligent, conflict-aware automation.  
 **Rationale:** The "10 PM finish" problem and parent frustration with overlapping competitions.
+
+> **Status:** Phase 2 is complete. The scheduling engine includes:
+> - ✅ Competition model with dance types, tempos, and duration estimation
+> - ✅ Stage model and assignment
+> - ✅ Visual Gantt drag-and-drop scheduler
+> - ✅ Conflict detection (sibling, adjudicator, time overlap)
+> - ✅ **Instant Scheduler** - One-click algorithmic schedule generation with merge/split normalization
+> - ✅ Judge coverage blocks (time-based assignments)
+> - ✅ Adjudicator roster management
 
 ### 2.1 Extend Competition Model
 
@@ -331,14 +340,55 @@ class Stage(SQLModel, table=True):
 ```
 
 **Acceptance Criteria:**
-- [ ] Can drag competitions between stages
-- [ ] Can drag to reorder within a stage
-- [ ] Shows estimated duration visually
-- [ ] Saves changes to database
+- [x] Can drag competitions between stages
+- [x] Can drag to reorder within a stage
+- [x] Shows estimated duration visually
+- [x] Saves changes to database
 
 ---
 
-### 2.5 Conflict Detection
+### 2.5 Instant Scheduler ✅ NEW
+
+**Description:** One-click algorithmic schedule generation that normalizes competitions and places them optimally.
+
+**Features Implemented:**
+- **Competition Normalization:**
+  - Merges small competitions (< min size) by moving younger dancers UP into older age groups
+  - Never merges older dancers down (CLRG convention)
+  - Splits large competitions (> max size) into Group A/B
+  - Supports 1-year and 2-year merge up options
+  
+- **Stage Plan Construction:**
+  - Respects judge coverage constraints
+  - Identifies championship-capable stages (3+ judges)
+  
+- **Greedy Placement Algorithm:**
+  - Sorts by level (lower first), then age (younger first)
+  - Bin-packs competitions across stages
+  - Balances load across stages
+  
+- **Lunch Break Insertion:**
+  - Configurable lunch window (default 11:00-12:00)
+  - Automatic 30-minute holds per stage
+
+- **Configurable Options:**
+  - Min/max competition sizes
+  - Feis start/end times
+  - Lunch window and duration
+  - Default durations for planning
+
+**Files Created:**
+- `backend/services/instant_scheduler.py`
+- `tests/test_instant_scheduler.py`
+- Updated `backend/api/routes.py`, `schemas.py`
+- Updated `frontend/src/components/admin/ScheduleGantt.vue`
+
+**API Endpoint:**
+- `POST /api/v1/feis/{feis_id}/schedule/instant`
+
+---
+
+### 2.6 Conflict Detection
 
 **Description:** Automatically detect and flag scheduling conflicts.
 
@@ -902,11 +952,10 @@ Since we're using SQLite and SQLModel, migrations are handled by recreating tabl
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1.0 | Initial | Basic scoring, registration |
-| 0.2.0 | Current | Auth, email verification, number cards |
-| 0.3.0 | Phase 1 | Local-first resilience |
-| 0.4.0 | Phase 2 | Scheduling engine |
-| 0.5.0 | Phase 3 | Financial engine |
-| 0.6.0 | Phase 4 | Teacher portal |
-| 0.7.0 | Phase 5 | Check-in & stage management |
+| 0.2.0 | - | Auth, email verification, number cards |
+| 0.3.0 | Current | Local-first resilience, scheduling engine, Instant Scheduler |
+| 0.4.0 | Phase 3 | Financial engine |
+| 0.5.0 | Phase 4 | Teacher portal |
+| 0.6.0 | Phase 5 | Check-in & stage management |
 | 1.0.0 | TBD | Production ready |
 

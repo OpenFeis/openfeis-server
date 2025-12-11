@@ -9,7 +9,9 @@ import type {
   DanceType,
   FeisAdjudicator,
   AdjudicatorListResponse,
-  StageJudgeCoverage
+  StageJudgeCoverage,
+  InstantSchedulerRequest,
+  InstantSchedulerResponse
 } from '../../models/types';
 import { DANCE_TYPE_INFO } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
@@ -57,6 +59,26 @@ const coverageForm = ref({
   note: ''
 });
 
+// Instant Scheduler state
+const showInstantSchedulerModal = ref(false);
+const showInstantSchedulerConfigModal = ref(false);
+const instantSchedulerLoading = ref(false);
+const instantSchedulerResult = ref<InstantSchedulerResponse | null>(null);
+const instantSchedulerConfig = ref<InstantSchedulerRequest>({
+  min_comp_size: 5,
+  max_comp_size: 25,
+  lunch_window_start: '11:00',
+  lunch_window_end: '12:00',
+  lunch_duration_minutes: 30,
+  allow_two_year_merge_up: true,
+  strict_no_exhibition: false,
+  feis_start_time: '08:00',
+  feis_end_time: '17:00',
+  clear_existing: true,
+  default_grade_duration_minutes: 15,
+  default_champ_duration_minutes: 30
+});
+
 // Drag and drop state
 const draggedComp = ref<ScheduledCompetition | null>(null);
 const dragOverStage = ref<string | null>(null);
@@ -95,10 +117,19 @@ const timelineWidth = computed(() => {
 const hourMarkers = computed(() => {
   const markers: { hour: number; label: string; position: number }[] = [];
   for (let h = startHour.value; h <= endHour.value; h++) {
-    const label = h <= 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`;
+    let label: string;
+    if (h === 0 || h === 24) {
+      label = '12AM';
+    } else if (h === 12) {
+      label = '12PM';
+    } else if (h < 12) {
+      label = `${h}AM`;
+    } else {
+      label = `${h - 12}PM`;
+    }
     markers.push({
       hour: h,
-      label: h === 12 ? '12PM' : label.replace('0AM', '12AM'),
+      label,
       position: (h - startHour.value) * 60 * pixelsPerMinute.value
     });
   }
@@ -469,6 +500,48 @@ const stageColors = [
   '#06b6d4', '#f43f5e', '#22c55e', '#3b82f6', '#a855f7'
 ];
 
+// Run instant scheduler
+const runInstantScheduler = async () => {
+  instantSchedulerLoading.value = true;
+  instantSchedulerResult.value = null;
+  error.value = null;
+  
+  try {
+    const response = await auth.authFetch(`/api/v1/feis/${props.feisId}/schedule/instant`, {
+      method: 'POST',
+      body: JSON.stringify(instantSchedulerConfig.value)
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to run instant scheduler');
+    }
+    
+    const result: InstantSchedulerResponse = await response.json();
+    instantSchedulerResult.value = result;
+    showInstantSchedulerConfigModal.value = false;
+    showInstantSchedulerModal.value = true;
+    
+    // Reload scheduler data to show new placements
+    await loadSchedulerData();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to run instant scheduler';
+  } finally {
+    instantSchedulerLoading.value = false;
+  }
+};
+
+// Open instant scheduler config modal
+const openInstantSchedulerConfig = () => {
+  showInstantSchedulerConfigModal.value = true;
+};
+
+// Close summary modal and refresh
+const closeInstantSchedulerSummary = () => {
+  showInstantSchedulerModal.value = false;
+  instantSchedulerResult.value = null;
+};
+
 onMounted(() => {
   loadSchedulerData();
   loadAdjudicators();
@@ -497,6 +570,23 @@ watch(() => props.feisId, () => {
         </div>
         
         <div class="flex items-center gap-3">
+          <button
+            @click="openInstantSchedulerConfig"
+            :disabled="instantSchedulerLoading"
+            class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            <template v-if="instantSchedulerLoading">
+              <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              Generating...
+            </template>
+            <template v-else>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Instant Scheduler
+            </template>
+          </button>
+          
           <button
             @click="openStageModal()"
             class="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
@@ -1041,6 +1131,353 @@ watch(() => props.feisId, () => {
             class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Add Coverage
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instant Scheduler Config Modal -->
+    <div
+      v-if="showInstantSchedulerConfigModal"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="showInstantSchedulerConfigModal = false"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4">
+          <h3 class="text-lg font-bold text-white flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Instant Scheduler
+          </h3>
+          <p class="text-amber-100 text-sm mt-1">Generate a complete schedule in one click</p>
+        </div>
+        
+        <div class="p-6 space-y-5">
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+            <div class="flex items-start gap-2">
+              <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p class="font-semibold">How it works:</p>
+                <ul class="mt-1 space-y-1 text-amber-700">
+                  <li>• Small competitions are merged (younger dancers compete up)</li>
+                  <li>• Large competitions are split into groups</li>
+                  <li>• Lunch breaks are automatically inserted</li>
+                  <li>• The schedule is fully editable afterward</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Min Competition Size</label>
+              <input
+                v-model.number="instantSchedulerConfig.min_comp_size"
+                type="number"
+                min="2"
+                max="20"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-amber-500 focus:ring-4 focus:ring-amber-100 transition-all outline-none"
+              />
+              <p class="text-xs text-slate-500 mt-1">Competitions below this merge up</p>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Max Competition Size</label>
+              <input
+                v-model.number="instantSchedulerConfig.max_comp_size"
+                type="number"
+                min="15"
+                max="50"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-amber-500 focus:ring-4 focus:ring-amber-100 transition-all outline-none"
+              />
+              <p class="text-xs text-slate-500 mt-1">Competitions above this are split</p>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Feis Start Time</label>
+              <input
+                v-model="instantSchedulerConfig.feis_start_time"
+                type="time"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-amber-500 focus:ring-4 focus:ring-amber-100 transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-2">Feis End Time</label>
+              <input
+                v-model="instantSchedulerConfig.feis_end_time"
+                type="time"
+                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-amber-500 focus:ring-4 focus:ring-amber-100 transition-all outline-none"
+              />
+            </div>
+          </div>
+          
+          <div class="border-t border-slate-200 pt-4">
+            <h4 class="font-semibold text-slate-700 mb-3">Lunch Break Settings</h4>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2">Window Start</label>
+                <input
+                  v-model="instantSchedulerConfig.lunch_window_start"
+                  type="time"
+                  class="w-full px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-amber-500 transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2">Window End</label>
+                <input
+                  v-model="instantSchedulerConfig.lunch_window_end"
+                  type="time"
+                  class="w-full px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-amber-500 transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2">Duration (min)</label>
+                <input
+                  v-model.number="instantSchedulerConfig.lunch_duration_minutes"
+                  type="number"
+                  min="15"
+                  max="60"
+                  class="w-full px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-amber-500 transition-all outline-none"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div class="border-t border-slate-200 pt-4">
+            <h4 class="font-semibold text-slate-700 mb-3">Default Durations</h4>
+            <p class="text-xs text-slate-500 mb-3">Used for competitions without entries yet</p>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2">Grade Comps (min)</label>
+                <input
+                  v-model.number="instantSchedulerConfig.default_grade_duration_minutes"
+                  type="number"
+                  min="5"
+                  max="45"
+                  class="w-full px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-amber-500 transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2">Championship Comps (min)</label>
+                <input
+                  v-model.number="instantSchedulerConfig.default_champ_duration_minutes"
+                  type="number"
+                  min="10"
+                  max="90"
+                  class="w-full px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-amber-500 transition-all outline-none"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input 
+                type="checkbox" 
+                v-model="instantSchedulerConfig.allow_two_year_merge_up" 
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+            <div>
+              <span class="text-sm font-medium text-slate-700">Allow 2-year merge up</span>
+              <p class="text-xs text-slate-500">If U8→U9 doesn't exist, try U8→U10</p>
+            </div>
+          </div>
+          
+          <div class="flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input 
+                type="checkbox" 
+                v-model="instantSchedulerConfig.clear_existing" 
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+            <div>
+              <span class="text-sm font-medium text-slate-700">Clear existing schedule</span>
+              <p class="text-xs text-slate-500">Remove current schedule before generating new one</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+          <button
+            @click="showInstantSchedulerConfigModal = false"
+            class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            @click="runInstantScheduler"
+            :disabled="instantSchedulerLoading"
+            class="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold hover:bg-amber-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            <template v-if="instantSchedulerLoading">
+              <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              Generating...
+            </template>
+            <template v-else>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Generate Schedule
+            </template>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instant Scheduler Results Modal -->
+    <div
+      v-if="showInstantSchedulerModal && instantSchedulerResult"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="closeInstantSchedulerSummary"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-4">
+          <h3 class="text-lg font-bold text-white flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Schedule Generated!
+          </h3>
+          <p class="text-emerald-100 text-sm mt-1">{{ instantSchedulerResult.message }}</p>
+        </div>
+        
+        <div class="p-6 space-y-6">
+          <!-- Summary Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-emerald-50 rounded-xl p-4 text-center">
+              <div class="text-3xl font-bold text-emerald-600">{{ instantSchedulerResult.total_competitions_scheduled }}</div>
+              <div class="text-sm text-emerald-700">Scheduled</div>
+            </div>
+            <div class="bg-blue-50 rounded-xl p-4 text-center">
+              <div class="text-3xl font-bold text-blue-600">{{ instantSchedulerResult.grade_competitions }}</div>
+              <div class="text-sm text-blue-700">Grade Comps</div>
+            </div>
+            <div class="bg-purple-50 rounded-xl p-4 text-center">
+              <div class="text-3xl font-bold text-purple-600">{{ instantSchedulerResult.championship_competitions }}</div>
+              <div class="text-sm text-purple-700">Championships</div>
+            </div>
+            <div class="bg-amber-50 rounded-xl p-4 text-center">
+              <div class="text-3xl font-bold text-amber-600">{{ instantSchedulerResult.lunch_holds.length }}</div>
+              <div class="text-sm text-amber-700">Lunch Breaks</div>
+            </div>
+          </div>
+          
+          <!-- Merges Section -->
+          <div v-if="instantSchedulerResult.merge_count > 0" class="border border-slate-200 rounded-xl overflow-hidden">
+            <div class="bg-slate-50 px-4 py-3 flex items-center gap-2 border-b border-slate-200">
+              <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              <span class="font-semibold text-slate-700">{{ instantSchedulerResult.merge_count }} Competition(s) Merged</span>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+              <div 
+                v-for="merge in instantSchedulerResult.normalized.merges" 
+                :key="merge.source_competition_id"
+                class="px-4 py-3 flex items-center gap-3 hover:bg-slate-50"
+              >
+                <span class="text-slate-600">{{ merge.source_competition_name }}</span>
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+                <span class="text-slate-800 font-medium">{{ merge.target_competition_name }}</span>
+                <span class="ml-auto text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                  {{ merge.dancers_moved }} dancer(s)
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Splits Section -->
+          <div v-if="instantSchedulerResult.split_count > 0" class="border border-slate-200 rounded-xl overflow-hidden">
+            <div class="bg-slate-50 px-4 py-3 flex items-center gap-2 border-b border-slate-200">
+              <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span class="font-semibold text-slate-700">{{ instantSchedulerResult.split_count }} Competition(s) Split</span>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+              <div 
+                v-for="split in instantSchedulerResult.normalized.splits" 
+                :key="split.original_competition_id"
+                class="px-4 py-3 flex items-center gap-3 hover:bg-slate-50"
+              >
+                <span class="text-slate-800 font-medium">{{ split.competition_name }}</span>
+                <span class="ml-auto text-xs">
+                  <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                    Group A: {{ split.group_a_size }}
+                  </span>
+                  <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded-full ml-1">
+                    Group B: {{ split.group_b_size }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Warnings Section -->
+          <div v-if="instantSchedulerResult.warnings.length > 0" class="border border-amber-200 rounded-xl overflow-hidden">
+            <div class="bg-amber-50 px-4 py-3 flex items-center gap-2 border-b border-amber-200">
+              <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span class="font-semibold text-amber-700">{{ instantSchedulerResult.warnings.length }} Warning(s)</span>
+            </div>
+            <div class="divide-y divide-amber-100 max-h-40 overflow-y-auto">
+              <div 
+                v-for="(warning, idx) in instantSchedulerResult.warnings" 
+                :key="idx"
+                class="px-4 py-3 text-sm"
+                :class="warning.severity === 'critical' ? 'text-red-700 bg-red-50' : 'text-amber-700'"
+              >
+                <span :class="warning.severity === 'critical' ? 'font-semibold' : ''">
+                  {{ warning.severity === 'critical' ? '🚫' : '⚠️' }}
+                </span>
+                {{ warning.message }}
+              </div>
+            </div>
+          </div>
+          
+          <!-- Conflicts Section -->
+          <div v-if="instantSchedulerResult.conflicts.length > 0" class="border border-red-200 rounded-xl overflow-hidden">
+            <div class="bg-red-50 px-4 py-3 flex items-center gap-2 border-b border-red-200">
+              <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="font-semibold text-red-700">{{ instantSchedulerResult.conflicts.length }} Conflict(s) Detected</span>
+            </div>
+            <div class="divide-y divide-red-100 max-h-40 overflow-y-auto">
+              <div 
+                v-for="(conflict, idx) in instantSchedulerResult.conflicts" 
+                :key="idx"
+                class="px-4 py-3 text-sm"
+                :class="conflict.severity === 'error' ? 'text-red-700' : 'text-amber-700'"
+              >
+                {{ conflict.severity === 'error' ? '🚫' : '⚠️' }}
+                {{ conflict.message }}
+              </div>
+            </div>
+          </div>
+          
+          <p class="text-sm text-slate-500 text-center">
+            You can now drag and drop competitions in the timeline to make adjustments.
+          </p>
+        </div>
+        
+        <div class="px-6 py-4 bg-slate-50 flex justify-end">
+          <button
+            @click="closeInstantSchedulerSummary"
+            class="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors"
+          >
+            View Schedule
           </button>
         </div>
       </div>

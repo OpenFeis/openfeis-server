@@ -46,7 +46,11 @@ from backend.api.schemas import (
     AdjudicatorInviteRequest, AdjudicatorInviteResponse,
     AdjudicatorAcceptInviteRequest, AdjudicatorAcceptInviteResponse,
     GeneratePinRequest, GeneratePinResponse, PinLoginRequest, PinLoginResponse,
-    SchedulingDefaultsUpdate, SchedulingDefaultsResponse
+    SchedulingDefaultsUpdate, SchedulingDefaultsResponse,
+    # Instant Scheduler schemas
+    InstantSchedulerRequest, InstantSchedulerResponse,
+    MergeActionResponse, SplitActionResponse, SchedulerWarningResponse,
+    NormalizationResponse, StagePlanResponse, PlacementResponse, LunchHoldResponse
 )
 from backend.services.scheduling import (
     estimate_duration, estimate_competition_duration, detect_all_conflicts,
@@ -1615,6 +1619,197 @@ async def bulk_schedule_competitions(
         scheduled_count=scheduled_count,
         conflicts=conflict_responses,
         message=f"Scheduled {scheduled_count} competitions. {len(conflicts)} conflicts detected."
+    )
+
+
+@router.post("/feis/{feis_id}/schedule/instant", response_model=InstantSchedulerResponse)
+async def instant_schedule(
+    feis_id: str,
+    request: InstantSchedulerRequest = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Generate an instant schedule for a feis using algorithmic heuristics.
+    
+    This endpoint:
+    1. Normalizes competitions (merges small ones, splits large ones)
+    2. Builds a stage plan based on judge coverage constraints
+    3. Places competitions using greedy bin-packing
+    4. Inserts lunch breaks
+    5. Runs conflict detection
+    
+    The generated schedule is fully editable in the visual scheduler afterward.
+    """
+    from backend.services.instant_scheduler import (
+        run_instant_scheduler,
+        clear_schedule,
+        InstantSchedulerConfig
+    )
+    from datetime import time as dt_time
+    
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only schedule competitions for your own feis")
+    
+    # Build config from request
+    if request is None:
+        request = InstantSchedulerRequest()
+    
+    def parse_time(time_str: str) -> dt_time:
+        parts = time_str.split(":")
+        return dt_time(int(parts[0]), int(parts[1]))
+    
+    config = InstantSchedulerConfig(
+        min_comp_size=request.min_comp_size,
+        max_comp_size=request.max_comp_size,
+        lunch_window_start=parse_time(request.lunch_window_start) if request.lunch_window_start else dt_time(11, 0),
+        lunch_window_end=parse_time(request.lunch_window_end) if request.lunch_window_end else dt_time(12, 0),
+        lunch_duration_minutes=request.lunch_duration_minutes,
+        allow_two_year_merge_up=request.allow_two_year_merge_up,
+        strict_no_exhibition=request.strict_no_exhibition,
+        feis_start_time=parse_time(request.feis_start_time) if request.feis_start_time else dt_time(8, 0),
+        feis_end_time=parse_time(request.feis_end_time) if request.feis_end_time else dt_time(17, 0),
+        default_grade_duration_minutes=request.default_grade_duration_minutes,
+        default_champ_duration_minutes=request.default_champ_duration_minutes
+    )
+    
+    # Optionally clear existing schedule
+    if request.clear_existing:
+        clear_schedule(feis.id, session)
+    
+    # Run the instant scheduler
+    try:
+        result = run_instant_scheduler(feis.id, session, config)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scheduler error: {str(e)}")
+    
+    # Build response
+    # Get stage name lookup
+    stages = session.exec(select(Stage).where(Stage.feis_id == feis.id)).all()
+    stage_names = {s.id: s.name for s in stages}
+    
+    # Get competition names
+    competitions = session.exec(select(Competition).where(Competition.feis_id == feis.id)).all()
+    comp_names = {c.id: c.name for c in competitions}
+    comp_entry_counts = {}
+    for c in competitions:
+        count = session.exec(select(func.count(Entry.id)).where(Entry.competition_id == c.id)).one()
+        comp_entry_counts[c.id] = count
+    
+    # Build merge action responses
+    merge_responses = []
+    for m in result.normalized.merges:
+        merge_responses.append(MergeActionResponse(
+            source_competition_id=str(m.source_competition_id),
+            target_competition_id=str(m.target_competition_id),
+            source_competition_name=comp_names.get(m.source_competition_id, "Unknown"),
+            target_competition_name=comp_names.get(m.target_competition_id, "Unknown"),
+            source_age_range=m.source_age_range,
+            target_age_range=m.target_age_range,
+            dancers_moved=m.dancers_moved,
+            reason=m.reason.value,
+            rationale=m.rationale
+        ))
+    
+    # Build split action responses
+    split_responses = []
+    for s in result.normalized.splits:
+        split_responses.append(SplitActionResponse(
+            original_competition_id=str(s.original_competition_id),
+            new_competition_id=str(s.new_competition_id),
+            competition_name=comp_names.get(s.original_competition_id, "Unknown"),
+            original_size=s.original_size,
+            group_a_size=s.group_a_size,
+            group_b_size=s.group_b_size,
+            reason=s.reason.value,
+            assignment_method=s.assignment_method
+        ))
+    
+    # Build warning responses
+    warning_responses = []
+    for w in result.warnings:
+        warning_responses.append(SchedulerWarningResponse(
+            code=w.code.value,
+            message=w.message,
+            competition_ids=[str(c) for c in w.competition_ids],
+            stage_ids=[str(s) for s in w.stage_ids],
+            severity=w.severity
+        ))
+    
+    # Build stage plan responses
+    stage_plan_responses = []
+    for sp in result.stage_plan:
+        stage_plan_responses.append(StagePlanResponse(
+            stage_id=str(sp.stage_id),
+            stage_name=sp.stage_name,
+            coverage_block_count=len(sp.coverage_blocks),
+            is_championship_capable=sp.is_championship_capable,
+            track=sp.track
+        ))
+    
+    # Build placement responses
+    placement_responses = []
+    for p in result.placements:
+        placement_responses.append(PlacementResponse(
+            competition_id=str(p.competition_id),
+            competition_name=comp_names.get(p.competition_id, "Unknown"),
+            stage_id=str(p.stage_id),
+            stage_name=stage_names.get(p.stage_id, "Unknown"),
+            scheduled_start=p.scheduled_start,
+            scheduled_end=p.scheduled_end,
+            duration_minutes=p.duration_minutes,
+            entry_count=comp_entry_counts.get(p.competition_id, 0)
+        ))
+    
+    # Build lunch hold responses
+    lunch_responses = []
+    for l in result.lunch_holds:
+        lunch_responses.append(LunchHoldResponse(
+            stage_id=str(l.stage_id),
+            stage_name=stage_names.get(l.stage_id, "Unknown"),
+            start_time=l.start_time,
+            end_time=l.end_time,
+            duration_minutes=l.duration_minutes
+        ))
+    
+    # Build conflict responses
+    conflict_responses = [
+        ScheduleConflict(
+            conflict_type=c.conflict_type,
+            severity=c.severity,
+            message=c.message,
+            affected_competition_ids=c.affected_competition_ids,
+            affected_dancer_ids=c.affected_dancer_ids,
+            affected_stage_ids=c.affected_stage_ids
+        )
+        for c in result.conflicts
+    ]
+    
+    return InstantSchedulerResponse(
+        success=True,
+        message=f"Generated schedule with {result.total_competitions_scheduled} competitions across {len(result.stage_plan)} stages.",
+        normalized=NormalizationResponse(
+            merges=merge_responses,
+            splits=split_responses,
+            warnings=[w for w in warning_responses if w.code in ["small_comp_exhibition_risk"]],
+            final_competition_count=result.normalized.final_competition_count
+        ),
+        stage_plan=stage_plan_responses,
+        placements=placement_responses,
+        lunch_holds=lunch_responses,
+        warnings=warning_responses,
+        conflicts=conflict_responses,
+        total_competitions_scheduled=result.total_competitions_scheduled,
+        total_competitions_unscheduled=result.total_competitions_unscheduled,
+        merge_count=len(result.normalized.merges),
+        split_count=len(result.normalized.splits),
+        grade_competitions=result.grade_competitions,
+        championship_competitions=result.championship_competitions
     )
 
 

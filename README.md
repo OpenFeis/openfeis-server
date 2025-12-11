@@ -60,11 +60,12 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Cap Enforcement** — Set per-competition limits and global feis dancer caps
 - **Waitlist Management** — Automatic waitlisting with configurable offer windows
 - **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages
+- **Instant Scheduler** — One-click algorithmic schedule generation with automatic merge/split of competitions 🆕
 - **Stage Management** — Create and manage multiple stages/areas for your feis
-- **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations 🆕
-- **Judge Coverage Blocks** — Assign judges to stages with specific time ranges (e.g., "Mary: Stage A, 9am-12pm") 🆕
+- **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations
+- **Judge Coverage Blocks** — Assign judges to stages with specific time ranges (e.g., "Mary: Stage A, 9am-12pm")
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
-- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking) 🆕
+- **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking)
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
 - **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap
 - **Late Fee Management** — Configure late fee amount and cutoff date
@@ -404,6 +405,7 @@ openfeis-server/
 | `GET` | `/api/v1/feis/{feis_id}/scheduler` | Get all scheduler data (stages, competitions, conflicts) | No |
 | `PUT` | `/api/v1/competitions/{id}/schedule` | Update competition schedule (stage, time, duration) | Organizer/Admin |
 | `POST` | `/api/v1/feis/{feis_id}/schedule/batch` | Batch update multiple competition schedules | Organizer/Admin |
+| `POST` | `/api/v1/feis/{feis_id}/schedule/instant` | Generate instant schedule with merge/split normalization 🆕 | Organizer/Admin |
 | `GET` | `/api/v1/feis/{feis_id}/scheduling-conflicts` | Detect and return scheduling conflicts | Organizer/Admin |
 
 ### Adjudicator Roster 🆕
@@ -726,6 +728,45 @@ For local testing, you have two options:
    - Click "Generate" — competitions are created instantly
 
 > **Note:** The `sqladmin` panel at `/admin` is available for edge cases but most operations are now handled in the frontend.
+
+### For Organizers: Using the Instant Scheduler 🆕
+
+The **Instant Scheduler** generates a complete draft schedule with one click, following conventional North American feis patterns.
+
+1. **Open Schedule Builder:**
+   - Go to **Admin** → **Manage Feis** → **Schedule Builder**
+   - Create stages if you haven't already (e.g., "Stage A", "Stage B")
+
+2. **Click "Instant Scheduler"** (amber button in header)
+
+3. **Configure Options** (or use defaults):
+   - **Min/Max Competition Size** — Small competitions merge up, large ones split
+   - **Feis Start/End Time** — Operating hours for the venue
+   - **Lunch Window** — When lunch breaks should be inserted
+   - **Default Durations** — Planning estimates for competitions without entries yet
+
+4. **Click "Generate Schedule"**
+
+5. **Review the Summary:**
+   - **Merges** — Small competitions merged (younger dancers compete up)
+   - **Splits** — Large competitions divided into Group A/B
+   - **Warnings** — Conflicts or capacity issues to review
+
+6. **Fine-tune in the Timeline:**
+   - Drag competitions to adjust placement
+   - The schedule is fully editable after generation
+   - Click **Save Schedule** when satisfied
+
+**Merge Rules:**
+- Only younger dancers compete **up** (e.g., U8 → U9)
+- Older dancers **never** move down to younger age groups
+- 1-year merge preferred, 2-year merge optional (configurable)
+
+**Split Rules:**
+- Competitions exceeding max size (default 25) split into A/B groups
+- Random assignment by default
+
+> **Tip:** Run the Instant Scheduler early in planning (before registration closes) using the default durations. Re-run after registration with actual entry counts for more accurate time estimates.
 
 ### For Tabulators: Viewing Results
 

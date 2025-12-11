@@ -950,3 +950,103 @@ export const DANCE_ORGANIZATIONS = [
   { value: 'CRN', label: 'CRN - An Comhdháil' },
   { value: 'WIDA', label: 'WIDA - World Irish Dance Association' },
 ];
+
+
+// ============= Instant Scheduler Types =============
+
+export interface InstantSchedulerRequest {
+  min_comp_size?: number;
+  max_comp_size?: number;
+  lunch_window_start?: string;  // HH:MM format
+  lunch_window_end?: string;  // HH:MM format
+  lunch_duration_minutes?: number;
+  allow_two_year_merge_up?: boolean;
+  strict_no_exhibition?: boolean;
+  feis_start_time?: string;  // HH:MM format
+  feis_end_time?: string;  // HH:MM format
+  clear_existing?: boolean;
+  default_grade_duration_minutes?: number;  // Default duration for grades with no entries
+  default_champ_duration_minutes?: number;  // Default duration for champs with no entries
+}
+
+export interface MergeAction {
+  source_competition_id: string;
+  target_competition_id: string;
+  source_competition_name: string;
+  target_competition_name: string;
+  source_age_range: string;
+  target_age_range: string;
+  dancers_moved: number;
+  reason: string;
+  rationale: string;
+}
+
+export interface SplitAction {
+  original_competition_id: string;
+  new_competition_id: string;
+  competition_name: string;
+  original_size: number;
+  group_a_size: number;
+  group_b_size: number;
+  reason: string;
+  assignment_method: string;
+}
+
+export interface SchedulerWarning {
+  code: string;
+  message: string;
+  competition_ids: string[];
+  stage_ids: string[];
+  severity: 'warning' | 'critical';
+}
+
+export interface NormalizationResult {
+  merges: MergeAction[];
+  splits: SplitAction[];
+  warnings: SchedulerWarning[];
+  final_competition_count: number;
+}
+
+export interface StagePlan {
+  stage_id: string;
+  stage_name: string;
+  coverage_block_count: number;
+  is_championship_capable: boolean;
+  track: 'grades' | 'championships';
+}
+
+export interface PlacementResult {
+  competition_id: string;
+  competition_name: string;
+  stage_id: string;
+  stage_name: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  duration_minutes: number;
+  entry_count: number;
+}
+
+export interface LunchHold {
+  stage_id: string;
+  stage_name: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+}
+
+export interface InstantSchedulerResponse {
+  success: boolean;
+  message: string;
+  normalized: NormalizationResult;
+  stage_plan: StagePlan[];
+  placements: PlacementResult[];
+  lunch_holds: LunchHold[];
+  warnings: SchedulerWarning[];
+  conflicts: ScheduleConflict[];
+  total_competitions_scheduled: number;
+  total_competitions_unscheduled: number;
+  merge_count: number;
+  split_count: number;
+  grade_competitions: number;
+  championship_competitions: number;
+}
