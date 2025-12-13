@@ -111,7 +111,7 @@ else:
 app.include_router(api_router, prefix="/api/v1")
 
 # Setup SQLAdmin (Moved logic to backend/admin.py to keep main clean)
-setup_admin(app, engine)
+# setup_admin(app, engine)
 
 @app.get("/health")
 async def health_check():
