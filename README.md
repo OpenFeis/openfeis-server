@@ -1131,32 +1131,33 @@ Visit `https://yourdomain.com` — you should see the Open Feis homepage with a 
 
 > ⚠️ **Important:** Change the admin password immediately after first login!
 
-### Updating
+### Continuous Deployment
 
-To deploy updates from GitHub:
+Pushing to `main` triggers automatic deployment via GitHub Actions:
 
+1. **Build**: Docker image is built on GitHub's servers (avoids RAM constraints on small VMs)
+2. **Push**: Image is pushed to GitHub Container Registry (`ghcr.io/openfeis/openfeis-server`)
+3. **Deploy**: Server pulls the pre-built image and restarts services
+
+No manual steps required — just push to `main`.
+
+**Manual deployment** (if needed):
 ```bash
 cd /opt/openfeis
-./deploy.sh
-```
-
-Or manually:
-```bash
 git pull origin main
-docker compose build --no-cache
+docker compose pull
 docker compose up -d
-docker image prune -f
 ```
 
 ### Deployment Files
 
 | File | Purpose |
 |------|---------|
+| `.github/workflows/deploy.yml` | CI/CD pipeline (build image, push to registry, deploy) |
 | `Dockerfile` | Multi-stage build (Node for frontend, Python for backend) |
-| `docker-compose.yml` | Orchestrates Caddy + App containers |
+| `docker-compose.yml` | Orchestrates Caddy + App containers (pulls from ghcr.io) |
 | `Caddyfile` | Reverse proxy config with automatic HTTPS |
 | `.dockerignore` | Excludes unnecessary files from Docker build |
-| `deploy.sh` | One-command deployment script |
 
 ### Infrastructure Costs
 
@@ -1166,6 +1167,8 @@ docker image prune -f
 | Storage | 30GB SSD | Free tier |
 | SSL | Caddy + Let's Encrypt | Free |
 | Email | Resend (3,000 emails/month) | Free tier |
+| CI/CD | GitHub Actions (public repo) | Free |
+| Container Registry | ghcr.io (public images) | Free |
 | **Total** | | **$0/month** |
 
 ### Scaling Strategy
