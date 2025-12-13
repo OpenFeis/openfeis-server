@@ -2320,7 +2320,8 @@ async def list_users(
     session: Session = Depends(get_session),
     role: Optional[RoleType] = None,
     search: Optional[str] = None,
-    limit: int = 50
+    limit: int = 50,
+    current_user: User = Depends(require_organizer_or_admin())
 ):
     """
     List users with optional filters.
@@ -2465,7 +2466,10 @@ async def update_settings(
 # ============= Dancer Endpoints =============
 
 @router.get("/dancers", response_model=List[DancerResponse])
-async def list_dancers(session: Session = Depends(get_session)):
+async def list_dancers(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
     """List all dancers."""
     dancers = session.exec(select(Dancer)).all()
     return [

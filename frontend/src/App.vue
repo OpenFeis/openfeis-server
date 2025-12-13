@@ -357,7 +357,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Judge - show for adjudicators or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessJudge"
+              v-if="auth.canAccessJudge"
               @click="view = 'judge'"
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
@@ -381,7 +381,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Teacher - show for teachers or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessTeacher"
+              v-if="auth.canAccessTeacher"
               @click="view = 'teacher'"
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
@@ -394,7 +394,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Admin - show for organizers/admins or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              v-if="auth.canAccessAdmin"
               @click="view = 'admin'; adminView = 'feis-list'"
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
@@ -407,7 +407,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Check-In - show for organizers/admins or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              v-if="auth.canAccessAdmin"
               @click="view = 'checkin'"
               :class="[
                 'px-4 py-2 rounded-lg font-medium transition-all',
@@ -536,7 +536,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Judge - show for adjudicators or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessJudge"
+              v-if="auth.canAccessJudge"
               @click="navigateTo('judge')"
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
@@ -560,7 +560,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Teacher - show for teachers or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessTeacher"
+              v-if="auth.canAccessTeacher"
               @click="navigateTo('teacher')"
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
@@ -573,7 +573,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Admin - show for organizers/admins or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              v-if="auth.canAccessAdmin"
               @click="navigateTo('admin'); adminView = 'feis-list'"
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
@@ -586,7 +586,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             </button>
             <!-- Check-In - show for organizers/admins or in demo mode when not logged in -->
             <button 
-              v-if="!auth.isAuthenticated || auth.canAccessAdmin"
+              v-if="auth.canAccessAdmin"
               @click="navigateTo('checkin')"
               :class="[
                 'w-full text-left px-4 py-3 rounded-lg font-medium transition-all',
@@ -702,7 +702,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
 
           <!-- Judge Card - only show to adjudicators or when not logged in (demo mode) -->
           <button 
-            v-if="!auth.isAuthenticated || auth.canAccessJudge"
+            v-if="auth.canAccessJudge"
             @click="view = 'judge'"
             class="group bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl hover:border-amber-200 transition-all text-left"
           >
@@ -731,7 +731,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
         </div>
 
         <!-- Admin Link (only for organizers/admins) -->
-        <div v-if="!auth.isAuthenticated || auth.canAccessAdmin" class="text-center mt-8">
+        <div v-if="auth.canAccessAdmin" class="text-center mt-8">
           <button 
             @click="view = 'admin'"
             class="text-slate-500 hover:text-indigo-600 text-sm font-medium transition-colors"
@@ -1149,7 +1149,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
       <!-- Judge View -->
       <div v-else-if="view === 'judge'">
         <!-- Access control: show JudgePad only for adjudicators or unauthenticated (demo mode) -->
-        <template v-if="!auth.isAuthenticated || auth.canAccessJudge">
+        <template v-if="auth.canAccessJudge">
           <JudgePad />
         </template>
         <template v-else>
@@ -1185,7 +1185,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
       <!-- Admin View -->
       <div v-else-if="view === 'admin'" class="py-8">
         <!-- Access control: show admin only for organizers/admins or unauthenticated (demo mode) -->
-        <template v-if="!auth.isAuthenticated || auth.canAccessAdmin">
+        <template v-if="auth.canAccessAdmin">
         <div class="max-w-6xl mx-auto">
           <!-- Feis List View -->
           <div v-if="adminView === 'feis-list'">
@@ -1500,7 +1500,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
       <!-- Teacher View -->
       <div v-else-if="view === 'teacher'" class="py-8">
         <!-- Access control: show teacher dashboard only for teachers or unauthenticated (demo mode) -->
-        <template v-if="!auth.isAuthenticated || auth.canAccessTeacher">
+        <template v-if="auth.canAccessTeacher">
           <TeacherDashboard />
         </template>
         <template v-else>
@@ -1531,7 +1531,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
       <!-- Check-In Dashboard View -->
       <div v-else-if="view === 'checkin'" class="py-8">
         <!-- Access control: show check-in only for organizers/admins or unauthenticated (demo mode) -->
-        <template v-if="!auth.isAuthenticated || auth.canAccessAdmin">
+        <template v-if="auth.canAccessAdmin">
           <CheckInDashboard />
         </template>
         <template v-else>

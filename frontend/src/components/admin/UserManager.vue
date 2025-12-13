@@ -48,7 +48,7 @@ const searchUsers = async () => {
     if (selectedRole.value) params.append('role', selectedRole.value);
     params.append('limit', '100');
     
-    const response = await fetch(`/api/v1/users?${params.toString()}`);
+    const response = await auth.authFetch(`/api/v1/users?${params.toString()}`);
     if (response.ok) {
       users.value = await response.json();
     }

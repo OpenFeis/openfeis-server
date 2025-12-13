@@ -1151,7 +1151,7 @@ watch(() => props.feisId, () => {
             Instant Scheduler
           </h3>
           <p class="text-amber-100 text-sm mt-1">Generate a complete schedule in one click</p>
-        </div>
+  </div>
         
         <div class="p-6 space-y-5">
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
@@ -1320,7 +1320,7 @@ watch(() => props.feisId, () => {
             <template v-if="instantSchedulerLoading">
               <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
               Generating...
-            </template>
+</template>
             <template v-else>
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
