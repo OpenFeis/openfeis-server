@@ -680,12 +680,11 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             Welcome to <span class="text-emerald-600">Open</span><span class="text-slate-700">Feis</span>
           </h1>
           <p class="text-xl text-slate-600 max-w-2xl mx-auto">
-            A modern, local-first Irish Dance competition platform. 
-            Resilient scoring, seamless registration, and transparent results.
+            The modern standard for Irish Dance. Simple registration for parents, live schedules for dancers, and real-time results for everyone.
           </p>
         </div>
 
-        <div class="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+        <div class="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           <!-- Register Card -->
           <button 
             @click="view = 'registration'; startNewRegistration()"
@@ -697,6 +696,20 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             <h3 class="text-xl font-bold text-slate-800 mb-2">Register Dancers</h3>
             <p class="text-slate-600 text-sm">
               Add dancer profiles and register for competitions with our smart eligibility picker.
+            </p>
+          </button>
+
+          <!-- Stage Monitor Card - Public -->
+          <button 
+            @click="view = 'stage-monitor'"
+            class="group bg-white rounded-2xl p-6 shadow-lg border border-slate-100 hover:shadow-xl hover:border-sky-200 transition-all text-left"
+          >
+            <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <span class="text-2xl">📺</span>
+            </div>
+            <h3 class="text-xl font-bold text-slate-800 mb-2">Live Stage Monitor</h3>
+            <p class="text-slate-600 text-sm">
+              Track the action in real-time. See which competitions are on stage right now.
             </p>
           </button>
 
