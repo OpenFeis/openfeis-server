@@ -273,6 +273,7 @@ class UserResponse(BaseModel):
     name: str
     role: RoleType
     email_verified: bool = False
+    is_feis_organizer: bool = False  # True if user is co-organizer of any feis
 
     class Config:
         from_attributes = True
@@ -1389,6 +1390,60 @@ class SchedulingDefaultsResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# ============= Phase 7: Multi-Organizer Support =============
+
+class FeisOrganizerCreate(BaseModel):
+    """Request to add a co-organizer to a feis."""
+    user_id: str  # User to add as co-organizer
+    role: str = "co_organizer"  # co_organizer, assistant, volunteer_coordinator
+    can_edit_feis: bool = True
+    can_manage_entries: bool = True
+    can_manage_schedule: bool = True
+    can_manage_adjudicators: bool = True
+    can_add_organizers: bool = False
+
+
+class FeisOrganizerUpdate(BaseModel):
+    """Request to update a co-organizer's permissions."""
+    role: Optional[str] = None
+    can_edit_feis: Optional[bool] = None
+    can_manage_entries: Optional[bool] = None
+    can_manage_schedule: Optional[bool] = None
+    can_manage_adjudicators: Optional[bool] = None
+    can_add_organizers: Optional[bool] = None
+
+
+class FeisOrganizerResponse(BaseModel):
+    """Response with co-organizer details."""
+    id: str
+    feis_id: str
+    user_id: str
+    user_name: str
+    user_email: str
+    role: str
+    can_edit_feis: bool
+    can_manage_entries: bool
+    can_manage_schedule: bool
+    can_manage_adjudicators: bool
+    can_add_organizers: bool
+    added_by: str
+    added_by_name: str
+    added_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class FeisOrganizerListResponse(BaseModel):
+    """Response with list of organizers for a feis."""
+    feis_id: str
+    feis_name: str
+    primary_organizer_id: str
+    primary_organizer_name: str
+    co_organizers: List[FeisOrganizerResponse]
+    total_organizers: int
 
 
 # ============= Instant Scheduler =============

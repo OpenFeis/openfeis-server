@@ -9,7 +9,8 @@ from backend.scoring_engine.models import JudgeScore, RoundResult, Round
 from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings,
     Stage, DanceType, ScoringMethod, FeisSettings, FeeItem, FeeCategory, Order, OrderItem, PaymentStatus,
-    FeisAdjudicator, AdjudicatorAvailability, AdjudicatorStatus, AvailabilityType, StageJudgeCoverage
+    FeisAdjudicator, AdjudicatorAvailability, AdjudicatorStatus, AvailabilityType, StageJudgeCoverage,
+    FeisOrganizer
 )
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.db.database import get_session
@@ -50,7 +51,9 @@ from backend.api.schemas import (
     # Instant Scheduler schemas
     InstantSchedulerRequest, InstantSchedulerResponse,
     MergeActionResponse, SplitActionResponse, SchedulerWarningResponse,
-    NormalizationResponse, StagePlanResponse, PlacementResponse, LunchHoldResponse
+    NormalizationResponse, StagePlanResponse, PlacementResponse, LunchHoldResponse,
+    # Multi-organizer schemas (Phase 7)
+    FeisOrganizerCreate, FeisOrganizerUpdate, FeisOrganizerResponse, FeisOrganizerListResponse
 )
 from backend.services.scheduling import (
     estimate_duration, estimate_competition_duration, detect_all_conflicts,
@@ -81,6 +84,82 @@ from datetime import timedelta
 
 router = APIRouter()
 calculator = IrishPointsCalculator()
+
+
+# ============= Helper Functions =============
+
+def is_feis_organizer(feis: Feis, user: User, session: Session) -> bool:
+    """
+    Check if a user is an organizer for a feis (primary or co-organizer).
+    
+    Returns True if:
+    - User is the primary organizer (feis.organizer_id)
+    - User is a co-organizer (FeisOrganizer entry)
+    - User is a super_admin
+    """
+    if user.role == RoleType.SUPER_ADMIN:
+        return True
+    
+    if feis.organizer_id == user.id:
+        return True
+    
+    # Check co-organizers
+    co_org = session.exec(
+        select(FeisOrganizer).where(
+            FeisOrganizer.feis_id == feis.id,
+            FeisOrganizer.user_id == user.id
+        )
+    ).first()
+    
+    return co_org is not None
+
+
+def get_feis_organizer_permissions(feis: Feis, user: User, session: Session) -> dict:
+    """
+    Get the permissions for a user on a feis.
+    
+    Returns a dict with permission flags, or None if not an organizer.
+    """
+    if user.role == RoleType.SUPER_ADMIN:
+        return {
+            "is_primary": False,
+            "can_edit_feis": True,
+            "can_manage_entries": True,
+            "can_manage_schedule": True,
+            "can_manage_adjudicators": True,
+            "can_add_organizers": True,
+        }
+    
+    if feis.organizer_id == user.id:
+        return {
+            "is_primary": True,
+            "can_edit_feis": True,
+            "can_manage_entries": True,
+            "can_manage_schedule": True,
+            "can_manage_adjudicators": True,
+            "can_add_organizers": True,
+        }
+    
+    # Check co-organizers
+    co_org = session.exec(
+        select(FeisOrganizer).where(
+            FeisOrganizer.feis_id == feis.id,
+            FeisOrganizer.user_id == user.id
+        )
+    ).first()
+    
+    if co_org:
+        return {
+            "is_primary": False,
+            "can_edit_feis": co_org.can_edit_feis,
+            "can_manage_entries": co_org.can_manage_entries,
+            "can_manage_schedule": co_org.can_manage_schedule,
+            "can_manage_adjudicators": co_org.can_manage_adjudicators,
+            "can_add_organizers": co_org.can_add_organizers,
+        }
+    
+    return None
+
 
 # ============= Authentication Endpoints =============
 
@@ -217,17 +296,33 @@ async def register(
 
 @router.get("/auth/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
 ):
     """
     Get the current authenticated user's information.
+    
+    The `is_feis_organizer` field is True if:
+    - User's role is 'organizer' or 'super_admin', OR
+    - User is a co-organizer of at least one feis (FeisOrganizer entry)
     """
+    # Check if user is a co-organizer of any feis
+    is_feis_organizer = current_user.role in [RoleType.ORGANIZER, RoleType.SUPER_ADMIN]
+    
+    if not is_feis_organizer:
+        # Check FeisOrganizer table
+        co_org = session.exec(
+            select(FeisOrganizer).where(FeisOrganizer.user_id == current_user.id)
+        ).first()
+        is_feis_organizer = co_org is not None
+    
     return UserResponse(
         id=str(current_user.id),
         email=current_user.email,
         name=current_user.name,
         role=current_user.role,
-        email_verified=current_user.email_verified
+        email_verified=current_user.email_verified,
+        is_feis_organizer=is_feis_organizer
     )
 
 
@@ -666,6 +761,70 @@ async def list_feiseanna(
     
     return result
 
+
+@router.get("/feis/mine", response_model=List[FeisResponse])
+async def list_my_feiseanna(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    List feiseanna that the current user can manage.
+    
+    Returns feiseanna where:
+    - User is the primary organizer (feis.organizer_id)
+    - User is a co-organizer (FeisOrganizer entry)
+    - User is a super_admin (returns all feiseanna)
+    """
+    if current_user.role == RoleType.SUPER_ADMIN:
+        # Super admins see all feiseanna
+        feiseanna = session.exec(select(Feis)).all()
+    else:
+        # Get feis IDs where user is primary organizer
+        primary_feis_ids = session.exec(
+            select(Feis.id).where(Feis.organizer_id == current_user.id)
+        ).all()
+        
+        # Get feis IDs where user is co-organizer
+        co_org_feis_ids = session.exec(
+            select(FeisOrganizer.feis_id).where(FeisOrganizer.user_id == current_user.id)
+        ).all()
+        
+        # Combine and deduplicate
+        all_feis_ids = list(set(primary_feis_ids + co_org_feis_ids))
+        
+        if not all_feis_ids:
+            return []
+        
+        feiseanna = session.exec(
+            select(Feis).where(Feis.id.in_(all_feis_ids))
+        ).all()
+    
+    result = []
+    for feis in feiseanna:
+        # Count competitions and entries
+        comp_count = session.exec(
+            select(func.count(Competition.id)).where(Competition.feis_id == feis.id)
+        ).one()
+        entry_count = session.exec(
+            select(func.count(Entry.id))
+            .join(Competition, Entry.competition_id == Competition.id)
+            .where(Competition.feis_id == feis.id)
+        ).one()
+        
+        result.append(FeisResponse(
+            id=str(feis.id),
+            name=feis.name,
+            date=feis.date,
+            location=feis.location,
+            organizer_id=str(feis.organizer_id),
+            stripe_account_id=feis.stripe_account_id,
+            competition_count=comp_count,
+            entry_count=entry_count
+        ))
+    
+    return result
+
+
 @router.post("/feis", response_model=FeisResponse)
 async def create_feis(
     feis_data: FeisCreate, 
@@ -734,14 +893,15 @@ async def update_feis(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_organizer_or_admin())
 ):
-    """Update a feis. Requires organizer (owner) or super_admin role."""
+    """Update a feis. Requires organizer (owner/co-organizer) or super_admin role."""
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
-    # Check ownership (unless super_admin)
-    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You can only edit your own feis")
+    # Check if user can manage this feis
+    perms = get_feis_organizer_permissions(feis, current_user, session)
+    if not perms or not perms.get("can_edit_feis"):
+        raise HTTPException(status_code=403, detail="You don't have permission to edit this feis")
     
     if feis_data.name is not None:
         feis.name = feis_data.name
@@ -782,14 +942,14 @@ async def delete_feis(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_organizer_or_admin())
 ):
-    """Delete a feis and all its competitions/entries. Requires organizer (owner) or super_admin role."""
+    """Delete a feis and all its competitions/entries. Requires primary organizer or super_admin role."""
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
-    # Check ownership (unless super_admin)
+    # Only primary organizer or super_admin can delete (not co-organizers)
     if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You can only delete your own feis")
+        raise HTTPException(status_code=403, detail="Only the primary organizer can delete a feis")
     
     # Delete all entries for competitions in this feis
     competitions = session.exec(
@@ -803,10 +963,237 @@ async def delete_feis(
             session.delete(entry)
         session.delete(comp)
     
+    # Delete co-organizers
+    co_organizers = session.exec(
+        select(FeisOrganizer).where(FeisOrganizer.feis_id == feis.id)
+    ).all()
+    for co_org in co_organizers:
+        session.delete(co_org)
+    
     session.delete(feis)
     session.commit()
     
     return {"message": f"Feis '{feis.name}' and all associated data deleted"}
+
+
+# ============= Feis Co-Organizer Management =============
+
+@router.get("/feis/{feis_id}/organizers", response_model=FeisOrganizerListResponse)
+async def list_feis_organizers(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """List all organizers (primary and co-organizers) for a feis."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check if user can view this feis
+    if not is_feis_organizer(feis, current_user, session):
+        raise HTTPException(status_code=403, detail="You don't have access to this feis")
+    
+    # Get primary organizer
+    primary = session.get(User, feis.organizer_id)
+    
+    # Get co-organizers
+    co_organizers = session.exec(
+        select(FeisOrganizer).where(FeisOrganizer.feis_id == feis.id)
+    ).all()
+    
+    co_org_responses = []
+    for co_org in co_organizers:
+        user = session.get(User, co_org.user_id)
+        added_by_user = session.get(User, co_org.added_by)
+        co_org_responses.append(FeisOrganizerResponse(
+            id=str(co_org.id),
+            feis_id=str(co_org.feis_id),
+            user_id=str(co_org.user_id),
+            user_name=user.name if user else "Unknown",
+            user_email=user.email if user else "",
+            role=co_org.role,
+            can_edit_feis=co_org.can_edit_feis,
+            can_manage_entries=co_org.can_manage_entries,
+            can_manage_schedule=co_org.can_manage_schedule,
+            can_manage_adjudicators=co_org.can_manage_adjudicators,
+            can_add_organizers=co_org.can_add_organizers,
+            added_by=str(co_org.added_by),
+            added_by_name=added_by_user.name if added_by_user else "Unknown",
+            added_at=co_org.added_at
+        ))
+    
+    return FeisOrganizerListResponse(
+        feis_id=str(feis.id),
+        feis_name=feis.name,
+        primary_organizer_id=str(feis.organizer_id),
+        primary_organizer_name=primary.name if primary else "Unknown",
+        co_organizers=co_org_responses,
+        total_organizers=1 + len(co_org_responses)
+    )
+
+
+@router.post("/feis/{feis_id}/organizers", response_model=FeisOrganizerResponse)
+async def add_feis_organizer(
+    feis_id: str,
+    organizer_data: FeisOrganizerCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Add a co-organizer to a feis. Requires permission to add organizers."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check if user can add organizers
+    perms = get_feis_organizer_permissions(feis, current_user, session)
+    if not perms or not perms.get("can_add_organizers"):
+        raise HTTPException(status_code=403, detail="You don't have permission to add organizers to this feis")
+    
+    # Check if user to add exists
+    user_to_add = session.get(User, UUID(organizer_data.user_id))
+    if not user_to_add:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if user is already the primary organizer
+    if feis.organizer_id == user_to_add.id:
+        raise HTTPException(status_code=400, detail="User is already the primary organizer")
+    
+    # Check if user is already a co-organizer
+    existing = session.exec(
+        select(FeisOrganizer).where(
+            FeisOrganizer.feis_id == feis.id,
+            FeisOrganizer.user_id == user_to_add.id
+        )
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User is already a co-organizer for this feis")
+    
+    # Create the co-organizer record
+    co_organizer = FeisOrganizer(
+        feis_id=feis.id,
+        user_id=user_to_add.id,
+        role=organizer_data.role,
+        can_edit_feis=organizer_data.can_edit_feis,
+        can_manage_entries=organizer_data.can_manage_entries,
+        can_manage_schedule=organizer_data.can_manage_schedule,
+        can_manage_adjudicators=organizer_data.can_manage_adjudicators,
+        can_add_organizers=organizer_data.can_add_organizers,
+        added_by=current_user.id
+    )
+    session.add(co_organizer)
+    session.commit()
+    session.refresh(co_organizer)
+    
+    return FeisOrganizerResponse(
+        id=str(co_organizer.id),
+        feis_id=str(co_organizer.feis_id),
+        user_id=str(co_organizer.user_id),
+        user_name=user_to_add.name,
+        user_email=user_to_add.email,
+        role=co_organizer.role,
+        can_edit_feis=co_organizer.can_edit_feis,
+        can_manage_entries=co_organizer.can_manage_entries,
+        can_manage_schedule=co_organizer.can_manage_schedule,
+        can_manage_adjudicators=co_organizer.can_manage_adjudicators,
+        can_add_organizers=co_organizer.can_add_organizers,
+        added_by=str(co_organizer.added_by),
+        added_by_name=current_user.name,
+        added_at=co_organizer.added_at
+    )
+
+
+@router.put("/feis/{feis_id}/organizers/{organizer_id}", response_model=FeisOrganizerResponse)
+async def update_feis_organizer(
+    feis_id: str,
+    organizer_id: str,
+    organizer_data: FeisOrganizerUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Update a co-organizer's permissions. Requires permission to add organizers."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check if user can manage organizers
+    perms = get_feis_organizer_permissions(feis, current_user, session)
+    if not perms or not perms.get("can_add_organizers"):
+        raise HTTPException(status_code=403, detail="You don't have permission to manage organizers for this feis")
+    
+    # Get the co-organizer record
+    co_organizer = session.get(FeisOrganizer, UUID(organizer_id))
+    if not co_organizer or co_organizer.feis_id != feis.id:
+        raise HTTPException(status_code=404, detail="Co-organizer not found for this feis")
+    
+    # Update fields
+    if organizer_data.role is not None:
+        co_organizer.role = organizer_data.role
+    if organizer_data.can_edit_feis is not None:
+        co_organizer.can_edit_feis = organizer_data.can_edit_feis
+    if organizer_data.can_manage_entries is not None:
+        co_organizer.can_manage_entries = organizer_data.can_manage_entries
+    if organizer_data.can_manage_schedule is not None:
+        co_organizer.can_manage_schedule = organizer_data.can_manage_schedule
+    if organizer_data.can_manage_adjudicators is not None:
+        co_organizer.can_manage_adjudicators = organizer_data.can_manage_adjudicators
+    if organizer_data.can_add_organizers is not None:
+        co_organizer.can_add_organizers = organizer_data.can_add_organizers
+    
+    session.add(co_organizer)
+    session.commit()
+    session.refresh(co_organizer)
+    
+    user = session.get(User, co_organizer.user_id)
+    added_by_user = session.get(User, co_organizer.added_by)
+    
+    return FeisOrganizerResponse(
+        id=str(co_organizer.id),
+        feis_id=str(co_organizer.feis_id),
+        user_id=str(co_organizer.user_id),
+        user_name=user.name if user else "Unknown",
+        user_email=user.email if user else "",
+        role=co_organizer.role,
+        can_edit_feis=co_organizer.can_edit_feis,
+        can_manage_entries=co_organizer.can_manage_entries,
+        can_manage_schedule=co_organizer.can_manage_schedule,
+        can_manage_adjudicators=co_organizer.can_manage_adjudicators,
+        can_add_organizers=co_organizer.can_add_organizers,
+        added_by=str(co_organizer.added_by),
+        added_by_name=added_by_user.name if added_by_user else "Unknown",
+        added_at=co_organizer.added_at
+    )
+
+
+@router.delete("/feis/{feis_id}/organizers/{organizer_id}")
+async def remove_feis_organizer(
+    feis_id: str,
+    organizer_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """Remove a co-organizer from a feis. Requires permission to add organizers."""
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check if user can manage organizers
+    perms = get_feis_organizer_permissions(feis, current_user, session)
+    if not perms or not perms.get("can_add_organizers"):
+        raise HTTPException(status_code=403, detail="You don't have permission to manage organizers for this feis")
+    
+    # Get the co-organizer record
+    co_organizer = session.get(FeisOrganizer, UUID(organizer_id))
+    if not co_organizer or co_organizer.feis_id != feis.id:
+        raise HTTPException(status_code=404, detail="Co-organizer not found for this feis")
+    
+    user = session.get(User, co_organizer.user_id)
+    user_name = user.name if user else "Unknown"
+    
+    session.delete(co_organizer)
+    session.commit()
+    
+    return {"message": f"Co-organizer '{user_name}' removed from feis"}
+
 
 # ============= Competition Endpoints =============
 

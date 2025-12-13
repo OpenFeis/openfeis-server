@@ -77,6 +77,8 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
 - **Protected Operations** — Only organizers can modify their own feiseanna
+- **Multi-Organizer Support** — Add co-organizers to collaborate on feis planning 🆕
+- **Granular Permissions** — Configure per-organizer access (edit feis, manage entries, manage schedule, etc.) 🆕
 
 ### For Volunteers (Check-In) 🆕
 - **Stage-Centric Check-In** — Select a stage to see only its competitions
@@ -337,9 +339,19 @@ openfeis-server/
 |--------|----------|-------------|---------------|
 | `POST` | `/api/v1/feis` | Create a new feis | Organizer/Admin |
 | `GET` | `/api/v1/feis` | List all feiseanna | No |
+| `GET` | `/api/v1/feis/mine` | List feiseanna current user can manage 🆕 | Organizer/Admin |
 | `GET` | `/api/v1/feis/{id}` | Get a single feis | No |
-| `PUT` | `/api/v1/feis/{id}` | Update a feis | Owner/Admin |
-| `DELETE` | `/api/v1/feis/{id}` | Delete a feis | Owner/Admin |
+| `PUT` | `/api/v1/feis/{id}` | Update a feis | Owner/Co-organizer/Admin |
+| `DELETE` | `/api/v1/feis/{id}` | Delete a feis | Owner/Admin (not co-organizers) |
+
+### Co-Organizer Management 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/organizers` | List all organizers for a feis | Organizer of feis |
+| `POST` | `/api/v1/feis/{feis_id}/organizers` | Add a co-organizer to a feis | Organizer with `can_add_organizers` |
+| `PUT` | `/api/v1/feis/{feis_id}/organizers/{id}` | Update co-organizer permissions | Organizer with `can_add_organizers` |
+| `DELETE` | `/api/v1/feis/{feis_id}/organizers/{id}` | Remove a co-organizer | Organizer with `can_add_organizers` |
 
 ### Competition Management
 
@@ -873,6 +885,19 @@ class Stage:
     name: str  # e.g., "Stage A", "Main Hall"
     color: Optional[str]  # Hex color for UI
     sequence: int  # Display order
+
+class FeisOrganizer:  # 🆕 Phase 7 - Multi-Organizer Support
+    id: UUID
+    feis_id: UUID  # FK to Feis
+    user_id: UUID  # FK to User (co-organizer)
+    role: str  # "co_organizer", "assistant", "volunteer_coordinator"
+    can_edit_feis: bool  # Edit feis details, settings
+    can_manage_entries: bool  # Manage registrations
+    can_manage_schedule: bool  # Edit schedule
+    can_manage_adjudicators: bool  # Manage judge roster
+    can_add_organizers: bool  # Only primary owner by default
+    added_by: UUID  # FK to User
+    added_at: datetime
 
 class FeisAdjudicator:  # 🆕 Phase 6 - Adjudicator Roster
     id: UUID

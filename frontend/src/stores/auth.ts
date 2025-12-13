@@ -40,9 +40,11 @@ export const useAuthStore = defineStore('auth', () => {
     return {};
   });
   
-  // Can access admin features
+  // Can access admin features (by role OR by being a co-organizer of any feis)
   const canAccessAdmin = computed(() => 
-    user.value?.role === 'super_admin' || user.value?.role === 'organizer'
+    user.value?.role === 'super_admin' || 
+    user.value?.role === 'organizer' || 
+    user.value?.is_feis_organizer === true
   );
   
   // Can access judge features (super_admin has full access)

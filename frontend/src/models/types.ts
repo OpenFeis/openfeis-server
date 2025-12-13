@@ -51,6 +51,7 @@ export interface User {
   role: RoleType;
   name: string;
   email_verified: boolean;
+  is_feis_organizer: boolean;  // True if user can manage at least one feis (role or co-organizer)
 }
 
 export interface Feis {

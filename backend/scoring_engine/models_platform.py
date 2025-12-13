@@ -147,6 +147,10 @@ class Feis(SQLModel, table=True):
     fee_items: List["FeeItem"] = Relationship(back_populates="feis")
     orders: List["Order"] = Relationship(back_populates="feis")
     adjudicators: List["FeisAdjudicator"] = Relationship(back_populates="feis")
+    co_organizers: List["FeisOrganizer"] = Relationship(
+        back_populates="feis",
+        sa_relationship_kwargs={"foreign_keys": "FeisOrganizer.feis_id"}
+    )
 
 
 class Stage(SQLModel, table=True):
@@ -674,4 +678,40 @@ class AdjudicatorAvailability(SQLModel, table=True):
     
     # Relationships
     adjudicator: "FeisAdjudicator" = Relationship(back_populates="availability_blocks")
+
+
+# ============= Phase 7: Multi-Organizer Support =============
+
+class FeisOrganizer(SQLModel, table=True):
+    """
+    Links additional organizers (co-organizers) to a feis.
+    
+    The primary organizer is stored in Feis.organizer_id.
+    This table tracks additional users who can manage the feis.
+    """
+    __tablename__ = "feisorganizer"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    feis_id: UUID = Field(foreign_key="feis.id", index=True)
+    user_id: UUID = Field(foreign_key="user.id", index=True)
+    
+    # Role within the feis organizing team
+    role: str = Field(default="co_organizer")  # "co_organizer", "assistant", "volunteer_coordinator"
+    
+    # Permissions (can be customized per co-organizer)
+    can_edit_feis: bool = Field(default=True)  # Edit feis details, settings
+    can_manage_entries: bool = Field(default=True)  # Manage registrations
+    can_manage_schedule: bool = Field(default=True)  # Edit schedule
+    can_manage_adjudicators: bool = Field(default=True)  # Manage judge roster
+    can_add_organizers: bool = Field(default=False)  # Only primary owner by default
+    
+    # Audit
+    added_by: UUID = Field(foreign_key="user.id")
+    added_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    feis: "Feis" = Relationship()
+    user: "User" = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[FeisOrganizer.user_id]"}
+    )
 

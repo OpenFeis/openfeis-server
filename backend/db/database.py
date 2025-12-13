@@ -109,7 +109,9 @@ def create_db_and_tables():
         User, Feis, Competition, Dancer, Entry, SiteSettings, Stage,
         FeisSettings, FeeItem, Order, OrderItem,  # Phase 3 models
         PlacementHistory, EntryFlag, AdvancementNotice,  # Phase 4 models
-        WaitlistEntry, RefundLog  # Phase 5 models
+        WaitlistEntry, RefundLog,  # Phase 5 models
+        FeisAdjudicator, AdjudicatorAvailability, StageJudgeCoverage,  # Phase 6 models
+        FeisOrganizer  # Phase 7 models
     )
     from backend.scoring_engine.models import Round, JudgeScore
     

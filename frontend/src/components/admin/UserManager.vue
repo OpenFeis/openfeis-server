@@ -102,7 +102,8 @@ const saveRoleChange = async () => {
           email: existingUser.email,
           name: existingUser.name,
           role: newRole.value,
-          email_verified: existingUser.email_verified
+          email_verified: existingUser.email_verified,
+          is_feis_organizer: existingUser.is_feis_organizer
         };
       }
       saveSuccess.value = true;
