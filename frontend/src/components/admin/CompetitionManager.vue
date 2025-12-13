@@ -254,6 +254,14 @@ const formatGender = (gender?: string) => {
   return gender.charAt(0).toUpperCase() + gender.slice(1);
 };
 
+// Format age range display
+const formatAgeRange = (min: number, max: number): string => {
+  if (min === max) {
+    return `U${min + 1}`;
+  }
+  return `Ages ${min}-${max}`;
+};
+
 // Generate competition code from level, age, and dance type
 const generateCode = (level: string, maxAge: number, danceType?: string): string => {
   const levelDigits: Record<string, string> = {
@@ -570,7 +578,7 @@ onMounted(() => {
                 {{ formatLevel(comp.level) }}
               </span>
               <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
-                Ages {{ comp.min_age }}-{{ comp.max_age }}
+                {{ formatAgeRange(comp.min_age, comp.max_age) }}
               </span>
               <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
                 {{ formatGender(comp.gender) }}

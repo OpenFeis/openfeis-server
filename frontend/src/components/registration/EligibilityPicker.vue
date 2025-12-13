@@ -212,6 +212,14 @@ const formatLevel = (level: CompetitionLevel): string => {
   return levelNames[level] || level.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
 
+// Format age range display
+const formatAgeRange = (min: number, max: number): string => {
+  if (min === max) {
+    return `U${min + 1}`;
+  }
+  return `Ages ${min}-${max}`;
+};
+
 // Get icon for dance type
 const getDanceIcon = (dance: string): string => {
   const icons: Record<string, string> = {
@@ -245,8 +253,8 @@ const getDanceIcon = (dance: string): string => {
     <!-- Dancer Summary Badge -->
     <div class="px-6 py-4 bg-slate-50 border-b border-slate-100">
       <div class="flex flex-wrap gap-2">
-        <span v-if="dancerAge" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-800">
-          Age {{ dancerAge }}
+        <span v-if="dancerAge !== null" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-800">
+          U{{ dancerAge + 1 }}
         </span>
         <span v-if="dancer.gender" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
           {{ dancer.gender === 'female' ? 'Girl' : dancer.gender === 'male' ? 'Boy' : 'Other' }}
@@ -344,7 +352,7 @@ const getDanceIcon = (dance: string): string => {
                     {{ comp.name }}
                   </div>
                   <div class="text-xs text-slate-500 mt-0.5">
-                    Ages {{ comp.min_age }}-{{ comp.max_age }} • {{ formatLevel(comp.level) }}
+                    {{ formatAgeRange(comp.min_age, comp.max_age) }} • {{ formatLevel(comp.level) }}
                   </div>
                 </div>
                 <div 
@@ -442,7 +450,7 @@ const getDanceIcon = (dance: string): string => {
                         </span>
                       </div>
                       <div class="text-xs text-slate-500 mt-0.5">
-                        Ages {{ comp.min_age }}-{{ comp.max_age }} • {{ formatLevel(comp.level) }}
+                        {{ formatAgeRange(comp.min_age, comp.max_age) }} • {{ formatLevel(comp.level) }}
                       </div>
                     </div>
                     <div 
@@ -496,7 +504,7 @@ const getDanceIcon = (dance: string): string => {
           >
             <div class="font-medium text-sm">{{ comp.name }}</div>
             <div class="text-xs mt-0.5">
-              Ages {{ comp.min_age }}-{{ comp.max_age }} • {{ formatLevel(comp.level) }}
+              {{ formatAgeRange(comp.min_age, comp.max_age) }} • {{ formatLevel(comp.level) }}
             </div>
           </div>
         </div>
