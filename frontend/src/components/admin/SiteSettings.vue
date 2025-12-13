@@ -124,9 +124,9 @@ const populateDemoData = async () => {
   if (!confirm(
     'This will create demo data including:\n\n' +
     '• 3 feiseanna (2 future, 1 past with results)\n' +
-    '• ~450 dancers across the events\n' +
-    '• Demo teachers, adjudicators, and parents\n' +
-    '• Full competition schedules\n\n' +
+    '• ~700 dancers across the events\n' +
+    '• 15 Demo judges, 12 teachers, and parents\n' +
+    '• Competitions ready for scheduling\n\n' +
     'Proceed?'
   )) {
     return;
@@ -432,11 +432,11 @@ onMounted(() => {
               </li>
               <li class="flex items-center gap-2">
                 <span class="text-amber-500">📊</span>
-                <strong>Emerald Isle Fall Feis</strong> — 7 days ago, ~100 dancers with complete results
+                <strong>Emerald Isle Fall Feis</strong> — 7 days ago, ~350 dancers with complete results
               </li>
               <li class="flex items-center gap-2">
                 <span class="text-amber-500">👥</span>
-                Demo teachers, adjudicators, parents, and dancers with realistic Irish names
+                15 judges, 12 teachers, parents, and dancers with realistic Irish names
               </li>
             </ul>
             <p class="mt-3 text-xs text-amber-600">
