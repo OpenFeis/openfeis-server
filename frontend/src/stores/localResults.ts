@@ -6,10 +6,9 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import { dbService } from '../services/db';
 import { localCalculator } from '../services/localCalculator';
-import type { JudgeScore } from '../models/types';
 
 // ============= Types =============
 
@@ -27,6 +26,14 @@ export interface LocalCompetition {
   feis_name: string;
 }
 
+export interface LocalJudgeScoreDetail {
+  judge_id: string;
+  judge_name: string | null;
+  raw_score: number;
+  rank: number;
+  irish_points: number;
+}
+
 export interface LocalResultItem {
   rank: number;
   competitor_number: number | null;
@@ -34,6 +41,7 @@ export interface LocalResultItem {
   dancer_school: string | null;
   irish_points: number;
   is_recalled: boolean;
+  judge_scores: LocalJudgeScoreDetail[];
 }
 
 export interface LocalTabulatorResults {
@@ -44,7 +52,16 @@ export interface LocalTabulatorResults {
   total_scores: number;
   judge_count: number;
   results: LocalResultItem[];
-  calculated_at: string;
+}
+
+export interface LocalScoreUpdate {
+  id: string;
+  judge_id: string;
+  competitor_id: string;
+  round_id: string;
+  value: number;
+  timestamp: string;
+  synced: boolean;
 }
 
 // ============= Store =============
@@ -54,66 +71,57 @@ export const useLocalResultsStore = defineStore('localResults', () => {
   const isLocalMode = ref(false);
   const competitions = ref<LocalCompetition[]>([]);
   const competitors = ref<Map<string, LocalCompetitor>>(new Map());
-  const currentResults = ref<LocalTabulatorResults | null>(null);
   const isCalculating = ref(false);
   const lastError = ref<string | null>(null);
 
-  // Computed
-  const hasLocalData = computed(() => competitions.value.length > 0);
+  // Actions
+  function toggleLocalMode() {
+    isLocalMode.value = !isLocalMode.value;
+  }
 
-  /**
-   * Enable local mode (calculate results from IndexedDB)
-   */
   function enableLocalMode() {
     isLocalMode.value = true;
-    console.log('📴 Local mode enabled - calculating results from IndexedDB');
   }
 
-  /**
-   * Disable local mode (use API for results)
-   */
   function disableLocalMode() {
     isLocalMode.value = false;
-    currentResults.value = null;
-    console.log('🌐 Online mode - using API for results');
   }
 
   /**
-   * Toggle local mode
+   * Register competition details for local lookup.
+   * Called when loading competitions from API or local storage.
    */
-  function toggleLocalMode() {
-    if (isLocalMode.value) {
-      disableLocalMode();
-    } else {
-      enableLocalMode();
-    }
+  function registerCompetitions(compList: LocalCompetition[]) {
+    competitions.value = compList;
   }
 
   /**
-   * Register a competition for local tracking.
-   * Called when judges load competitions.
-   */
-  function registerCompetition(competition: LocalCompetition) {
-    const existing = competitions.value.find(c => c.id === competition.id);
-    if (!existing) {
-      competitions.value.push(competition);
-    }
-  }
-
-  /**
-   * Register a competitor for local tracking.
-   * Called when judges load competitors.
-   */
-  function registerCompetitor(competitor: LocalCompetitor) {
-    competitors.value.set(competitor.entry_id, competitor);
-  }
-
-  /**
-   * Register multiple competitors at once.
+   * Register competitor details for local lookup.
+   * Needed because scores only contain IDs.
    */
   function registerCompetitors(competitorList: LocalCompetitor[]) {
-    for (const competitor of competitorList) {
-      registerCompetitor(competitor);
+    for (const c of competitorList) {
+      competitors.value.set(c.entry_id, c);
+    }
+  }
+
+  /**
+   * Handle incoming score (from WebSocket or Judge Pad).
+   * Ensures the score is saved locally and invalidates cached results.
+   */
+  async function onScoreReceived(score: LocalScoreUpdate) {
+    try {
+      await dbService.saveScore({
+        id: score.id,
+        judge_id: score.judge_id,
+        competitor_id: score.competitor_id,
+        round_id: score.round_id,
+        value: score.value,
+        timestamp: score.timestamp,
+        synced: score.synced
+      });
+    } catch (e) {
+      console.warn('Failed to save received score locally:', e);
     }
   }
 
@@ -151,6 +159,25 @@ export const useLocalResultsStore = defineStore('localResults', () => {
       for (const ranked of roundResult.results) {
         const competitor = competitors.value.get(ranked.competitor_id);
 
+        // Build detailed judge scores
+        const judgeDetails: LocalJudgeScoreDetail[] = [];
+        
+        // Find raw scores for this competitor
+        const compScores = allScores.filter(s => s.competitor_id === ranked.competitor_id);
+        
+        for (const score of compScores) {
+            // Note: We don't have the per-judge rank/IP here easily without re-running logic
+            // Ideally we should update localCalculator to return detail
+            // For MVP local mode, we'll return basic data
+            judgeDetails.push({
+                judge_id: score.judge_id,
+                judge_name: "Local Judge", // We might not have names locally
+                raw_score: score.value,
+                rank: 0, // Placeholder
+                irish_points: 0 // Placeholder
+            });
+        }
+
         resultItems.push({
           rank: ranked.rank,
           competitor_number: competitor?.competitor_number ?? null,
@@ -158,6 +185,7 @@ export const useLocalResultsStore = defineStore('localResults', () => {
           dancer_school: competitor?.dancer_school ?? null,
           irish_points: ranked.irish_points,
           is_recalled: recalledIds.has(ranked.competitor_id),
+          judge_scores: judgeDetails
         });
       }
 
@@ -166,93 +194,35 @@ export const useLocalResultsStore = defineStore('localResults', () => {
 
       const results: LocalTabulatorResults = {
         competition_id: competitionId,
-        competition_name: competition?.name ?? 'Unknown Competition',
-        feis_name: competition?.feis_name ?? 'Unknown Feis',
+        competition_name: competition?.name || 'Unknown Competition',
+        feis_name: competition?.feis_name || 'Local Feis',
         total_competitors: resultItems.length,
         total_scores: allScores.length,
         judge_count: judgeIds.size,
         results: resultItems,
-        calculated_at: new Date().toISOString(),
       };
 
-      currentResults.value = results;
       return results;
-    } catch (error) {
-      lastError.value = error instanceof Error ? error.message : 'Failed to calculate results';
-      console.error('Local calculation failed:', error);
+    } catch (e) {
+      console.error('Local calculation error:', e);
+      lastError.value = e instanceof Error ? e.message : 'Unknown calculation error';
       return null;
     } finally {
       isCalculating.value = false;
     }
   }
 
-  /**
-   * Get all competitions that have local scores.
-   */
-  async function getCompetitionsWithLocalScores(): Promise<LocalCompetition[]> {
-    try {
-      const roundIds = new Set<string>();
-      
-      // Check which registered competitions have local scores
-      for (const comp of competitions.value) {
-        const scores = await dbService.getScoresForRound(comp.id);
-        if (scores.length > 0) {
-          roundIds.add(comp.id);
-        }
-      }
-
-      return competitions.value.filter(c => roundIds.has(c.id));
-    } catch (error) {
-      console.error('Failed to get competitions with local scores:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Handle a new score being submitted (from WebSocket or local save).
-   * Triggers recalculation if we're viewing that competition.
-   */
-  async function onScoreReceived(score: JudgeScore) {
-    // If we're in local mode and viewing this competition, recalculate
-    if (isLocalMode.value && currentResults.value?.competition_id === score.round_id) {
-      await calculateResults(score.round_id);
-    }
-  }
-
-  /**
-   * Clear all local state (for testing or reset).
-   */
-  function reset() {
-    isLocalMode.value = false;
-    competitions.value = [];
-    competitors.value.clear();
-    currentResults.value = null;
-    lastError.value = null;
-  }
-
   return {
-    // State
     isLocalMode,
     competitions,
-    competitors,
-    currentResults,
     isCalculating,
     lastError,
-
-    // Computed
-    hasLocalData,
-
-    // Actions
+    toggleLocalMode,
     enableLocalMode,
     disableLocalMode,
-    toggleLocalMode,
-    registerCompetition,
-    registerCompetitor,
+    registerCompetitions,
     registerCompetitors,
     calculateResults,
-    getCompetitionsWithLocalScores,
-    onScoreReceived,
-    reset,
+    onScoreReceived
   };
 });
-

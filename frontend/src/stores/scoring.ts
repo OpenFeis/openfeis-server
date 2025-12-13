@@ -148,12 +148,12 @@ export const useScoringStore = defineStore('scoring', () => {
     selectedCompetition.value = competition;
     
     // Register competition with local results store
-    localResultsStore.registerCompetition({
+    localResultsStore.registerCompetitions([{
       id: competition.id,
       name: competition.name,
       feis_id: competition.feis_id,
       feis_name: competition.feis_name,
-    });
+    }]);
     
     // Connect/subscribe to WebSocket for real-time updates
     scoreSocket.connect(competition.id);

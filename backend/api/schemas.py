@@ -384,6 +384,17 @@ class ScoreSubmissionResponse(BaseModel):
 
 # ============= Tabulator / Results =============
 
+class JudgeScoreDetailSchema(BaseModel):
+    """Detail of a score from a single judge for API response."""
+    judge_id: str
+    judge_name: Optional[str] = None
+    raw_score: float
+    rank: int
+    irish_points: float
+
+    class Config:
+        from_attributes = True
+
 class TabulatorResultItem(BaseModel):
     """A single competitor's result for display in the tabulator."""
     rank: int
@@ -392,6 +403,7 @@ class TabulatorResultItem(BaseModel):
     dancer_school: Optional[str] = None
     irish_points: float
     is_recalled: bool = False  # Whether this competitor recalls to next round
+    judge_scores: List[JudgeScoreDetailSchema] = [] # Detailed per-judge scores
 
     class Config:
         from_attributes = True

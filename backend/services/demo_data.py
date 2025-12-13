@@ -19,7 +19,7 @@ from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Entry, Dancer, Stage, FeisSettings,
     RoleType, CompetitionLevel, Gender, DanceType, ScoringMethod,
     CheckInStatus, PaymentStatus, Order, FeeItem, FeeCategory,
-    PlacementHistory
+    PlacementHistory, StageJudgeCoverage, FeisAdjudicator
 )
 from backend.scoring_engine.models import JudgeScore
 from backend.api.auth import hash_password
@@ -38,14 +38,16 @@ GIRL_FIRST_NAMES = [
     "Roisin", "Fionnuala", "Orlaith", "Maeve", "Sinead", "Grainne", "Deirdre",
     "Erin", "Keira", "Molly", "Bridget", "Colleen", "Shannon", "Kathleen",
     "Maureen", "Fiona", "Tara", "Riley", "Reagan", "Quinn", "Nora", "Caitlin",
-    "Brenna", "Aislinn", "Keeva", "Sorcha", "Clodagh", "Eimear", "Laoise"
+    "Brenna", "Aislinn", "Keeva", "Sorcha", "Clodagh", "Eimear", "Laoise",
+    "Brigid", "Cara", "Eilis", "Mairead", "Una", "Riona", "Catriona", "Eithne"
 ]
 
 BOY_FIRST_NAMES = [
     "Cian", "Oisin", "Fionn", "Darragh", "Conor", "Sean", "Liam", "Padraig",
     "Eoin", "Cathal", "Declan", "Ronan", "Brendan", "Patrick", "Colin",
     "Ryan", "Kevin", "Brian", "Finn", "Aidan", "Kieran", "Niall", "Callum",
-    "Seamus", "Cormac", "Lorcan", "Tadhg", "Ruairi", "Ciaran", "Donal"
+    "Seamus", "Cormac", "Lorcan", "Tadhg", "Ruairi", "Ciaran", "Donal",
+    "Diarmuid", "Eoghan", "Fergal", "Gearoid", "Odhran", "Pearse", "Rory"
 ]
 
 LAST_NAMES = [
@@ -54,7 +56,8 @@ LAST_NAMES = [
     "Moore", "McLoughlin", "O'Neill", "Brennan", "Burke", "Collins",
     "Campbell", "Doherty", "Kennedy", "Fitzgerald", "Kavanagh", "Duffy",
     "Nolan", "Donnelly", "Regan", "O'Reilly", "Flanagan", "Connolly",
-    "Maguire", "O'Donnell", "Carroll", "Healy", "Sheehan", "O'Leary"
+    "Maguire", "O'Donnell", "Carroll", "Healy", "Sheehan", "O'Leary",
+    "Kearney", "Boyle", "Higgins", "McGrath", "Callaghan", "Fahey"
 ]
 
 SCHOOL_NAMES = [
@@ -72,7 +75,11 @@ SCHOOL_NAMES = [
     "Cashel Dennehy School",
     "Rince na Chroi Academy",
     "Harp & Shamrock School",
-    "Inishfree School of Irish Dance"
+    "Inishfree School of Irish Dance",
+    "Cross Keys School of Irish Dance",
+    "Drake School of Irish Dance",
+    "Glencastle Irish Dancers",
+    "Heritage Irish Dance Company"
 ]
 
 FEIS_VENUE_TEMPLATES = [
@@ -210,10 +217,10 @@ class DemoDataGenerator:
         self._create_demo_organizer()
         summary["organizers"] = 1
         
-        self._create_demo_teachers(count=8)
+        self._create_demo_teachers(count=12)
         summary["teachers"] = len(self.demo_teachers)
         
-        self._create_demo_adjudicators(count=6)
+        self._create_demo_adjudicators(count=15)
         summary["adjudicators"] = len(self.demo_adjudicators)
         
         # 2. Create future feis #1 (60 days out, ~250 dancers)
@@ -240,10 +247,10 @@ class DemoDataGenerator:
         summary["parents"] += stats2["parents"]
         summary["dancers"] += stats2["dancers"]
         
-        # 4. Create past feis (7 days ago, ~100 dancers, with complete results)
+        # 4. Create past feis (7 days ago, ~350 dancers, with complete results)
         feis3, stats3 = self._create_completed_feis(
             days_offset=-7,
-            target_dancers=100,
+            target_dancers=350,
             name_override="Emerald Isle Fall Feis"
         )
         summary["feiseanna"] += 1
@@ -314,6 +321,15 @@ class DemoDataGenerator:
             "Judge Michael Brendan Murphy, ADCRG",
             "Judge Siobhan Rose Byrne, TCRG",
             "Judge Thomas Francis Quinn, ADCRG",
+            "Judge Colm Padraig Doyle, ADCRG",
+            "Judge Fiona Marie Gallagher, ADCRG",
+            "Judge Seamus Patrick O'Neill, ADCRG",
+            "Judge Kathleen Nora Ryan, ADCRG",
+            "Judge Declan Joseph Kennedy, ADCRG",
+            "Judge Eileen Maura Fitzgerald, TCRG",
+            "Judge Liam Ciaran McCarthy, ADCRG",
+            "Judge Aoife Niamh O'Sullivan, ADCRG",
+            "Judge Cormac Eoin Murray, ADCRG"
         ]
         
         for i in range(count):
@@ -327,12 +343,13 @@ class DemoDataGenerator:
                 self.demo_adjudicators.append(existing)
                 continue
             
+            adj_name = adjudicator_names[i % len(adjudicator_names)]
             adj = User(
                 id=uuid4(),
                 email=email,
                 password_hash=hash_password(DEMO_PASSWORD),
                 role=RoleType.ADJUDICATOR,
-                name=adjudicator_names[i % len(adjudicator_names)],
+                name=adj_name,
                 email_verified=True
             )
             self.session.add(adj)
@@ -456,8 +473,8 @@ class DemoDataGenerator:
         # Assign competitor numbers
         self._assign_competitor_numbers(feis.id)
         
-        # Create schedule
-        self._create_schedule(feis, stages, competitions)
+        # Create schedule - SKIPPED for realism as per request
+        # self._create_schedule(feis, stages, competitions)
         
         return feis, stats
     
@@ -552,33 +569,47 @@ class DemoDataGenerator:
         
         # Standard dances for each level
         for level in levels:
-            # Championship levels get more dances
+            # Championship levels get combined competitions (no per-dance events)
             if level in [CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP]:
-                dances = STANDARD_DANCES
                 scoring = ScoringMethod.CHAMPIONSHIP
-            else:
-                dances = [DanceType.REEL, DanceType.LIGHT_JIG, DanceType.SLIP_JIG]
-                scoring = ScoringMethod.SOLO
-            
-            for min_age, max_age, age_label in age_groups:
-                # Skip very young for championship
-                if level in [CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP]:
+                
+                for min_age, max_age, age_label in age_groups:
+                    # Skip very young for championship
                     if min_age < 10:
                         continue
-                
-                for dance in dances:
-                    # Girls competition
+                        
+                    # Create one competition per age/gender (dancers perform 3 rounds inside this)
+                    # Girls
                     comp_girls = self._create_competition(
-                        feis, level, min_age, max_age, Gender.FEMALE, dance, scoring, stages
+                        feis, level, min_age, max_age, Gender.FEMALE, None, scoring, stages
                     )
                     competitions.append(comp_girls)
                     
-                    # Boys competition (combined for smaller numbers at younger ages)
-                    if min_age >= 8 or level in [CompetitionLevel.NOVICE, CompetitionLevel.PRIZEWINNER]:
-                        comp_boys = self._create_competition(
-                            feis, level, min_age, max_age, Gender.MALE, dance, scoring, stages
+                    # Boys (combined age groups if needed, but keeping separate for now)
+                    comp_boys = self._create_competition(
+                        feis, level, min_age, max_age, Gender.MALE, None, scoring, stages
+                    )
+                    competitions.append(comp_boys)
+                    
+            else:
+                # Grades levels (per dance)
+                dances = [DanceType.REEL, DanceType.LIGHT_JIG, DanceType.SLIP_JIG]
+                scoring = ScoringMethod.SOLO
+            
+                for min_age, max_age, age_label in age_groups:
+                    for dance in dances:
+                        # Girls competition
+                        comp_girls = self._create_competition(
+                            feis, level, min_age, max_age, Gender.FEMALE, dance, scoring, stages
                         )
-                        competitions.append(comp_boys)
+                        competitions.append(comp_girls)
+                        
+                        # Boys competition (combined for smaller numbers at younger ages)
+                        if min_age >= 8 or level in [CompetitionLevel.NOVICE, CompetitionLevel.PRIZEWINNER]:
+                            comp_boys = self._create_competition(
+                                feis, level, min_age, max_age, Gender.MALE, dance, scoring, stages
+                            )
+                            competitions.append(comp_boys)
         
         self.session.flush()
         return competitions
@@ -590,7 +621,7 @@ class DemoDataGenerator:
         min_age: int,
         max_age: int,
         gender: Gender,
-        dance_type: DanceType,
+        dance_type: Optional[DanceType],
         scoring_method: ScoringMethod,
         stages: List[Stage]
     ) -> Competition:
@@ -620,7 +651,11 @@ class DemoDataGenerator:
         gender_label = "Girls" if gender == Gender.FEMALE else "Boys"
         age_label = f"U{max_age+1}" if max_age < 99 else "Adult"
         
-        name = f"{level_names[level]} {age_label} {gender_label} {dance_names[dance_type]}"
+        if dance_type:
+            dance_name = dance_names[dance_type]
+            name = f"{level_names[level]} {age_label} {gender_label} {dance_name}"
+        else:
+            name = f"{level_names[level]} {age_label} {gender_label}"
         
         # Generate code
         code = generate_competition_code(
@@ -647,7 +682,7 @@ class DemoDataGenerator:
             gender=gender,
             code=code,
             dance_type=dance_type,
-            tempo_bpm=get_default_tempo(dance_type),
+            tempo_bpm=get_default_tempo(dance_type) if dance_type else None,
             bars=48 if level not in [CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP] else 64,
             scoring_method=scoring_method,
             price_cents=1200 if scoring_method == ScoringMethod.SOLO else 4500,
@@ -706,9 +741,14 @@ class DemoDataGenerator:
             and (c.gender is None or c.gender == gender)
         ]
         
-        # Register for 2-5 competitions
-        num_entries = min(random.randint(2, 5), len(eligible))
-        selected_comps = random.sample(eligible, num_entries) if eligible else []
+        # Register for competitions
+        if level in [CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP]:
+            # For champs, register for just the one main competition
+            selected_comps = eligible
+        else:
+            # For grades, register for 2-5 individual dances
+            num_entries = min(random.randint(2, 5), len(eligible))
+            selected_comps = random.sample(eligible, num_entries) if eligible else []
         
         entries = []
         for comp in selected_comps:
@@ -920,6 +960,12 @@ def delete_demo_data(session: Session) -> dict:
             select(Stage).where(Stage.feis_id == feis.id)
         ).all()
         for stage in stages:
+            # Delete stage judge coverage
+            coverages = session.exec(
+                select(StageJudgeCoverage).where(StageJudgeCoverage.stage_id == stage.id)
+            ).all()
+            for cov in coverages:
+                session.delete(cov)
             session.delete(stage)
         
         # Delete competitions and their entries/scores
@@ -946,6 +992,20 @@ def delete_demo_data(session: Session) -> dict:
             
             session.delete(comp)
         
+        # Delete feis adjudicators
+        feis_adjudicators = session.exec(
+            select(FeisAdjudicator).where(FeisAdjudicator.feis_id == feis.id)
+        ).all()
+        for fa in feis_adjudicators:
+            # Delete stage coverage linked to this adjudicator
+            coverages = session.exec(
+                select(StageJudgeCoverage).where(StageJudgeCoverage.feis_adjudicator_id == fa.id)
+            ).all()
+            for cov in coverages:
+                session.delete(cov)
+            
+            session.delete(fa)
+
         session.delete(feis)
         summary["feiseanna_deleted"] += 1
     

@@ -21,6 +21,14 @@ interface CompetitionWithScores {
   score_count: number;
 }
 
+interface JudgeScoreDetail {
+  judge_id: string;
+  judge_name: string | null;
+  raw_score: number;
+  rank: number;
+  irish_points: number;
+}
+
 interface TabulatorResultItem {
   rank: number;
   competitor_number: number | null;
@@ -28,6 +36,7 @@ interface TabulatorResultItem {
   dancer_school: string | null;
   irish_points: number;
   is_recalled: boolean;
+  judge_scores: JudgeScoreDetail[];
 }
 
 interface TabulatorResults {
@@ -56,6 +65,28 @@ const isLoadingResults = ref(false);
 const lastUpdated = ref<string | null>(null);
 const autoRefresh = ref(true);
 const isOnline = ref(navigator.onLine);
+const showDetailedView = ref(false);
+
+// Computed judges list for detailed view
+const allJudges = computed(() => {
+  if (!results.value?.results) return [];
+  const judgeMap = new Map<string, string>();
+  results.value.results.forEach(item => {
+    if (item.judge_scores) {
+      item.judge_scores.forEach(score => {
+        judgeMap.set(score.judge_id, score.judge_name || 'Unknown');
+      });
+    }
+  });
+  return Array.from(judgeMap.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
+
+// Helper to get specific judge score
+const getJudgeScore = (item: TabulatorResultItem, judgeId: string) => {
+  return item.judge_scores?.find(s => s.judge_id === judgeId);
+};
 
 // Listen for network status changes
 window.addEventListener('online', () => {
@@ -389,6 +420,15 @@ const getRankClass = (rank: number) => {
 
         <!-- Auto-refresh & Manual Refresh -->
         <div class="flex items-end gap-3">
+          <label class="flex items-center gap-2 cursor-pointer mr-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
+            <input
+              type="checkbox"
+              v-model="showDetailedView"
+              class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span class="text-sm text-slate-700 font-medium">Detailed View</span>
+          </label>
+
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -473,8 +513,22 @@ const getRankClass = (rank: number) => {
               <th class="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 School
               </th>
+              
+              <!-- Dynamic Judge Headers -->
+              <template v-if="showDetailedView">
+                <th 
+                  v-for="judge in allJudges" 
+                  :key="judge.id" 
+                  class="px-2 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider border-l border-slate-200 min-w-[100px]"
+                >
+                  <div class="truncate max-w-[150px] mx-auto" :title="judge.name">
+                    {{ judge.name.split(' ')[1] || judge.name }} <!-- Try to get Last Name or Full -->
+                  </div>
+                </th>
+              </template>
+
               <th class="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider w-32">
-                Irish Points
+                Total IP
               </th>
               <th class="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider w-24">
                 Status
@@ -517,6 +571,22 @@ const getRankClass = (rank: number) => {
                 {{ item.dancer_school ?? '—' }}
               </td>
               
+              <!-- Dynamic Judge Scores -->
+              <template v-if="showDetailedView">
+                <td 
+                  v-for="judge in allJudges" 
+                  :key="judge.id" 
+                  class="px-2 py-4 text-center border-l border-slate-100 bg-slate-50/30"
+                >
+                  <div v-if="getJudgeScore(item, judge.id)" class="flex flex-col items-center gap-1">
+                    <span class="font-bold text-slate-800">{{ getJudgeScore(item, judge.id)?.raw_score }}</span>
+                    <span class="text-[10px] text-slate-500 uppercase tracking-wide">Rank {{ getJudgeScore(item, judge.id)?.rank }}</span>
+                    <span class="text-xs font-mono text-indigo-600 font-semibold">{{ getJudgeScore(item, judge.id)?.irish_points }} IP</span>
+                  </div>
+                  <span v-else class="text-slate-300">-</span>
+                </td>
+              </template>
+
               <!-- Irish Points -->
               <td class="px-6 py-4 text-right">
                 <span class="font-mono font-semibold text-slate-800">

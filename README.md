@@ -101,6 +101,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Recall Calculator** — Auto-calculate top 50% for championships with tie extension
 - **Tie-Breaking** — Proper "split points" algorithm for tied placements
 - **Drop High/Low** — Support for 5-judge panels with automatic outlier removal
+- **Detailed View** — Toggle per-judge scores, ranks, and points in the tabulator dashboard 🆕
 - **Public Access** — Anyone can view results (no login required)
 - **Local Mode** — Calculate results client-side when offline (toggle in UI)
 

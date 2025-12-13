@@ -39,11 +39,20 @@ class JudgeScore(SQLModel, table=True):
 
 # --- Response Models (Pydantic only, no table=True) ---
 
+class JudgeScoreDetail(SQLModel):
+    """Detail of a score from a single judge."""
+    judge_id: str
+    judge_name: Optional[str] = None
+    raw_score: float
+    rank: int
+    irish_points: float
+
 class RankedResult(SQLModel):
     competitor_id: str
     rank: int 
     irish_points: float
     raw_score_sum: Optional[float] = None
+    judge_scores: List[JudgeScoreDetail] = []
 
 class RoundResult(SQLModel):
     round_id: str

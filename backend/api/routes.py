@@ -26,7 +26,7 @@ from backend.api.schemas import (
     VerifyEmailRequest, ResendVerificationRequest, VerificationResponse,
     SiteSettingsUpdate, SiteSettingsResponse,
     CompetitorForScoring, CompetitionForScoring, ScoreSubmission, ScoreSubmissionResponse,
-    TabulatorResultItem, TabulatorResults, CompetitionWithScores,
+    TabulatorResultItem, TabulatorResults, CompetitionWithScores, JudgeScoreDetailSchema,
     # New scheduling schemas
     StageCreate, StageUpdate, StageResponse, StageJudgeCoverageCreate, StageJudgeCoverageResponse,
     DurationEstimateRequest, DurationEstimateResponse,
@@ -2808,8 +2808,15 @@ async def get_competition_results(
     # Calculate results using the scoring engine
     round_result = calculator.calculate_round(str(competition.id), list(scores))
     
-    # Get unique judge count
+    # Get unique judge count and map to names
     judge_ids = set(s.judge_id for s in scores)
+    
+    # Fetch judges (User table)
+    # Note: demo_data uses User(role=ADJUDICATOR)
+    # FeisAdjudicator might be used later, but scores link to User.id currently (based on demo_data)
+    judge_uuids = [UUID(jid) for jid in judge_ids]
+    judges = session.exec(select(User).where(User.id.in_(judge_uuids))).all()
+    judge_map = {str(j.id): j.name for j in judges}
     
     # Calculate recall list
     recalled_ids = calculator.calculate_recall(round_result.results)
@@ -2833,13 +2840,29 @@ async def get_competition_results(
             teacher = session.get(User, dancer.school_id)
             school_name = teacher.name if teacher else None
         
+        # Populate detailed judge scores
+        judge_details = []
+        for detail in ranked.judge_scores:
+            judge_name = judge_map.get(detail.judge_id, "Unknown Judge")
+            judge_details.append(JudgeScoreDetailSchema(
+                judge_id=detail.judge_id,
+                judge_name=judge_name,
+                raw_score=detail.raw_score,
+                rank=detail.rank,
+                irish_points=detail.irish_points
+            ))
+        
+        # Sort details by judge name for consistent display
+        judge_details.sort(key=lambda x: x.judge_name or "")
+
         result_items.append(TabulatorResultItem(
             rank=ranked.rank,
             competitor_number=entry.competitor_number,
             dancer_name=dancer.name,
             dancer_school=school_name,
             irish_points=ranked.irish_points,
-            is_recalled=ranked.competitor_id in recalled_set
+            is_recalled=ranked.competitor_id in recalled_set,
+            judge_scores=judge_details
         ))
     
     # Count total competitors (entries with numbers in this competition)

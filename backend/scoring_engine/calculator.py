@@ -1,7 +1,7 @@
 from typing import List, Dict, Tuple
 from collections import defaultdict
 import math
-from .models import JudgeScore, RankedResult, RoundResult
+from .models import JudgeScore, RankedResult, RoundResult, JudgeScoreDetail
 
 class IrishPointsCalculator:
     """
@@ -84,6 +84,9 @@ class IrishPointsCalculator:
         # Dictionary to hold list of Irish Points for each competitor: {comp_id: [ip1, ip2, ...]}
         competitor_irish_points: Dict[str, List[float]] = defaultdict(list)
         
+        # New: Dictionary to hold detailed scores: {comp_id: [JudgeScoreDetail, ...]}
+        competitor_judge_details: Dict[str, List[JudgeScoreDetail]] = defaultdict(list)
+        
         # 2. Convert Raw Scores to Irish Points for EACH Judge
         for judge_id, raw_scores in judge_cards.items():
             # Sort this judge's scores high to low (Raw Score)
@@ -113,6 +116,15 @@ class IrishPointsCalculator:
                 # Award these points to the competitors
                 for score in tied_group:
                     competitor_irish_points[score.competitor_id].append(avg_points)
+                    
+                    # Store detail
+                    detail = JudgeScoreDetail(
+                        judge_id=judge_id,
+                        raw_score=score.value,
+                        rank=current_rank, # or shared rank
+                        irish_points=avg_points
+                    )
+                    competitor_judge_details[score.competitor_id].append(detail)
                 
                 current_rank += num_tied
                 i += num_tied
@@ -127,7 +139,8 @@ class IrishPointsCalculator:
                 competitor_id=comp_id,
                 irish_points=total_ip,
                 rank=0, # Will be calculated next based on the IP totals
-                raw_score_sum=0 # Raw sum is less relevant now, effectively 0 or N/A
+                raw_score_sum=0, # Raw sum is less relevant now, effectively 0 or N/A
+                judge_scores=competitor_judge_details[comp_id]
             ))
 
         # 4. Final Ranking based on Total Irish Points
