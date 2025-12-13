@@ -11,6 +11,10 @@ const props = defineProps<{
   stageId?: string;
 }>();
 
+const emit = defineEmits<{
+  (e: 'fullscreen-change', isFullscreen: boolean): void;
+}>();
+
 // State
 const loading = ref(true);
 
@@ -198,6 +202,10 @@ const stopAutoAdvance = () => {
 };
 
 // Watchers
+watch(isFullScreen, (newValue) => {
+  emit('fullscreen-change', newValue);
+});
+
 watch(selectedFeis, () => {
   selectedStage.value = '';
   currentIndex.value = 0;

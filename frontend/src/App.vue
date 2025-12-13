@@ -78,6 +78,12 @@ const handleAuthSuccess = () => {
 type ViewType = 'home' | 'registration' | 'judge' | 'tabulator' | 'admin' | 'teacher' | 'checkin' | 'stage-monitor' | 'verify-email' | 'account';
 const view = ref<ViewType>('home');
 
+// Stage Monitor Fullscreen state
+const isStageFullscreen = ref(false);
+const handleStageFullscreenChange = (isFullscreen: boolean) => {
+  isStageFullscreen.value = isFullscreen;
+};
+
 // Mobile menu state
 const mobileMenuOpen = ref(false);
 
@@ -319,7 +325,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
     <!-- Navigation Bar -->
-    <nav class="bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-xl sticky top-0 z-50">
+    <nav v-show="!isStageFullscreen" class="bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-xl sticky top-0 z-50">
       <div class="max-w-7xl mx-auto px-4">
         <div class="flex justify-between items-center h-16">
           <!-- Logo -->
@@ -1563,7 +1569,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
 
       <!-- Stage Monitor View (Public) -->
       <div v-else-if="view === 'stage-monitor'" class="min-h-screen -mt-8 -mx-4 sm:-mx-6 lg:-mx-8">
-        <StageMonitor />
+        <StageMonitor @fullscreen-change="handleStageFullscreenChange" />
       </div>
 
       <!-- Email Verification View -->
