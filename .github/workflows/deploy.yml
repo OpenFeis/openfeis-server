@@ -1,15 +1,60 @@
-name: Deploy to Production
+name: Build and Deploy
 
 on:
   push:
     branches:
       - main
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: openfeis/openfeis-server
+
 jobs:
-  deploy:
-    name: Deploy to GCP VM
+  build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -19,17 +64,17 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           script_stop: true
           script: |
-            set -e  # Exit on any error
+            set -e
             
             echo "🍀 Starting Open Feis deployment..."
             cd /opt/openfeis
             
-            echo "📥 Pulling latest code..."
+            echo "📥 Pulling latest code (for Caddyfile, docker-compose.yml)..."
             git fetch origin main
             git reset --hard origin/main
             
-            echo "🔨 Building Docker images..."
-            docker compose build
+            echo "📦 Pulling latest Docker image..."
+            docker compose pull
             
             echo "🚀 Restarting services..."
             docker compose up -d
@@ -39,4 +84,3 @@ jobs:
             
             echo "✅ Deployment complete!"
             docker compose ps
-

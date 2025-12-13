@@ -20,7 +20,7 @@ services:
 
   # FastAPI Application (serves both API and frontend)
   app:
-    build: .
+    image: ghcr.io/openfeis/openfeis-server:latest
     restart: unless-stopped
     volumes:
       - app_data:/data
