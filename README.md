@@ -35,9 +35,13 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **My Account Dashboard** — Manage your profile, change password, view registration history
 - **Persistent Dancer Profiles** — Save dancer profiles once, reuse them across multiple feiseanna
 - **Dancer Management** — Add, edit, and delete dancer profiles from your account
-- **School Linking** — Link dancers to their teacher/school once, automatically visible to teachers 🆕
+- **School Linking** — Link dancers to their teacher/school once, automatically visible to teachers
 - **Smart Registration** — Select from saved dancers or create new ones when registering
-- **Eligibility Filtering** — Only see competitions your dancer is eligible for (filtered by age, gender, level)
+- **Per-Dance Level Selection** — Set different competition levels for each dance type (e.g., Prizewinner in Reel, Novice in Hornpipe) 🆕
+- **Dance-by-Dance Grid** — Visual registration table showing all available dances with level dropdowns 🆕
+- **Figure/Ceili Dances** — Register for team dances (2-hand through 8-hand) by age group 🆕
+- **Championship Registration** — Simple registration for Preliminary and Open Championships 🆕
+- **Real-Time Eligibility** — See matched competitions instantly as you adjust levels 🆕
 - **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
 - **Family Maximum Cap** — Automatic savings when fees exceed the family cap (e.g., $150)
 - **Late Fee Transparency** — Clear display of late fees when registering after the deadline
@@ -53,6 +57,10 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 ### For Organizers
 - **Feis Manager** — Create, edit, and manage feiseanna from the frontend (no SQL required)
 - **Syllabus Generator** — Auto-generate 100+ competitions with one click (Age × Gender × Level × Dance)
+- **Gender-Neutral by Default** — Creates open competitions (e.g., "U8 Reel") with optional Boys/Girls separation 🆕
+- **Figure Dance Generation** — Generate team dance competitions (2-hand through 8-hand) by age only 🆕
+- **Championship Generation** — Generate Preliminary and Open Championship events 🆕
+- **Competition Categories** — Competitions organized into Solo, Figure, and Championship categories 🆕
 - **Competition Manager** — View, filter, and manage all competitions in a feis
 - **Competition Codes** — Auto-generated codes (e.g., "407SJ") with organizer override
 - **Entry Manager** — Assign competitor numbers, mark payments, track registrations
@@ -268,6 +276,7 @@ openfeis-server/
 │   │   │   │   └── JudgePad.vue
 │   │   │   ├── registration/
 │   │   │   │   ├── DancerProfileForm.vue
+│   │   │   │   ├── DanceRegistrationTable.vue  # Per-dance level grid 🆕
 │   │   │   │   ├── EligibilityPicker.vue
 │   │   │   │   └── CartSummary.vue
 │   │   │   ├── checkin/                      # 🆕
@@ -699,10 +708,12 @@ For local testing, you have two options:
    - Enter their date of birth — the system automatically calculates their **competition age** (age as of January 1st)
    - Select their category (Girl/Boy)
    - Select their current level (First Feis, Beginner 1, Beginner 2, Novice, Prizewinner, Prelim Champ, Open Champ)
-5. **Select Competitions:**
-   - The system only shows competitions your dancer is **eligible** for
-   - Competitions are grouped by dance type (Reel, Light Jig, etc.)
-   - Click to select/deselect
+5. **Select Competitions (Enhanced Dance-by-Dance Grid):** 🆕
+   - **Solo Dances:** See all 7 standard dances (Reel, Light Jig, Slip Jig, Single Jig, Treble Jig, Hornpipe, Traditional Set) in a grid
+   - **Per-Dance Levels:** Each dance has a dropdown — adjust levels individually if your dancer is at different levels for different dances
+   - **Toggle Selection:** Click the checkbox next to each dance to add/remove it from your cart
+   - **Figure Dances:** Team dances (2-hand through 8-hand) are shown by age group only — no level selection needed
+   - **Championships:** If eligible, register for Preliminary or Open Championship with one click
 6. **Review Cart:**
    - See itemized fee breakdown
    - **Family Cap** automatically applies if you exceed $150
@@ -711,6 +722,8 @@ For local testing, you have two options:
    - **Pay at Door** — Reserve your spot and pay at check-in on feis day
 
 > **Tip:** Dancer profiles are saved to your account! When registering for future feiseanna, you can simply select your saved dancers instead of re-entering their information.
+
+> **Tip:** The per-dance level settings are remembered, so if your dancer advances in one dance but not others, you can set each level appropriately.
 
 ### For Judges: Scoring a Round
 
@@ -872,12 +885,22 @@ class Feis:
 class Dancer:
     id: UUID
     parent_id: UUID  # FK to User
-    school_id: Optional[UUID]  # FK to User (teacher) 🆕
+    school_id: Optional[UUID]  # FK to User (teacher)
     name: str
     dob: date
     current_level: CompetitionLevel
     gender: Gender
     clrg_number: Optional[str]
+    is_adult: bool  # 🆕 Adult competitor flag
+    # Per-dance level overrides (Enhanced Registration) 🆕
+    level_reel: Optional[CompetitionLevel]
+    level_light_jig: Optional[CompetitionLevel]
+    level_slip_jig: Optional[CompetitionLevel]
+    level_single_jig: Optional[CompetitionLevel]
+    level_treble_jig: Optional[CompetitionLevel]
+    level_hornpipe: Optional[CompetitionLevel]
+    level_traditional_set: Optional[CompetitionLevel]
+    # Note: Figure dances are not leveled — they're matched by age only
 
 class Stage:
     id: UUID
@@ -930,10 +953,12 @@ class Competition:
     max_age: int
     level: CompetitionLevel  # first_feis, beginner_1, beginner_2, novice, prizewinner, preliminary_championship, open_championship
     gender: Optional[Gender]
-    code: Optional[str]  # Auto-generated display code (e.g., "407SJ") 🆕
-    max_entries: Optional[int]  # Per-competition cap 🆕
+    code: Optional[str]  # Auto-generated display code (e.g., "407SJ")
+    max_entries: Optional[int]  # Per-competition cap
+    category: CompetitionCategory  # SOLO, FIGURE, or CHAMPIONSHIP 🆕
+    is_mixed: bool  # For mixed-gender figure dances 🆕
     # Scheduling fields
-    dance_type: Optional[DanceType]  # REEL, LIGHT_JIG, SLIP_JIG, etc.
+    dance_type: Optional[DanceType]  # REEL, LIGHT_JIG, SLIP_JIG, SINGLE_JIG, TWO_HAND, etc.
     tempo_bpm: Optional[int]  # Beats per minute
     bars: int  # Number of bars danced (default 48)
     scoring_method: ScoringMethod  # SOLO or CHAMPIONSHIP
@@ -1202,6 +1227,29 @@ docker compose up -d
 1. **Start:** `e2-micro` with swap enabled
 2. **If RAM > 80%:** Upgrade to `e2-small` (2GB RAM, ~$13/mo)
 3. **High traffic:** Add Cloudflare for CDN + DDoS protection (free tier)
+
+### Database Migrations
+
+Open Feis uses **automatic schema migrations** that run on server startup. No manual migration commands are required.
+
+**How it works:**
+1. When the server starts, `create_db_and_tables()` runs
+2. It checks each table for missing columns
+3. New columns are added with appropriate defaults
+4. Data migrations run to fix any inconsistencies (e.g., enum case)
+
+**Production deployment:**
+- Push to `main` triggers the CI/CD pipeline
+- The new Docker image is built and deployed
+- On restart, migrations run automatically
+- Existing data is preserved — new columns get sensible defaults
+
+**No downtime required** for most schema changes. The migration system handles:
+- Adding new columns with `ALTER TABLE ADD COLUMN`
+- Setting default values for existing rows
+- Fixing enum value casing (lowercase → uppercase)
+
+> **Note:** SQLite doesn't support all ALTER TABLE operations. Dropping or renaming columns requires manual intervention (rare).
 
 ### Backup & Recovery
 

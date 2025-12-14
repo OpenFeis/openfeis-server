@@ -73,6 +73,21 @@ def run_migrations():
         ("order", "refunded_at", 'ALTER TABLE "order" ADD COLUMN refunded_at DATETIME'),
         ("order", "refund_reason", 'ALTER TABLE "order" ADD COLUMN refund_reason VARCHAR'),
         ("order", "stripe_refund_id", 'ALTER TABLE "order" ADD COLUMN stripe_refund_id VARCHAR'),
+        
+        # Competition table - category and is_mixed (Enhanced Registration)
+        ("competition", "category", "ALTER TABLE competition ADD COLUMN category VARCHAR DEFAULT 'SOLO'"),
+        ("competition", "is_mixed", "ALTER TABLE competition ADD COLUMN is_mixed BOOLEAN DEFAULT 0"),
+        
+        # Dancer table - per-dance levels (Enhanced Registration)
+        ("dancer", "level_reel", "ALTER TABLE dancer ADD COLUMN level_reel VARCHAR"),
+        ("dancer", "level_light_jig", "ALTER TABLE dancer ADD COLUMN level_light_jig VARCHAR"),
+        ("dancer", "level_slip_jig", "ALTER TABLE dancer ADD COLUMN level_slip_jig VARCHAR"),
+        ("dancer", "level_single_jig", "ALTER TABLE dancer ADD COLUMN level_single_jig VARCHAR"),
+        ("dancer", "level_treble_jig", "ALTER TABLE dancer ADD COLUMN level_treble_jig VARCHAR"),
+        ("dancer", "level_hornpipe", "ALTER TABLE dancer ADD COLUMN level_hornpipe VARCHAR"),
+        ("dancer", "level_traditional_set", "ALTER TABLE dancer ADD COLUMN level_traditional_set VARCHAR"),
+        ("dancer", "level_figure", "ALTER TABLE dancer ADD COLUMN level_figure VARCHAR"),
+        ("dancer", "is_adult", "ALTER TABLE dancer ADD COLUMN is_adult BOOLEAN DEFAULT 0"),
     ]
     
     with engine.connect() as conn:
@@ -96,6 +111,10 @@ def run_migrations():
             conn.execute(text("UPDATE competition SET scoring_method = 'SOLO' WHERE scoring_method = 'solo'"))
             conn.execute(text("UPDATE competition SET scoring_method = 'CHAMPIONSHIP' WHERE scoring_method = 'championship'"))
             conn.execute(text("UPDATE competition SET dance_type = UPPER(dance_type) WHERE dance_type IS NOT NULL"))
+            # Fix category enum (Enhanced Registration)
+            conn.execute(text("UPDATE competition SET category = 'SOLO' WHERE category = 'solo'"))
+            conn.execute(text("UPDATE competition SET category = 'FIGURE' WHERE category = 'figure'"))
+            conn.execute(text("UPDATE competition SET category = 'CHAMPIONSHIP' WHERE category = 'championship'"))
             conn.commit()
             print("Migration: Fixed enum values to uppercase")
         except Exception as e:

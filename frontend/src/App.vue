@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import JudgePad from './components/judge/JudgePad.vue';
 import TabulatorDashboard from './components/tabulator/TabulatorDashboard.vue';
 import DancerProfileForm from './components/registration/DancerProfileForm.vue';
-import EligibilityPicker from './components/registration/EligibilityPicker.vue';
+import DanceRegistrationTable from './components/registration/DanceRegistrationTable.vue';
 import CartSummary from './components/registration/CartSummary.vue';
 import SyllabusGenerator from './components/admin/SyllabusGenerator.vue';
 import FeisManager from './components/admin/FeisManager.vue';
@@ -1071,7 +1071,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
             >
               ← {{ auth.isAuthenticated && savedDancer && !currentDancer.name ? 'Back to Dancer Selection' : 'Back to Profile' }}
             </button>
-            <EligibilityPicker
+            <DanceRegistrationTable
               :dancer="savedDancer || currentDancer"
               :feis-id="selectedRegistrationFeis?.id || ''"
               :competitions="feisCompetitions"

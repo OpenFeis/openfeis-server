@@ -4,7 +4,8 @@ from datetime import date, datetime, time
 from uuid import UUID
 from backend.scoring_engine.models_platform import (
     CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod,
-    FeeCategory, PaymentStatus, AdjudicatorStatus, AvailabilityType
+    FeeCategory, PaymentStatus, AdjudicatorStatus, AvailabilityType,
+    CompetitionCategory
 )
 
 # ============= Syllabus Generation =============
@@ -19,6 +20,12 @@ class SyllabusGenerationRequest(BaseModel):
     # New options
     price_cents: int = 1000  # Default $10.00 per competition
     scoring_method: ScoringMethod = ScoringMethod.SOLO
+    # Figure/Ceili dances
+    figure_dances: Optional[List[str]] = None  # ["2-Hand", "3-Hand", "4-Hand", "6-Hand", "8-Hand"]
+    include_mixed_figure: bool = True  # Include mixed-gender figure competitions
+    # Championships
+    include_championships: bool = False
+    championship_types: Optional[List[str]] = None  # ["prelim", "open"]
 
 class SyllabusGenerationResponse(BaseModel):
     generated_count: int
@@ -61,6 +68,9 @@ class CompetitionCreate(BaseModel):
     level: CompetitionLevel
     gender: Optional[Gender] = None
     code: Optional[str] = None  # Display code (e.g., "407SJ") - auto-generated if not provided
+    # Competition category (solo, figure, championship)
+    category: CompetitionCategory = CompetitionCategory.SOLO
+    is_mixed: bool = False  # For figure dances - mixed gender team
     # New scheduling fields
     dance_type: Optional[DanceType] = None
     tempo_bpm: Optional[int] = None
@@ -76,6 +86,9 @@ class CompetitionUpdate(BaseModel):
     level: Optional[CompetitionLevel] = None
     gender: Optional[Gender] = None
     code: Optional[str] = None  # Display code - set to override auto-generated
+    # Competition category
+    category: Optional[CompetitionCategory] = None
+    is_mixed: Optional[bool] = None
     # New scheduling fields
     dance_type: Optional[DanceType] = None
     tempo_bpm: Optional[int] = None
@@ -97,6 +110,9 @@ class CompetitionResponse(BaseModel):
     level: CompetitionLevel
     gender: Optional[Gender] = None
     code: Optional[str] = None  # Display code (e.g., "407SJ")
+    # Competition category
+    category: CompetitionCategory = CompetitionCategory.SOLO
+    is_mixed: bool = False
     entry_count: int = 0
     # New scheduling fields
     dance_type: Optional[DanceType] = None
@@ -226,6 +242,16 @@ class DancerCreate(BaseModel):
     current_level: CompetitionLevel
     clrg_number: Optional[str] = None
     school_id: Optional[str] = None
+    # Per-dance levels (optional - defaults to current_level)
+    level_reel: Optional[CompetitionLevel] = None
+    level_light_jig: Optional[CompetitionLevel] = None
+    level_slip_jig: Optional[CompetitionLevel] = None
+    level_single_jig: Optional[CompetitionLevel] = None
+    level_treble_jig: Optional[CompetitionLevel] = None
+    level_hornpipe: Optional[CompetitionLevel] = None
+    level_traditional_set: Optional[CompetitionLevel] = None
+    level_figure: Optional[CompetitionLevel] = None
+    is_adult: bool = False
 
 
 class DancerUpdate(BaseModel):
@@ -236,6 +262,16 @@ class DancerUpdate(BaseModel):
     current_level: Optional[CompetitionLevel] = None
     clrg_number: Optional[str] = None
     school_id: Optional[str] = None
+    # Per-dance levels
+    level_reel: Optional[CompetitionLevel] = None
+    level_light_jig: Optional[CompetitionLevel] = None
+    level_slip_jig: Optional[CompetitionLevel] = None
+    level_single_jig: Optional[CompetitionLevel] = None
+    level_treble_jig: Optional[CompetitionLevel] = None
+    level_hornpipe: Optional[CompetitionLevel] = None
+    level_traditional_set: Optional[CompetitionLevel] = None
+    level_figure: Optional[CompetitionLevel] = None
+    is_adult: Optional[bool] = None
 
 
 class DancerResponse(BaseModel):
@@ -247,6 +283,16 @@ class DancerResponse(BaseModel):
     clrg_number: Optional[str] = None
     parent_id: str
     school_id: Optional[str] = None
+    # Per-dance levels
+    level_reel: Optional[CompetitionLevel] = None
+    level_light_jig: Optional[CompetitionLevel] = None
+    level_slip_jig: Optional[CompetitionLevel] = None
+    level_single_jig: Optional[CompetitionLevel] = None
+    level_treble_jig: Optional[CompetitionLevel] = None
+    level_hornpipe: Optional[CompetitionLevel] = None
+    level_traditional_set: Optional[CompetitionLevel] = None
+    level_figure: Optional[CompetitionLevel] = None
+    is_adult: bool = False
 
     class Config:
         from_attributes = True

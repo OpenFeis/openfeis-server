@@ -33,14 +33,30 @@ class Gender(str, Enum):
 
 class DanceType(str, Enum):
     """Standard Irish dance types with their typical tempos."""
+    # Solo dances
     REEL = "REEL"                           # 113 bpm
     LIGHT_JIG = "LIGHT_JIG"                 # 115 bpm  
     SLIP_JIG = "SLIP_JIG"                   # 113 bpm
+    SINGLE_JIG = "SINGLE_JIG"               # 124 bpm (NEW)
     TREBLE_JIG = "TREBLE_JIG"               # 73 bpm
     HORNPIPE = "HORNPIPE"                   # 138 bpm
     TRADITIONAL_SET = "TRADITIONAL_SET"     # Varies
     CONTEMPORARY_SET = "CONTEMPORARY_SET"   # Varies
     TREBLE_REEL = "TREBLE_REEL"             # 92 bpm
+    
+    # Figure/Ceili dances (team dances)
+    TWO_HAND = "TWO_HAND"                   # 2-hand reel
+    THREE_HAND = "THREE_HAND"               # 3-hand reel
+    FOUR_HAND = "FOUR_HAND"                 # 4-hand jig or reel
+    SIX_HAND = "SIX_HAND"                   # 6-hand reel
+    EIGHT_HAND = "EIGHT_HAND"               # 8-hand ceili
+
+
+class CompetitionCategory(str, Enum):
+    """Category of competition for registration grouping."""
+    SOLO = "SOLO"                   # Individual solo dances
+    FIGURE = "FIGURE"               # Team/ceili dances (2-hand, 3-hand, etc.)
+    CHAMPIONSHIP = "CHAMPIONSHIP"   # Prelim and Open Championships
 
 class ScoringMethod(str, Enum):
     """How a competition is scored."""
@@ -200,6 +216,20 @@ class Dancer(SQLModel, table=True):
     gender: Gender
     clrg_number: Optional[str] = None
     
+    # Per-dance levels (defaults to current_level if None)
+    # Allows dancers to compete at different levels for different dances
+    level_reel: Optional[CompetitionLevel] = None
+    level_light_jig: Optional[CompetitionLevel] = None
+    level_slip_jig: Optional[CompetitionLevel] = None
+    level_single_jig: Optional[CompetitionLevel] = None
+    level_treble_jig: Optional[CompetitionLevel] = None
+    level_hornpipe: Optional[CompetitionLevel] = None
+    level_traditional_set: Optional[CompetitionLevel] = None
+    level_figure: Optional[CompetitionLevel] = None  # For all figure/ceili dances
+    
+    # Adult dancer flag
+    is_adult: bool = Field(default=False)
+    
     # Relationships
     parent: User = Relationship(
         back_populates="dancers",
@@ -222,6 +252,12 @@ class Competition(SQLModel, table=True):
     # Display code (e.g., "407SJ" for Novice U7 Slip Jig)
     # Auto-generated but can be overridden by organizer
     code: Optional[str] = Field(default=None, index=True)
+    
+    # Competition category (solo, figure, championship)
+    category: CompetitionCategory = Field(default=CompetitionCategory.SOLO)
+    
+    # For figure/ceili dances: is this a mixed (boys+girls) competition?
+    is_mixed: bool = Field(default=False)
     
     # New scheduling/competition definition fields (Phase 2)
     dance_type: Optional[DanceType] = None

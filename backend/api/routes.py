@@ -10,6 +10,7 @@ from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Dancer, Entry, CompetitionLevel, RoleType, SiteSettings,
     Stage, DanceType, ScoringMethod, FeisSettings, FeeItem, FeeCategory, Order, OrderItem, PaymentStatus,
     FeisAdjudicator, AdjudicatorAvailability, AdjudicatorStatus, AvailabilityType, StageJudgeCoverage,
+    CompetitionCategory, Gender,
     FeisOrganizer
 )
 from backend.scoring_engine.calculator import IrishPointsCalculator
@@ -1222,6 +1223,8 @@ async def list_competitions(feis_id: str, session: Session = Depends(get_session
             level=comp.level,
             gender=comp.gender,
             code=comp.code,
+            category=comp.category,
+            is_mixed=comp.is_mixed,
             entry_count=entry_count,
             # New scheduling fields
             dance_type=comp.dance_type,
@@ -1262,6 +1265,8 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         level=comp_data.level,
         gender=comp_data.gender,
         code=code,
+        category=comp_data.category,
+        is_mixed=comp_data.is_mixed,
         # New fields
         dance_type=comp_data.dance_type,
         tempo_bpm=comp_data.tempo_bpm,
@@ -1283,6 +1288,8 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         level=comp.level,
         gender=comp.gender,
         code=comp.code,
+        category=comp.category,
+        is_mixed=comp.is_mixed,
         entry_count=0,
         dance_type=comp.dance_type,
         tempo_bpm=comp.tempo_bpm,
@@ -1309,6 +1316,10 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         comp.level = comp_data.level
     if comp_data.gender is not None:
         comp.gender = comp_data.gender
+    if comp_data.category is not None:
+        comp.category = comp_data.category
+    if comp_data.is_mixed is not None:
+        comp.is_mixed = comp_data.is_mixed
     # New scheduling fields
     if comp_data.dance_type is not None:
         comp.dance_type = comp_data.dance_type
@@ -1347,6 +1358,9 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         max_age=comp.max_age,
         level=comp.level,
         gender=comp.gender,
+        code=comp.code,
+        category=comp.category,
+        is_mixed=comp.is_mixed,
         entry_count=entry_count,
         dance_type=comp.dance_type,
         tempo_bpm=comp.tempo_bpm,
@@ -1456,13 +1470,20 @@ async def generate_syllabus(
     count = 0
     current_age = request.min_age
     
+    # ===== SOLO DANCES =====
     while current_age <= request.max_age:
         age_group = f"U{current_age}"
         
         for gender in request.genders:
             for level in request.levels:
                 for dance in request.dances:
-                    comp_name = f"{gender.value.title()} {age_group} {dance} ({format_level_name(level.value)})"
+                    # Handle open (non-gendered) competitions - 'other' means open to all
+                    is_open = gender.value == 'other'
+                    if is_open:
+                        comp_name = f"{age_group} {dance} ({format_level_name(level.value)})"
+                    else:
+                        gender_label = "Boys" if gender.value == 'male' else "Girls"
+                        comp_name = f"{gender_label} {age_group} {dance} ({format_level_name(level.value)})"
                     
                     # Map dance name to DanceType enum
                     dance_type = get_dance_type_from_name(dance)
@@ -1481,8 +1502,10 @@ async def generate_syllabus(
                         min_age=current_age - 2,
                         max_age=current_age,
                         level=level,
-                        gender=gender,
+                        gender=None if is_open else gender,  # Open competitions have no gender restriction
                         code=code,
+                        category=CompetitionCategory.SOLO,
+                        is_mixed=False,
                         # New fields
                         dance_type=dance_type,
                         tempo_bpm=tempo,
@@ -1494,6 +1517,135 @@ async def generate_syllabus(
                     count += 1
         
         current_age += 2
+    
+    # ===== FIGURE/CEILI DANCES =====
+    # Figure dances are NOT leveled - they're open to all grade levels, divided by age only
+    if request.figure_dances:
+        figure_dance_map = {
+            "2-Hand": DanceType.TWO_HAND,
+            "3-Hand": DanceType.THREE_HAND,
+            "4-Hand": DanceType.FOUR_HAND,
+            "6-Hand": DanceType.SIX_HAND,
+            "8-Hand": DanceType.EIGHT_HAND,
+        }
+        
+        current_age = request.min_age
+        while current_age <= request.max_age:
+            age_group = f"U{current_age}"
+            
+            for fig_dance in request.figure_dances:
+                dance_type = figure_dance_map.get(fig_dance)
+                if not dance_type:
+                    continue
+                
+                # Create girls-only figure competition (standard)
+                comp_name = f"Girls {age_group} {fig_dance}"
+                code = generate_competition_code(
+                    level="novice",  # Use novice as placeholder since figure dances aren't leveled
+                    min_age=current_age,
+                    dance_type=dance_type.value
+                ) + "G"  # Add 'G' suffix for girls
+                
+                comp = Competition(
+                    feis_id=feis.id,
+                    name=comp_name,
+                    min_age=current_age - 2,
+                    max_age=current_age,
+                    level=CompetitionLevel.NOVICE,  # Placeholder - figure dances are open level
+                    gender=Gender.FEMALE,
+                    code=code,
+                    category=CompetitionCategory.FIGURE,
+                    is_mixed=False,
+                    dance_type=dance_type,
+                    tempo_bpm=113,  # Figure dances typically 113 bpm
+                    bars=48,
+                    scoring_method=ScoringMethod.SOLO,  # Figure dances use solo scoring
+                    price_cents=request.price_cents
+                )
+                session.add(comp)
+                count += 1
+                
+                # Create mixed figure competition if enabled
+                if request.include_mixed_figure:
+                    comp_name = f"Mixed {age_group} {fig_dance}"
+                    code = generate_competition_code(
+                        level="novice",
+                        min_age=current_age,
+                        dance_type=dance_type.value
+                    ) + "M"  # Add 'M' suffix for mixed
+                    
+                    comp = Competition(
+                        feis_id=feis.id,
+                        name=comp_name,
+                        min_age=current_age - 2,
+                        max_age=current_age,
+                        level=CompetitionLevel.NOVICE,  # Placeholder - figure dances are open level
+                        gender=None,  # Mixed - no gender restriction
+                        code=code,
+                        category=CompetitionCategory.FIGURE,
+                        is_mixed=True,
+                        dance_type=dance_type,
+                        tempo_bpm=113,
+                        bars=48,
+                        scoring_method=ScoringMethod.SOLO,
+                        price_cents=request.price_cents
+                    )
+                    session.add(comp)
+                    count += 1
+            
+            current_age += 2
+    
+    # ===== CHAMPIONSHIPS =====
+    if request.include_championships and request.championship_types:
+        champ_level_map = {
+            "prelim": CompetitionLevel.PRELIMINARY_CHAMPIONSHIP,
+            "open": CompetitionLevel.OPEN_CHAMPIONSHIP,
+        }
+        
+        current_age = request.min_age
+        while current_age <= request.max_age:
+            age_group = f"U{current_age}"
+            
+            for gender in request.genders:
+                for champ_type in request.championship_types:
+                    level = champ_level_map.get(champ_type)
+                    if not level:
+                        continue
+                    
+                    # Handle open (non-gendered) championships
+                    is_open = gender.value == 'other'
+                    champ_label = "Preliminary Championship" if champ_type == "prelim" else "Open Championship"
+                    if is_open:
+                        comp_name = f"{age_group} {champ_label}"
+                    else:
+                        gender_label = "Boys" if gender.value == 'male' else "Girls"
+                        comp_name = f"{gender_label} {age_group} {champ_label}"
+                    
+                    code = generate_competition_code(
+                        level=level.value,
+                        min_age=current_age
+                    )
+                    
+                    comp = Competition(
+                        feis_id=feis.id,
+                        name=comp_name,
+                        min_age=current_age - 2,
+                        max_age=current_age,
+                        level=level,
+                        gender=None if is_open else gender,  # Open championships have no gender restriction
+                        code=code,
+                        category=CompetitionCategory.CHAMPIONSHIP,
+                        is_mixed=False,
+                        dance_type=None,  # Championships have multiple dances
+                        tempo_bpm=None,
+                        bars=48,
+                        scoring_method=ScoringMethod.CHAMPIONSHIP,
+                        price_cents=request.price_cents * 2  # Championships typically cost more
+                    )
+                    session.add(comp)
+                    count += 1
+            
+            current_age += 2
     
     session.commit()
     
@@ -2892,7 +3044,16 @@ async def list_my_dancers(
             gender=d.gender,
             clrg_number=d.clrg_number,
             parent_id=str(d.parent_id),
-            school_id=str(d.school_id) if d.school_id else None
+            school_id=str(d.school_id) if d.school_id else None,
+            level_reel=d.level_reel,
+            level_light_jig=d.level_light_jig,
+            level_slip_jig=d.level_slip_jig,
+            level_single_jig=d.level_single_jig,
+            level_treble_jig=d.level_treble_jig,
+            level_hornpipe=d.level_hornpipe,
+            level_traditional_set=d.level_traditional_set,
+            level_figure=d.level_figure,
+            is_adult=d.is_adult
         )
         for d in dancers
     ]
@@ -2915,7 +3076,17 @@ async def create_dancer(
         gender=dancer_data.gender,
         current_level=dancer_data.current_level,
         clrg_number=dancer_data.clrg_number,
-        school_id=UUID(dancer_data.school_id) if dancer_data.school_id else None
+        school_id=UUID(dancer_data.school_id) if dancer_data.school_id else None,
+        # Per-dance levels
+        level_reel=dancer_data.level_reel,
+        level_light_jig=dancer_data.level_light_jig,
+        level_slip_jig=dancer_data.level_slip_jig,
+        level_single_jig=dancer_data.level_single_jig,
+        level_treble_jig=dancer_data.level_treble_jig,
+        level_hornpipe=dancer_data.level_hornpipe,
+        level_traditional_set=dancer_data.level_traditional_set,
+        level_figure=dancer_data.level_figure,
+        is_adult=dancer_data.is_adult
     )
     session.add(dancer)
     session.commit()
@@ -2929,7 +3100,16 @@ async def create_dancer(
         gender=dancer.gender,
         clrg_number=dancer.clrg_number,
         parent_id=str(dancer.parent_id),
-        school_id=str(dancer.school_id) if dancer.school_id else None
+        school_id=str(dancer.school_id) if dancer.school_id else None,
+        level_reel=dancer.level_reel,
+        level_light_jig=dancer.level_light_jig,
+        level_slip_jig=dancer.level_slip_jig,
+        level_single_jig=dancer.level_single_jig,
+        level_treble_jig=dancer.level_treble_jig,
+        level_hornpipe=dancer.level_hornpipe,
+        level_traditional_set=dancer.level_traditional_set,
+        level_figure=dancer.level_figure,
+        is_adult=dancer.is_adult
     )
 
 
@@ -2964,6 +3144,25 @@ async def update_dancer(
         dancer.clrg_number = dancer_data.clrg_number
     if dancer_data.school_id is not None:
         dancer.school_id = UUID(dancer_data.school_id) if dancer_data.school_id else None
+    # Per-dance levels
+    if dancer_data.level_reel is not None:
+        dancer.level_reel = dancer_data.level_reel
+    if dancer_data.level_light_jig is not None:
+        dancer.level_light_jig = dancer_data.level_light_jig
+    if dancer_data.level_slip_jig is not None:
+        dancer.level_slip_jig = dancer_data.level_slip_jig
+    if dancer_data.level_single_jig is not None:
+        dancer.level_single_jig = dancer_data.level_single_jig
+    if dancer_data.level_treble_jig is not None:
+        dancer.level_treble_jig = dancer_data.level_treble_jig
+    if dancer_data.level_hornpipe is not None:
+        dancer.level_hornpipe = dancer_data.level_hornpipe
+    if dancer_data.level_traditional_set is not None:
+        dancer.level_traditional_set = dancer_data.level_traditional_set
+    if dancer_data.level_figure is not None:
+        dancer.level_figure = dancer_data.level_figure
+    if dancer_data.is_adult is not None:
+        dancer.is_adult = dancer_data.is_adult
     
     session.add(dancer)
     session.commit()
@@ -2977,7 +3176,16 @@ async def update_dancer(
         gender=dancer.gender,
         clrg_number=dancer.clrg_number,
         parent_id=str(dancer.parent_id),
-        school_id=str(dancer.school_id) if dancer.school_id else None
+        school_id=str(dancer.school_id) if dancer.school_id else None,
+        level_reel=dancer.level_reel,
+        level_light_jig=dancer.level_light_jig,
+        level_slip_jig=dancer.level_slip_jig,
+        level_single_jig=dancer.level_single_jig,
+        level_treble_jig=dancer.level_treble_jig,
+        level_hornpipe=dancer.level_hornpipe,
+        level_traditional_set=dancer.level_traditional_set,
+        level_figure=dancer.level_figure,
+        is_adult=dancer.is_adult
     )
 
 

@@ -32,10 +32,23 @@ const dancerForm = ref({
   name: '',
   dob: '',
   gender: 'female' as Gender,
-  current_level: 'beginner' as CompetitionLevel,
+  current_level: 'beginner_1' as CompetitionLevel,
   clrg_number: '',
-  school_id: ''
+  school_id: '',
+  is_adult: false,
+  // Per-dance levels
+  level_reel: null as CompetitionLevel | null,
+  level_light_jig: null as CompetitionLevel | null,
+  level_slip_jig: null as CompetitionLevel | null,
+  level_single_jig: null as CompetitionLevel | null,
+  level_treble_jig: null as CompetitionLevel | null,
+  level_hornpipe: null as CompetitionLevel | null,
+  level_traditional_set: null as CompetitionLevel | null,
+  level_figure: null as CompetitionLevel | null,
 });
+
+// Per-dance levels UI toggle
+const showPerDanceLevels = ref(false);
 const dancerSaving = ref(false);
 const dancerError = ref<string | null>(null);
 
@@ -262,11 +275,21 @@ const openAddDancer = async () => {
     gender: 'female',
     current_level: 'beginner_1',
     clrg_number: '',
-    school_id: ''
+    school_id: '',
+    is_adult: false,
+    level_reel: null,
+    level_light_jig: null,
+    level_slip_jig: null,
+    level_single_jig: null,
+    level_treble_jig: null,
+    level_hornpipe: null,
+    level_traditional_set: null,
+    level_figure: null,
   };
   // Reset teacher selection
   selectedTeacher.value = null;
   teacherSearch.value = '';
+  showPerDanceLevels.value = false;
   dancerError.value = null;
   showDancerModal.value = true;
   // Fetch teachers for dropdown
@@ -282,8 +305,21 @@ const openEditDancer = async (dancer: Dancer) => {
     gender: dancer.gender,
     current_level: dancer.current_level,
     clrg_number: dancer.clrg_number || '',
-    school_id: dancer.school_id || ''
+    school_id: dancer.school_id || '',
+    is_adult: dancer.is_adult || false,
+    level_reel: dancer.level_reel || null,
+    level_light_jig: dancer.level_light_jig || null,
+    level_slip_jig: dancer.level_slip_jig || null,
+    level_single_jig: dancer.level_single_jig || null,
+    level_treble_jig: dancer.level_treble_jig || null,
+    level_hornpipe: dancer.level_hornpipe || null,
+    level_traditional_set: dancer.level_traditional_set || null,
+    level_figure: dancer.level_figure || null,
   };
+  // Show per-dance levels section if any are set
+  showPerDanceLevels.value = !!(dancer.level_reel || dancer.level_light_jig || dancer.level_slip_jig ||
+    dancer.level_single_jig || dancer.level_treble_jig || dancer.level_hornpipe ||
+    dancer.level_traditional_set || dancer.level_figure);
   // Reset teacher selection
   selectedTeacher.value = null;
   teacherSearch.value = '';
@@ -337,7 +373,17 @@ const saveDancer = async () => {
         gender: dancerForm.value.gender,
         current_level: dancerForm.value.current_level,
         clrg_number: dancerForm.value.clrg_number || null,
-        school_id: dancerForm.value.school_id || null
+        school_id: dancerForm.value.school_id || null,
+        is_adult: dancerForm.value.is_adult,
+        // Per-dance levels
+        level_reel: dancerForm.value.level_reel,
+        level_light_jig: dancerForm.value.level_light_jig,
+        level_slip_jig: dancerForm.value.level_slip_jig,
+        level_single_jig: dancerForm.value.level_single_jig,
+        level_treble_jig: dancerForm.value.level_treble_jig,
+        level_hornpipe: dancerForm.value.level_hornpipe,
+        level_traditional_set: dancerForm.value.level_traditional_set,
+        level_figure: dancerForm.value.level_figure,
       })
     });
     
@@ -688,6 +734,40 @@ const registrationsByDancer = computed(() => {
                     </svg>
                     School Linked
                   </span>
+                  <span v-if="dancer.is_adult" class="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-purple-100 text-purple-800">
+                    Adult
+                  </span>
+                </div>
+                <!-- Per-dance level badges (if any differ from main level) -->
+                <div 
+                  v-if="dancer.level_reel || dancer.level_light_jig || dancer.level_slip_jig || dancer.level_single_jig || dancer.level_treble_jig || dancer.level_hornpipe || dancer.level_traditional_set || dancer.level_figure"
+                  class="mt-2 flex flex-wrap gap-1"
+                >
+                  <span class="text-xs text-slate-400 mr-1">Custom levels:</span>
+                  <span v-if="dancer.level_reel" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    🎵 {{ levelOptions.find(l => l.value === dancer.level_reel)?.label }}
+                  </span>
+                  <span v-if="dancer.level_light_jig" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    💫 {{ levelOptions.find(l => l.value === dancer.level_light_jig)?.label }}
+                  </span>
+                  <span v-if="dancer.level_slip_jig" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    ✨ {{ levelOptions.find(l => l.value === dancer.level_slip_jig)?.label }}
+                  </span>
+                  <span v-if="dancer.level_single_jig" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    🪘 {{ levelOptions.find(l => l.value === dancer.level_single_jig)?.label }}
+                  </span>
+                  <span v-if="dancer.level_treble_jig" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    🥁 {{ levelOptions.find(l => l.value === dancer.level_treble_jig)?.label }}
+                  </span>
+                  <span v-if="dancer.level_hornpipe" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    ⚡ {{ levelOptions.find(l => l.value === dancer.level_hornpipe)?.label }}
+                  </span>
+                  <span v-if="dancer.level_traditional_set" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    🌟 {{ levelOptions.find(l => l.value === dancer.level_traditional_set)?.label }}
+                  </span>
+                  <span v-if="dancer.level_figure" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    👥 {{ levelOptions.find(l => l.value === dancer.level_figure)?.label }}
+                  </span>
                 </div>
                 <p class="text-xs text-slate-500 mt-2">
                   DOB: {{ new Date(dancer.dob).toLocaleDateString() }}
@@ -805,6 +885,151 @@ const registrationsByDancer = computed(() => {
               </div>
             </div>
             
+            <!-- Adult Dancer Checkbox -->
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                @click="dancerForm.is_adult = !dancerForm.is_adult"
+                :class="[
+                  'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+                  dancerForm.is_adult
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : 'border-slate-300 hover:border-emerald-400'
+                ]"
+              >
+                <svg v-if="dancerForm.is_adult" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                </svg>
+              </button>
+              <label class="text-sm text-slate-700 cursor-pointer" @click="dancerForm.is_adult = !dancerForm.is_adult">
+                Adult dancer (18+)
+              </label>
+            </div>
+
+            <!-- Per-Dance Levels (Expandable) -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                @click="showPerDanceLevels = !showPerDanceLevels"
+                class="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <div class="flex items-center gap-2">
+                  <svg 
+                    :class="['w-4 h-4 transition-transform text-slate-500', showPerDanceLevels && 'rotate-90']" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span class="font-medium text-slate-700 text-sm">Custom levels per dance</span>
+                </div>
+                <span class="text-xs text-slate-500">Optional</span>
+              </button>
+              
+              <div v-if="showPerDanceLevels" class="p-4 space-y-3 border-t border-slate-200">
+                <p class="text-xs text-slate-600 mb-3">
+                  Override levels for specific dances. Leave blank to use the main level.
+                </p>
+                
+                <!-- Reel -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">🎵 Reel</span>
+                  <select 
+                    v-model="dancerForm.level_reel" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Light Jig -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">💫 Light Jig</span>
+                  <select 
+                    v-model="dancerForm.level_light_jig" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Slip Jig -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">✨ Slip Jig</span>
+                  <select 
+                    v-model="dancerForm.level_slip_jig" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Single Jig -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">🪘 Single Jig</span>
+                  <select 
+                    v-model="dancerForm.level_single_jig" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Treble Jig -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">🥁 Treble Jig</span>
+                  <select 
+                    v-model="dancerForm.level_treble_jig" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Hornpipe -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">⚡ Hornpipe</span>
+                  <select 
+                    v-model="dancerForm.level_hornpipe" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Traditional Set -->
+                <div class="flex items-center gap-3">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">🌟 Trad Set</span>
+                  <select 
+                    v-model="dancerForm.level_traditional_set" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+                
+                <!-- Figure Dances -->
+                <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                  <span class="w-24 text-sm text-slate-700 flex items-center gap-1">👥 Figure</span>
+                  <select 
+                    v-model="dancerForm.level_figure" 
+                    class="flex-1 px-2 py-1.5 text-sm rounded-lg border border-slate-300 focus:border-emerald-500 outline-none"
+                  >
+                    <option :value="null">Main level</option>
+                    <option v-for="opt in levelOptions.filter(o => !['preliminary_championship', 'open_championship'].includes(o.value))" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1">
                 CLRG Number

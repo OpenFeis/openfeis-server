@@ -34,16 +34,27 @@ export type Gender = 'male' | 'female' | 'other';
 
 // New scheduling types (uppercase to match backend enum values)
 export type DanceType = 
+  // Solo dances
   | 'REEL'
   | 'LIGHT_JIG'
   | 'SLIP_JIG'
+  | 'SINGLE_JIG'
   | 'TREBLE_JIG'
   | 'HORNPIPE'
   | 'TRADITIONAL_SET'
   | 'CONTEMPORARY_SET'
-  | 'TREBLE_REEL';
+  | 'TREBLE_REEL'
+  // Figure/Ceili dances
+  | 'TWO_HAND'
+  | 'THREE_HAND'
+  | 'FOUR_HAND'
+  | 'SIX_HAND'
+  | 'EIGHT_HAND';
 
 export type ScoringMethod = 'SOLO' | 'CHAMPIONSHIP';
+
+// Competition category for registration grouping (uppercase to match backend enum values)
+export type CompetitionCategory = 'SOLO' | 'FIGURE' | 'CHAMPIONSHIP';
 
 export interface User {
   id: string;
@@ -72,6 +83,16 @@ export interface Dancer {
   current_level: CompetitionLevel;
   gender: Gender;
   clrg_number?: string;
+  // Per-dance levels (optional - defaults to current_level if not set)
+  level_reel?: CompetitionLevel;
+  level_light_jig?: CompetitionLevel;
+  level_slip_jig?: CompetitionLevel;
+  level_single_jig?: CompetitionLevel;
+  level_treble_jig?: CompetitionLevel;
+  level_hornpipe?: CompetitionLevel;
+  level_traditional_set?: CompetitionLevel;
+  level_figure?: CompetitionLevel;
+  is_adult?: boolean;
 }
 
 export interface Competition {
@@ -83,6 +104,9 @@ export interface Competition {
   level: CompetitionLevel;
   gender?: Gender;
   code?: string; // Display code (e.g., "407SJ")
+  // Competition category (solo, figure, championship)
+  category?: CompetitionCategory;
+  is_mixed?: boolean; // For figure dances - mixed gender team
   // New scheduling fields
   dance_type?: DanceType;
   tempo_bpm?: number;
@@ -245,15 +269,33 @@ export interface DurationEstimateResponse {
 
 // Dance type display info (keys match backend enum values)
 export const DANCE_TYPE_INFO: Record<DanceType, { label: string; defaultTempo: number; icon: string }> = {
+  // Solo dances
   REEL: { label: 'Reel', defaultTempo: 113, icon: '🎵' },
   LIGHT_JIG: { label: 'Light Jig', defaultTempo: 115, icon: '💫' },
   SLIP_JIG: { label: 'Slip Jig', defaultTempo: 113, icon: '✨' },
+  SINGLE_JIG: { label: 'Single Jig', defaultTempo: 124, icon: '🪘' },
   TREBLE_JIG: { label: 'Treble Jig', defaultTempo: 73, icon: '🥁' },
   HORNPIPE: { label: 'Hornpipe', defaultTempo: 138, icon: '⚡' },
   TRADITIONAL_SET: { label: 'Traditional Set', defaultTempo: 113, icon: '🌟' },
   CONTEMPORARY_SET: { label: 'Contemporary Set', defaultTempo: 113, icon: '💎' },
   TREBLE_REEL: { label: 'Treble Reel', defaultTempo: 92, icon: '🔥' },
+  // Figure/Ceili dances
+  TWO_HAND: { label: '2-Hand', defaultTempo: 113, icon: '👯' },
+  THREE_HAND: { label: '3-Hand', defaultTempo: 113, icon: '👯' },
+  FOUR_HAND: { label: '4-Hand', defaultTempo: 115, icon: '👥' },
+  SIX_HAND: { label: '6-Hand', defaultTempo: 113, icon: '👥' },
+  EIGHT_HAND: { label: '8-Hand', defaultTempo: 115, icon: '🎭' },
 };
+
+// Solo dances shown in registration table
+export const SOLO_DANCE_TYPES: DanceType[] = [
+  'REEL', 'LIGHT_JIG', 'SLIP_JIG', 'SINGLE_JIG', 'TREBLE_JIG', 'HORNPIPE', 'TRADITIONAL_SET'
+];
+
+// Figure/Ceili dances shown in registration table
+export const FIGURE_DANCE_TYPES: DanceType[] = [
+  'TWO_HAND', 'THREE_HAND', 'FOUR_HAND', 'SIX_HAND', 'EIGHT_HAND'
+];
 
 
 // ============= Financial Engine Types (Phase 3) =============

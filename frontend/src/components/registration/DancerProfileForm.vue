@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import type { Dancer, Gender, CompetitionLevel, User } from '../../models/types';
+import { SOLO_DANCE_TYPES, DANCE_TYPE_INFO } from '../../models/types';
 
 // Props & Emits
 const props = defineProps<{
@@ -20,6 +21,20 @@ const gender = ref<Gender>(props.modelValue?.gender || 'female');
 const currentLevel = ref<CompetitionLevel>(props.modelValue?.current_level || 'beginner_1');
 const clrgNumber = ref(props.modelValue?.clrg_number || '');
 const schoolId = ref<string>(props.modelValue?.school_id || '');
+const isAdult = ref(props.modelValue?.is_adult || false);
+
+// Per-dance level overrides (expanded section)
+const showPerDanceLevels = ref(false);
+const perDanceLevels = ref<Record<string, CompetitionLevel | null>>({
+  REEL: props.modelValue?.level_reel || null,
+  LIGHT_JIG: props.modelValue?.level_light_jig || null,
+  SLIP_JIG: props.modelValue?.level_slip_jig || null,
+  SINGLE_JIG: props.modelValue?.level_single_jig || null,
+  TREBLE_JIG: props.modelValue?.level_treble_jig || null,
+  HORNPIPE: props.modelValue?.level_hornpipe || null,
+  TRADITIONAL_SET: props.modelValue?.level_traditional_set || null,
+});
+const figureDanceLevel = ref<CompetitionLevel | null>(props.modelValue?.level_figure || null);
 
 // Teacher/School Search State
 const teachers = ref<User[]>([]);
@@ -125,7 +140,22 @@ const formData = computed(() => ({
   current_level: currentLevel.value,
   clrg_number: clrgNumber.value || undefined,
   school_id: schoolId.value || undefined,
+  is_adult: isAdult.value,
+  // Per-dance levels (only include if set)
+  level_reel: perDanceLevels.value.REEL || undefined,
+  level_light_jig: perDanceLevels.value.LIGHT_JIG || undefined,
+  level_slip_jig: perDanceLevels.value.SLIP_JIG || undefined,
+  level_single_jig: perDanceLevels.value.SINGLE_JIG || undefined,
+  level_treble_jig: perDanceLevels.value.TREBLE_JIG || undefined,
+  level_hornpipe: perDanceLevels.value.HORNPIPE || undefined,
+  level_traditional_set: perDanceLevels.value.TRADITIONAL_SET || undefined,
+  level_figure: figureDanceLevel.value || undefined,
 }));
+
+// Check if any per-dance levels are customized
+const hasCustomLevels = computed(() => {
+  return Object.values(perDanceLevels.value).some(v => v !== null) || figureDanceLevel.value !== null;
+});
 
 // Update parent on changes
 watch(formData, (newVal) => {
@@ -293,6 +323,93 @@ const genderOptions: { value: Gender; label: string }[] = [
               </div>
             </div>
           </button>
+        </div>
+      </div>
+
+      <!-- Adult Dancer Checkbox -->
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          @click="isAdult = !isAdult"
+          :class="[
+            'w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all',
+            isAdult
+              ? 'bg-emerald-500 border-emerald-500'
+              : 'border-slate-300 hover:border-emerald-400'
+          ]"
+        >
+          <svg v-if="isAdult" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+          </svg>
+        </button>
+        <label class="text-sm font-medium text-slate-700 cursor-pointer" @click="isAdult = !isAdult">
+          This is an adult dancer (18+)
+        </label>
+      </div>
+
+      <!-- Per-Dance Levels (Expandable) -->
+      <div class="border border-slate-200 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          @click="showPerDanceLevels = !showPerDanceLevels"
+          class="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+        >
+          <div class="flex items-center gap-2">
+            <svg 
+              :class="['w-5 h-5 transition-transform text-slate-500', showPerDanceLevels && 'rotate-90']" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+            <span class="font-semibold text-slate-700">Set different levels per dance</span>
+            <span v-if="hasCustomLevels" class="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded-full">
+              Customized
+            </span>
+          </div>
+          <span class="text-xs text-slate-500">Optional</span>
+        </button>
+        
+        <div v-if="showPerDanceLevels" class="p-4 space-y-3 border-t border-slate-200">
+          <p class="text-sm text-slate-600 mb-4">
+            Some dancers are at different levels for different dances. Set custom levels below, 
+            or leave blank to use your main level ({{ levelOptions.find(o => o.value === currentLevel)?.label }}).
+          </p>
+          
+          <!-- Solo Dance Levels -->
+          <div v-for="danceType in SOLO_DANCE_TYPES" :key="danceType" class="flex items-center gap-4">
+            <div class="w-32 flex items-center gap-2">
+              <span class="text-lg">{{ DANCE_TYPE_INFO[danceType].icon }}</span>
+              <span class="text-sm font-medium text-slate-700">{{ DANCE_TYPE_INFO[danceType].label }}</span>
+            </div>
+            <select
+              v-model="perDanceLevels[danceType]"
+              class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all outline-none"
+            >
+              <option :value="null">Use main level</option>
+              <option v-for="opt in levelOptions.filter(o => o.value !== 'preliminary_championship' && o.value !== 'open_championship')" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+          
+          <!-- Figure Dance Level (single for all) -->
+          <div class="flex items-center gap-4 pt-3 border-t border-slate-100">
+            <div class="w-32 flex items-center gap-2">
+              <span class="text-lg">👥</span>
+              <span class="text-sm font-medium text-slate-700">Figure/Ceili</span>
+            </div>
+            <select
+              v-model="figureDanceLevel"
+              class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all outline-none"
+            >
+              <option :value="null">Use main level</option>
+              <option v-for="opt in levelOptions.filter(o => o.value !== 'preliminary_championship' && o.value !== 'open_championship')" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
         </div>
       </div>
 

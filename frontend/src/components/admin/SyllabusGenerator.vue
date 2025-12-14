@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { CompetitionLevel, Gender, SyllabusGenerationRequest, SyllabusGenerationResponse, ScoringMethod } from '../../models/types';
+import type { CompetitionLevel, Gender, SyllabusGenerationRequest, SyllabusGenerationResponse } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
 
 // Props
@@ -20,16 +20,27 @@ const maxAge = ref(18);
 // Level selection (multi-select)
 const selectedLevels = ref<Set<CompetitionLevel>>(new Set(['beginner_1', 'novice', 'prizewinner']));
 
-// Gender selection (multi-select)
-const selectedGenders = ref<Set<Gender>>(new Set(['male', 'female']));
+// Gender selection - default to open (non-gendered) competitions
+// Most local feises don't separate by gender for grade competitions
+const useGenderedCompetitions = ref(false);
+const selectedGenders = ref<Set<Gender>>(new Set(['other'])); // 'other' = open/all genders
 
-// Dance selection (multi-select)
-const availableDances = ['Reel', 'Light Jig', 'Slip Jig', 'Treble Jig', 'Hornpipe', 'Set Dance'];
+// Solo dance selection (multi-select)
+const availableSoloDances = ['Reel', 'Light Jig', 'Slip Jig', 'Single Jig', 'Treble Jig', 'Hornpipe', 'Traditional Set'];
 const selectedDances = ref<Set<string>>(new Set(['Reel', 'Light Jig', 'Slip Jig']));
 
-// New options
+// Figure dance selection (multi-select) - team dances
+const availableFigureDances = ['2-Hand', '3-Hand', '4-Hand', '6-Hand', '8-Hand'];
+const selectedFigureDances = ref<Set<string>>(new Set());
+
+// Championship options
+const includeChampionships = ref(false);
+const championshipTypes = ref<Set<string>>(new Set());
+const includeMixedFigure = ref(true); // For boys entering mixed teams
+
+// Pricing
 const priceDollars = ref(10); // Default $10 per competition
-const scoringMethod = ref<ScoringMethod>('SOLO');
+// Note: Scoring method is auto-determined (SOLO for grades/figures, CHAMPIONSHIP for champs)
 
 // UI State
 const isGenerating = ref(false);
@@ -48,9 +59,48 @@ const ageGroups = computed(() => {
   return groups;
 });
 
-// Estimated competition count
-const estimatedCount = computed(() => {
+// Toggle figure dance
+const toggleFigureDance = (dance: string) => {
+  const newSet = new Set(selectedFigureDances.value);
+  if (newSet.has(dance)) {
+    newSet.delete(dance);
+  } else {
+    newSet.add(dance);
+  }
+  selectedFigureDances.value = newSet;
+};
+
+// Toggle championship type
+const toggleChampionshipType = (type: string) => {
+  const newSet = new Set(championshipTypes.value);
+  if (newSet.has(type)) {
+    newSet.delete(type);
+  } else {
+    newSet.add(type);
+  }
+  championshipTypes.value = newSet;
+};
+
+// Estimated competition count (solo + figure + champs)
+const estimatedSoloCount = computed(() => {
   return ageGroups.value.length * selectedLevels.value.size * selectedGenders.value.size * selectedDances.value.size;
+});
+
+const estimatedFigureCount = computed(() => {
+  if (selectedFigureDances.value.size === 0) return 0;
+  // Figure dances: age groups × dance types × (girls + mixed if enabled)
+  // NOT affected by levels or gender presets - figure dances are open level
+  const teamCount = 1 + (includeMixedFigure.value ? 1 : 0); // girls-only + mixed
+  return ageGroups.value.length * selectedFigureDances.value.size * teamCount;
+});
+
+const estimatedChampCount = computed(() => {
+  if (!includeChampionships.value || championshipTypes.value.size === 0) return 0;
+  return ageGroups.value.length * selectedGenders.value.size * championshipTypes.value.size;
+});
+
+const estimatedCount = computed(() => {
+  return estimatedSoloCount.value + estimatedFigureCount.value + estimatedChampCount.value;
 });
 
 // Toggle functions
@@ -107,9 +157,16 @@ const danceIcons: Record<string, string> = {
   'Reel': '🎵',
   'Light Jig': '💫',
   'Slip Jig': '✨',
+  'Single Jig': '🪘',
   'Treble Jig': '🥁',
   'Hornpipe': '⚡',
-  'Set Dance': '🌟',
+  'Traditional Set': '🌟',
+  // Figure dances
+  '2-Hand': '👯',
+  '3-Hand': '👯',
+  '4-Hand': '👥',
+  '6-Hand': '👥',
+  '8-Hand': '🎭',
 };
 
 // Auth store for authenticated requests
@@ -126,7 +183,13 @@ const generateSyllabus = async () => {
   error.value = null;
   generationResult.value = null;
 
-  const request: SyllabusGenerationRequest & { price_cents: number; scoring_method: string } = {
+  const request: SyllabusGenerationRequest & { 
+    price_cents: number; 
+    figure_dances?: string[];
+    include_mixed_figure?: boolean;
+    include_championships?: boolean;
+    championship_types?: string[];
+  } = {
     feis_id: props.feisId,
     levels: Array.from(selectedLevels.value),
     min_age: minAge.value,
@@ -134,7 +197,13 @@ const generateSyllabus = async () => {
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
     price_cents: priceDollars.value * 100,
-    scoring_method: scoringMethod.value,  // Already uppercase to match backend enum
+    // Scoring method is auto-determined by backend based on competition type
+    // Figure dances
+    figure_dances: selectedFigureDances.value.size > 0 ? Array.from(selectedFigureDances.value) : undefined,
+    include_mixed_figure: includeMixedFigure.value,
+    // Championships
+    include_championships: includeChampionships.value,
+    championship_types: championshipTypes.value.size > 0 ? Array.from(championshipTypes.value) : undefined,
   };
 
   try {
@@ -282,38 +351,77 @@ const previewMatrix = computed(() => {
       <!-- Gender Selection -->
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-3">
-          Categories
+          Gender Categories
         </label>
-        <div class="grid grid-cols-3 gap-3">
+        
+        <!-- Toggle for gendered competitions -->
+        <div class="flex items-center gap-3 mb-3">
           <button
-            v-for="(info, gender) in genderInfo"
-            :key="gender"
-            @click="toggleGender(gender as Gender)"
+            type="button"
+            @click="useGenderedCompetitions = !useGenderedCompetitions; selectedGenders = new Set(useGenderedCompetitions ? ['male', 'female'] : ['other'])"
+            :class="[
+              'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+              useGenderedCompetitions
+                ? 'bg-indigo-500 border-indigo-500'
+                : 'border-slate-300 hover:border-indigo-400'
+            ]"
+          >
+            <svg v-if="useGenderedCompetitions" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+          <label class="text-sm text-slate-700 cursor-pointer" @click="useGenderedCompetitions = !useGenderedCompetitions; selectedGenders = new Set(useGenderedCompetitions ? ['male', 'female'] : ['other'])">
+            Create separate Boys and Girls competitions
+          </label>
+        </div>
+        
+        <p class="text-xs text-slate-500 mb-3">
+          {{ useGenderedCompetitions 
+            ? 'Separate competitions will be created for boys and girls (e.g., "Boys U8 Reel", "Girls U8 Reel")' 
+            : 'Competitions are open to all genders (e.g., "U8 Reel") — most common for local feiseanna' }}
+        </p>
+        
+        <!-- Only show gender buttons if gendered competitions enabled -->
+        <div v-if="useGenderedCompetitions" class="grid grid-cols-2 gap-3">
+          <button
+            @click="toggleGender('male')"
             :class="[
               'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center justify-center gap-2',
-              selectedGenders.has(gender as Gender)
+              selectedGenders.has('male')
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
             ]"
           >
-            <span class="text-lg">{{ info.icon }}</span>
-            {{ info.label }}
+            <span class="text-lg">👦</span>
+            Boys
+          </button>
+          <button
+            @click="toggleGender('female')"
+            :class="[
+              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center justify-center gap-2',
+              selectedGenders.has('female')
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+            ]"
+          >
+            <span class="text-lg">👧</span>
+            Girls
           </button>
         </div>
       </div>
 
-      <!-- Dance Selection -->
+      <!-- Solo Dance Selection -->
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-3">
-          Dances
+          Solo Dances
         </label>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <button
-            v-for="dance in availableDances"
+            v-for="dance in availableSoloDances"
             :key="dance"
             @click="toggleDance(dance)"
             :class="[
-              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center gap-2',
+              'px-3 py-2 rounded-xl font-semibold transition-all border-2 flex items-center gap-2 text-sm',
               selectedDances.has(dance)
                 ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white border-transparent shadow-lg shadow-indigo-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
@@ -325,53 +433,121 @@ const previewMatrix = computed(() => {
         </div>
       </div>
 
-      <!-- Pricing & Scoring Options -->
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-3">
-            Price per Competition
-          </label>
-          <div class="relative">
-            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
-            <input 
-              type="number" 
-              v-model.number="priceDollars" 
-              min="0" 
-              max="100"
-              step="1"
-              class="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-lg font-bold"
-            />
-          </div>
+      <!-- Figure Dance Selection -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-3">
+          Figure / Ceili Dances
+          <span class="text-slate-400 font-normal text-xs ml-2">(Team dances — by age only, not leveled)</span>
+        </label>
+        <div class="grid grid-cols-3 md:grid-cols-5 gap-2">
+          <button
+            v-for="dance in availableFigureDances"
+            :key="dance"
+            @click="toggleFigureDance(dance)"
+            :class="[
+              'px-3 py-2 rounded-xl font-semibold transition-all border-2 flex items-center gap-2 text-sm',
+              selectedFigureDances.has(dance)
+                ? 'bg-gradient-to-r from-purple-500 to-violet-500 text-white border-transparent shadow-lg shadow-purple-200'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:bg-purple-50'
+            ]"
+          >
+            <span class="text-lg">{{ danceIcons[dance] }}</span>
+            {{ dance }}
+          </button>
         </div>
-        <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-3">
-            Scoring Method
+        <!-- Mixed figure option -->
+        <div v-if="selectedFigureDances.size > 0" class="mt-3 flex items-center gap-3">
+          <button
+            type="button"
+            @click="includeMixedFigure = !includeMixedFigure"
+            :class="[
+              'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+              includeMixedFigure
+                ? 'bg-purple-500 border-purple-500'
+                : 'border-slate-300 hover:border-purple-400'
+            ]"
+          >
+            <svg v-if="includeMixedFigure" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+          <label class="text-sm text-slate-700 cursor-pointer" @click="includeMixedFigure = !includeMixedFigure">
+            Include mixed-gender teams
           </label>
-          <div class="flex gap-2">
-            <button
-              @click="scoringMethod = 'SOLO'"
-              :class="[
-                'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
-                scoringMethod === 'SOLO'
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
-              ]"
-            >
-              Solo
-            </button>
-            <button
-              @click="scoringMethod = 'CHAMPIONSHIP'"
-              :class="[
-                'flex-1 px-4 py-3 rounded-xl font-semibold transition-all border-2',
-                scoringMethod === 'CHAMPIONSHIP'
-                  ? 'bg-purple-600 text-white border-purple-600 shadow-lg'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
-              ]"
-            >
-              Championship
-            </button>
-          </div>
         </div>
+      </div>
+
+      <!-- Championship Selection -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-3">
+          Championships
+        </label>
+        <div class="flex items-center gap-3 mb-3">
+          <button
+            type="button"
+            @click="includeChampionships = !includeChampionships"
+            :class="[
+              'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+              includeChampionships
+                ? 'bg-amber-500 border-amber-500'
+                : 'border-slate-300 hover:border-amber-400'
+            ]"
+          >
+            <svg v-if="includeChampionships" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+          <label class="text-sm text-slate-700 cursor-pointer" @click="includeChampionships = !includeChampionships">
+            Include Championship competitions
+          </label>
+        </div>
+        <div v-if="includeChampionships" class="grid grid-cols-2 gap-2 ml-8">
+          <button
+            @click="toggleChampionshipType('prelim')"
+            :class="[
+              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center gap-2',
+              championshipTypes.has('prelim')
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-transparent shadow-lg'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+            ]"
+          >
+            <span class="text-lg">🏆</span>
+            Preliminary
+          </button>
+          <button
+            @click="toggleChampionshipType('open')"
+            :class="[
+              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center gap-2',
+              championshipTypes.has('open')
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-transparent shadow-lg'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+            ]"
+          >
+            <span class="text-lg">👑</span>
+            Open
+          </button>
+        </div>
+      </div>
+
+      <!-- Pricing -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-3">
+          Price per Competition
+        </label>
+        <div class="relative max-w-xs">
+          <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+          <input 
+            type="number" 
+            v-model.number="priceDollars" 
+            min="0" 
+            max="100"
+            step="1"
+            class="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-lg font-bold"
+          />
+        </div>
+        <p class="mt-1 text-xs text-slate-500">
+          Scoring method is set automatically (Solo for grades/figures, Championship for champs)
+        </p>
       </div>
 
       <!-- Preview Matrix -->
@@ -419,11 +595,19 @@ const previewMatrix = computed(() => {
             <div class="text-sm text-indigo-600 font-medium">Estimated Competitions</div>
             <div class="text-3xl font-black text-indigo-700">{{ estimatedCount }}</div>
           </div>
-          <div class="text-right text-xs text-indigo-500 max-w-[200px]">
-            <div>{{ ageGroups.length }} age groups</div>
-            <div>× {{ selectedLevels.size }} levels</div>
-            <div>× {{ selectedGenders.size }} categories</div>
-            <div>× {{ selectedDances.size }} dances</div>
+          <div class="text-right text-xs text-indigo-500 max-w-[220px] space-y-0.5">
+            <div v-if="estimatedSoloCount > 0">
+              <span class="font-medium">{{ estimatedSoloCount }}</span> solo
+              <span class="text-indigo-400">({{ ageGroups.length }} ages × {{ selectedLevels.size }} levels × {{ selectedGenders.size }} genders × {{ selectedDances.size }} dances)</span>
+            </div>
+            <div v-if="estimatedFigureCount > 0">
+              <span class="font-medium">{{ estimatedFigureCount }}</span> figure
+              <span class="text-indigo-400">({{ ageGroups.length }} ages × {{ selectedFigureDances.size }} dances{{ includeMixedFigure ? ' × 2 teams' : '' }})</span>
+            </div>
+            <div v-if="estimatedChampCount > 0">
+              <span class="font-medium">{{ estimatedChampCount }}</span> championships
+              <span class="text-indigo-400">({{ ageGroups.length }} ages × {{ selectedGenders.size }} genders × {{ championshipTypes.size }} types)</span>
+            </div>
           </div>
         </div>
       </div>

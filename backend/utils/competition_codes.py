@@ -7,6 +7,7 @@ Examples:
 - 407SJ = Novice (4), U7 (07), Slip Jig
 - 609PC = Preliminary Championship (6), U9 (09)
 - 515RL2 = Prizewinner (5), U15 (15), Reel, Second Chance
+- 9210FD = Figure (9), U10 (10), 2-Hand
 
 Level digits:
 - 1 = First Feis
@@ -16,9 +17,9 @@ Level digits:
 - 5 = Prizewinner / Open
 - 6 = Preliminary Championship
 - 7 = Open Championship
-- 8-9 = Specials, teams, ceili
+- 8-9 = Specials, teams, ceili, figure dances
 
-Dance codes:
+Dance codes (Solo):
 - RL = Reel
 - LJ = Light Jig
 - SJ = Slip Jig
@@ -29,6 +30,13 @@ Dance codes:
 - CS = Contemporary Set
 - TR = Treble Reel
 - PD = St. Patrick's Day
+
+Figure/Ceili dance codes:
+- 2H = 2-Hand
+- 3H = 3-Hand
+- 4H = 4-Hand
+- 6H = 6-Hand
+- 8H = 8-Hand
 
 Championship round codes:
 - PC = Preliminary Championship
@@ -50,6 +58,7 @@ LEVEL_DIGITS = {
 
 # Dance type to code mapping
 DANCE_CODES = {
+    # Solo dances
     "REEL": "RL",
     "LIGHT_JIG": "LJ",
     "SLIP_JIG": "SJ",
@@ -59,6 +68,12 @@ DANCE_CODES = {
     "TRADITIONAL_SET": "TS",
     "CONTEMPORARY_SET": "CS",
     "TREBLE_REEL": "TR",
+    # Figure/Ceili dances
+    "TWO_HAND": "2H",
+    "THREE_HAND": "3H",
+    "FOUR_HAND": "4H",
+    "SIX_HAND": "6H",
+    "EIGHT_HAND": "8H",
 }
 
 # Reverse mapping for display
@@ -167,6 +182,7 @@ def get_level_name(level_digit: str) -> str:
 def get_dance_name(dance_code: str) -> str:
     """Get human-readable dance name from code."""
     names = {
+        # Solo dances
         "RL": "Reel",
         "LJ": "Light Jig",
         "SJ": "Slip Jig",
@@ -176,6 +192,13 @@ def get_dance_name(dance_code: str) -> str:
         "TS": "Traditional Set",
         "CS": "Contemporary Set",
         "TR": "Treble Reel",
+        # Figure/Ceili dances
+        "2H": "2-Hand",
+        "3H": "3-Hand",
+        "4H": "4-Hand",
+        "6H": "6-Hand",
+        "8H": "8-Hand",
+        # Championships
         "PC": "Preliminary Championship",
         "OC": "Open Championship",
     }

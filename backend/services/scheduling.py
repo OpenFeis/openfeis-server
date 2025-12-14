@@ -532,11 +532,14 @@ def get_dance_type_from_name(dance_name: str) -> Optional[DanceType]:
     Used by the syllabus generator to set dance_type.
     """
     mapping = {
+        # Solo dances
         "reel": DanceType.REEL,
         "light jig": DanceType.LIGHT_JIG,
         "light_jig": DanceType.LIGHT_JIG,
         "slip jig": DanceType.SLIP_JIG,
         "slip_jig": DanceType.SLIP_JIG,
+        "single jig": DanceType.SINGLE_JIG,
+        "single_jig": DanceType.SINGLE_JIG,
         "treble jig": DanceType.TREBLE_JIG,
         "treble_jig": DanceType.TREBLE_JIG,
         "hornpipe": DanceType.HORNPIPE,
@@ -547,6 +550,17 @@ def get_dance_type_from_name(dance_name: str) -> Optional[DanceType]:
         "contemporary_set": DanceType.CONTEMPORARY_SET,
         "treble reel": DanceType.TREBLE_REEL,
         "treble_reel": DanceType.TREBLE_REEL,
+        # Figure/Ceili dances
+        "2-hand": DanceType.TWO_HAND,
+        "two_hand": DanceType.TWO_HAND,
+        "3-hand": DanceType.THREE_HAND,
+        "three_hand": DanceType.THREE_HAND,
+        "4-hand": DanceType.FOUR_HAND,
+        "four_hand": DanceType.FOUR_HAND,
+        "6-hand": DanceType.SIX_HAND,
+        "six_hand": DanceType.SIX_HAND,
+        "8-hand": DanceType.EIGHT_HAND,
+        "eight_hand": DanceType.EIGHT_HAND,
     }
     return mapping.get(dance_name.lower())
 
