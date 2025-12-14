@@ -552,7 +552,7 @@ onMounted(() => {
                 {{ opt.label }}
               </label>
             </div>
-            <p class="text-xs text-slate-500 mt-1">Select all levels that can enter this event.</p>
+            <p class="text-xs text-slate-500 mt-1">Select all levels that can enter this event. Leave empty for "Open to All".</p>
           </div>
           
           <div v-else>
@@ -703,14 +703,36 @@ onMounted(() => {
               <h4 class="font-semibold text-slate-800">{{ comp.name }}</h4>
             </div>
             <div class="flex flex-wrap gap-2 mt-2">
-              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+              <span 
+                v-if="comp.category === 'SPECIAL' && comp.allowed_levels && comp.allowed_levels.length > 0"
+                class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs"
+              >
+                {{ comp.allowed_levels.map(l => formatLevel(l)).join(', ') }}
+              </span>
+              <span 
+                v-else-if="comp.category === 'SPECIAL'"
+                class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs"
+              >
+                Open to All Levels
+              </span>
+              <span 
+                v-else
+                class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs"
+              >
                 {{ formatLevel(comp.level) }}
               </span>
+              
               <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
                 {{ formatAgeRange(comp.min_age, comp.max_age) }}
               </span>
               <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
                 {{ formatGender(comp.gender) }}
+              </span>
+              <span 
+                v-if="comp.category !== 'SOLO'"
+                class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs font-medium"
+              >
+                {{ comp.category }}
               </span>
             </div>
             <div class="mt-2">

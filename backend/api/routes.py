@@ -1236,7 +1236,9 @@ async def list_competitions(feis_id: str, session: Session = Depends(get_session
             stage_id=str(comp.stage_id) if comp.stage_id else None,
             scheduled_time=comp.scheduled_time,
             estimated_duration_minutes=comp.estimated_duration_minutes,
-            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
+            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None,
+            description=comp.description,
+            allowed_levels=comp.allowed_levels
         ))
     
     return result
@@ -1384,7 +1386,9 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         stage_id=str(comp.stage_id) if comp.stage_id else None,
         scheduled_time=comp.scheduled_time,
         estimated_duration_minutes=comp.estimated_duration_minutes,
-        adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
+        adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None,
+        description=comp.description,
+        allowed_levels=comp.allowed_levels
     )
 
 @router.delete("/competitions/{comp_id}")
