@@ -105,7 +105,8 @@ const matchesAgeAndGender = (comp: Competition): boolean => {
   if (dancerAge.value === null || !props.dancer.gender) return false;
   const ageMatch = dancerAge.value >= comp.min_age && dancerAge.value <= comp.max_age;
   // For mixed/open competitions, any gender matches
-  const genderMatch = !comp.gender || comp.gender === props.dancer.gender || comp.is_mixed === true;
+  // 'other' in gender field implies Open/Mixed
+  const genderMatch = !comp.gender || comp.gender === 'other' || comp.gender === props.dancer.gender || comp.is_mixed === true;
   return ageMatch && genderMatch;
 };
 
@@ -121,7 +122,8 @@ const matchesTeamAgeAndGender = (comp: Competition): boolean => {
   
   const ageMatch = teamAge.value >= comp.min_age && teamAge.value <= comp.max_age;
   // For mixed/open competitions, any gender matches
-  const genderMatch = !comp.gender || comp.gender === props.dancer.gender || comp.is_mixed === true;
+  // 'other' in gender field implies Open/Mixed
+  const genderMatch = !comp.gender || comp.gender === 'other' || comp.gender === props.dancer.gender || comp.is_mixed === true;
   return ageMatch && genderMatch;
 };
 
