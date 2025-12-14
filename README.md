@@ -39,7 +39,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Smart Registration** — Select from saved dancers or create new ones when registering
 - **Per-Dance Level Selection** — Set different competition levels for each dance type (e.g., Prizewinner in Reel, Novice in Hornpipe) 🆕
 - **Dance-by-Dance Grid** — Visual registration table showing all available dances with level dropdowns 🆕
-- **Figure/Ceili Dances** — Register for team dances (2-hand through 8-hand) by age group 🆕
+- **Figure/Ceili Dances** — Register for team dances (2-hand through 8-hand) by age group, with support for dancing up 🆕
 - **Championship Registration** — Simple registration for Preliminary and Open Championships 🆕
 - **Real-Time Eligibility** — See matched competitions instantly as you adjust levels 🆕
 - **Flexible Payment** — Pay online via Stripe or choose "Pay at Door" for check-in payment
