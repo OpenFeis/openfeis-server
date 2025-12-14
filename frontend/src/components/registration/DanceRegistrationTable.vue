@@ -258,6 +258,32 @@ const hasChampionships = computed(() => {
   return prelimCompetition.value !== null || openCompetition.value !== null;
 });
 
+// Helper for Special competitions
+const matchesSpecialCriteria = (comp: Competition): boolean => {
+  // Age/Gender check
+  if (!matchesAgeAndGender(comp)) return false;
+  
+  // Level check
+  // If allowed_levels is set, dancer must be in one of them
+  if (comp.allowed_levels && comp.allowed_levels.length > 0) {
+    // If dancer has a current level, check it
+    if (props.dancer.current_level) {
+      return comp.allowed_levels.includes(props.dancer.current_level);
+    }
+    return false;
+  }
+  
+  // If no allowed_levels specified, assume it's open to all levels (or use comp.level if you want strictness)
+  // Given "Special" nature, open is a safer default if not restricted.
+  return true;
+};
+
+const specialCompetitions = computed(() => {
+  return allCompetitions.value.filter(c => 
+    c.category === 'SPECIAL' && matchesSpecialCriteria(c)
+  );
+});
+
 // Toggle competition selection
 const toggleSoloCompetition = (danceType: DanceType) => {
   const row = soloDanceRows.value.find(r => r.danceType === danceType);
@@ -334,6 +360,16 @@ const toggleChampionship = (type: 'prelim' | 'open') => {
   } else {
     newSet.add(comp.id);
     championshipSelections.value[type] = true;
+  }
+  selectedCompetitionIds.value = newSet;
+};
+
+const toggleSpecialCompetition = (comp: Competition) => {
+  const newSet = new Set(selectedCompetitionIds.value);
+  if (newSet.has(comp.id)) {
+    newSet.delete(comp.id);
+  } else {
+    newSet.add(comp.id);
   }
   selectedCompetitionIds.value = newSet;
 };
@@ -714,6 +750,65 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
                 ]"
               >
                 <svg v-if="championshipSelections.open" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ============= SPECIAL DANCES SECTION ============= -->
+        <section v-if="specialCompetitions.length > 0">
+          <h3 class="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <span class="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-teal-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            </span>
+            Special / Trophy Dances
+          </h3>
+          
+          <div class="space-y-3">
+            <button
+              v-for="comp in specialCompetitions"
+              :key="comp.id"
+              @click="toggleSpecialCompetition(comp)"
+              :class="[
+                'w-full px-4 py-4 rounded-xl text-left transition-all border-2 flex items-center justify-between',
+                selectedCompetitionIds.has(comp.id)
+                  ? 'bg-teal-50 border-teal-500'
+                  : 'bg-white border-slate-200 hover:border-teal-300'
+              ]"
+            >
+              <div class="flex-1 min-w-0 pr-4">
+                <div class="font-semibold text-slate-700 flex items-center gap-2">
+                  {{ comp.name }}
+                  <div v-if="comp.description" class="group relative inline-block">
+                    <svg class="w-4 h-4 text-slate-400 hover:text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <!-- Tooltip -->
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10 whitespace-normal">
+                      {{ comp.description }}
+                      <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="text-sm text-slate-500 truncate">
+                  {{ comp.code }} • 
+                  <span v-if="comp.allowed_levels && comp.allowed_levels.length">
+                    {{ comp.allowed_levels.map(l => formatLevel(l)).join(', ') }}
+                  </span>
+                  <span v-else>Open to all levels</span>
+                </div>
+              </div>
+              <span 
+                :class="[
+                  'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0',
+                  selectedCompetitionIds.has(comp.id) ? 'bg-teal-500' : 'border-2 border-slate-300'
+                ]"
+              >
+                <svg v-if="selectedCompetitionIds.has(comp.id)" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                 </svg>
               </span>

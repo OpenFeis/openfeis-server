@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import type { CompetitionLevel, Gender } from '../../models/types';
+import type { CompetitionLevel, Gender, CompetitionCategory } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
 
 interface Competition {
@@ -14,6 +14,9 @@ interface Competition {
   code?: string;  // Display code (e.g., "407SJ")
   dance_type?: string;
   entry_count: number;
+  category?: CompetitionCategory;
+  description?: string;
+  allowed_levels?: CompetitionLevel[];
 }
 
 const props = defineProps<{
@@ -42,13 +45,20 @@ const filterGender = ref<string>('all');
 
 // Edit state
 const editingComp = ref<Competition | null>(null);
+const isCreating = ref(false);
+const showModal = ref(false);
+
 const editForm = ref({
+  id: undefined as string | undefined,
   name: '',
   min_age: 0,
   max_age: 0,
   level: 'beginner_1' as CompetitionLevel,
   gender: null as Gender | null,
-  code: '' as string
+  code: '' as string,
+  category: 'SOLO' as CompetitionCategory,
+  description: '',
+  allowed_levels: [] as CompetitionLevel[]
 });
 
 // Filtered competitions
@@ -101,6 +111,14 @@ const genderOptions = [
   { value: 'other', label: 'Open' }
 ];
 
+// Category options
+const categoryOptions = [
+  { value: 'SOLO', label: 'Solo' },
+  { value: 'FIGURE', label: 'Figure/Ceili' },
+  { value: 'CHAMPIONSHIP', label: 'Championship' },
+  { value: 'SPECIAL', label: 'Special' }
+];
+
 // Fetch competitions
 const fetchCompetitions = async () => {
   loading.value = true;
@@ -119,42 +137,98 @@ const fetchCompetitions = async () => {
 // Start editing
 const startEdit = (comp: Competition) => {
   editingComp.value = comp;
+  isCreating.value = false;
+  showModal.value = true;
   editForm.value = {
+    id: comp.id,
     name: comp.name,
     min_age: comp.min_age,
     max_age: comp.max_age,
     level: comp.level,
     gender: comp.gender || null,
-    code: comp.code || ''
+    code: comp.code || '',
+    category: comp.category || 'SOLO',
+    description: comp.description || '',
+    allowed_levels: comp.allowed_levels || []
+  };
+};
+
+// Start creating
+const startCreate = () => {
+  editingComp.value = null;
+  isCreating.value = true;
+  showModal.value = true;
+  editForm.value = {
+    id: undefined,
+    name: 'New Competition',
+    min_age: 5,
+    max_age: 99,
+    level: 'beginner_1',
+    gender: null,
+    code: '',
+    category: 'SPECIAL',
+    description: '',
+    allowed_levels: []
   };
 };
 
 // Cancel editing
 const cancelEdit = () => {
   editingComp.value = null;
+  isCreating.value = false;
+  showModal.value = false;
 };
 
 // Save edit
 const saveEdit = async () => {
-  if (!editingComp.value) return;
-  
   loading.value = true;
   error.value = null;
+  
   try {
-    const response = await fetch(`/api/v1/competitions/${editingComp.value.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editForm.value)
-    });
-    if (!response.ok) throw new Error('Failed to update competition');
+    const payload = {
+      ...editForm.value,
+      feis_id: props.feisId // Ensure feis_id is included for create
+    };
     
-    const updated = await response.json();
-    const index = competitions.value.findIndex(c => c.id === updated.id);
-    if (index !== -1) {
-      competitions.value[index] = updated;
+    // If Special category, ensure we send allowed_levels
+    if (payload.category === 'SPECIAL' && payload.allowed_levels.length > 0) {
+      // Logic handles multi-level
     }
     
-    successMessage.value = 'Competition updated successfully';
+    let response;
+    if (isCreating.value) {
+      response = await fetch(`/api/v1/feis/${props.feisId}/competitions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      if (!editForm.value.id) return;
+      response = await fetch(`/api/v1/competitions/${editForm.value.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to save competition');
+    }
+    
+    const saved = await response.json();
+    
+    if (isCreating.value) {
+      competitions.value.push(saved);
+      successMessage.value = 'Competition created successfully';
+    } else {
+      const index = competitions.value.findIndex(c => c.id === saved.id);
+      if (index !== -1) {
+        competitions.value[index] = saved;
+      }
+      successMessage.value = 'Competition updated successfully';
+    }
+    
     cancelEdit();
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'An error occurred';
@@ -334,15 +408,26 @@ onMounted(() => {
         <h2 class="text-2xl font-bold text-slate-800">{{ feisName }}</h2>
         <p class="text-slate-600">Manage competitions</p>
       </div>
-      <button
-        @click="emit('generateSyllabus')"
-        class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        Generate More
-      </button>
+      <div class="flex gap-2">
+        <button
+          @click="startCreate"
+          class="px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg font-medium hover:bg-indigo-50 transition-colors flex items-center gap-2"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Add Event
+        </button>
+        <button
+          @click="emit('generateSyllabus')"
+          class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          Bulk Generate
+        </button>
+      </div>
     </div>
 
     <!-- Messages -->
@@ -419,12 +504,12 @@ onMounted(() => {
 
     <!-- Edit Modal -->
     <div 
-      v-if="editingComp"
+      v-if="showModal"
       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       @click.self="cancelEdit"
     >
-      <div class="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
-        <h3 class="text-lg font-bold text-slate-800 mb-4">Edit Competition</h3>
+      <div class="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">{{ isCreating ? 'Add New Event' : 'Edit Competition' }}</h3>
         
         <form @submit.prevent="saveEdit" class="space-y-4">
           <div>
@@ -433,7 +518,98 @@ onMounted(() => {
               v-model="editForm.name"
               type="text"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              required
             />
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+            <select
+              v-model="editForm.category"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="editForm.category === 'SPECIAL'">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Allowed Levels</label>
+            <div class="grid grid-cols-2 gap-2 p-3 border border-slate-200 rounded-lg bg-slate-50">
+              <label 
+                v-for="opt in levelOptions" 
+                :key="opt.value"
+                class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer"
+              >
+                <input 
+                  type="checkbox" 
+                  :value="opt.value" 
+                  v-model="editForm.allowed_levels"
+                  class="rounded text-indigo-600 focus:ring-indigo-500"
+                > 
+                {{ opt.label }}
+              </label>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Select all levels that can enter this event.</p>
+          </div>
+          
+          <div v-else>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Level</label>
+            <select
+              v-model="editForm.level"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option v-for="opt in levelOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Min Age</label>
+              <input
+                v-model.number="editForm.min_age"
+                type="number"
+                min="4"
+                max="99"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Max Age</label>
+              <input
+                v-model.number="editForm.max_age"
+                type="number"
+                :min="editForm.min_age"
+                max="99"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Gender</label>
+            <select
+              v-model="editForm.gender"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option :value="null">Open/Mixed</option>
+              <option v-for="opt in genderOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Description (Optional)</label>
+            <textarea
+              v-model="editForm.description"
+              rows="3"
+              placeholder="Describe the event, rules, or special awards..."
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            ></textarea>
           </div>
           
           <div>
@@ -459,61 +635,13 @@ onMounted(() => {
             </p>
           </div>
           
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">Min Age</label>
-              <input
-                v-model.number="editForm.min_age"
-                type="number"
-                min="4"
-                max="21"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">Max Age</label>
-              <input
-                v-model.number="editForm.max_age"
-                type="number"
-                :min="editForm.min_age"
-                max="21"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Level</label>
-            <select
-              v-model="editForm.level"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option v-for="opt in levelOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
-            <select
-              v-model="editForm.gender"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option :value="null">Open/Mixed</option>
-              <option v-for="opt in genderOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          
           <div class="flex gap-3 pt-2">
             <button
               type="submit"
               :disabled="loading"
               class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-slate-300 transition-colors"
             >
-              Save Changes
+              {{ isCreating ? 'Create Event' : 'Save Changes' }}
             </button>
             <button
               type="button"

@@ -57,6 +57,7 @@ class CompetitionCategory(str, Enum):
     SOLO = "SOLO"                   # Individual solo dances
     FIGURE = "FIGURE"               # Team/ceili dances (2-hand, 3-hand, etc.)
     CHAMPIONSHIP = "CHAMPIONSHIP"   # Prelim and Open Championships
+    SPECIAL = "SPECIAL"             # Special/Trophy competitions (e.g. Treble Reel Special)
 
 class ScoringMethod(str, Enum):
     """How a competition is scored."""
@@ -258,6 +259,13 @@ class Competition(SQLModel, table=True):
     
     # For figure/ceili dances: is this a mixed (boys+girls) competition?
     is_mixed: bool = Field(default=False)
+    
+    # Description for Special competitions (and others)
+    description: Optional[str] = None
+    
+    # Comma-separated list of allowed levels for Special competitions
+    # If set, this overrides the 'level' field for eligibility checks
+    allowed_levels: Optional[str] = None
     
     # New scheduling/competition definition fields (Phase 2)
     dance_type: Optional[DanceType] = None

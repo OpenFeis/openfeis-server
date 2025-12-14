@@ -1257,6 +1257,11 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
             dance_type=comp_data.dance_type.value if comp_data.dance_type else None
         )
     
+    # Process allowed_levels list to string
+    allowed_levels_str = None
+    if comp_data.allowed_levels:
+        allowed_levels_str = ",".join([l.value for l in comp_data.allowed_levels])
+    
     comp = Competition(
         feis_id=feis.id,
         name=comp_data.name,
@@ -1267,6 +1272,8 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         code=code,
         category=comp_data.category,
         is_mixed=comp_data.is_mixed,
+        description=comp_data.description,
+        allowed_levels=allowed_levels_str,
         # New fields
         dance_type=comp_data.dance_type,
         tempo_bpm=comp_data.tempo_bpm,
@@ -1290,6 +1297,8 @@ async def create_competition(comp_data: CompetitionCreate, session: Session = De
         code=comp.code,
         category=comp.category,
         is_mixed=comp.is_mixed,
+        description=comp.description,
+        allowed_levels=comp.allowed_levels,
         entry_count=0,
         dance_type=comp.dance_type,
         tempo_bpm=comp.tempo_bpm,
@@ -1320,6 +1329,10 @@ async def update_competition(comp_id: str, comp_data: CompetitionUpdate, session
         comp.category = comp_data.category
     if comp_data.is_mixed is not None:
         comp.is_mixed = comp_data.is_mixed
+    if comp_data.description is not None:
+        comp.description = comp_data.description
+    if comp_data.allowed_levels is not None:
+        comp.allowed_levels = ",".join([l.value for l in comp_data.allowed_levels])
     # New scheduling fields
     if comp_data.dance_type is not None:
         comp.dance_type = comp_data.dance_type

@@ -54,7 +54,7 @@ export type DanceType =
 export type ScoringMethod = 'SOLO' | 'CHAMPIONSHIP';
 
 // Competition category for registration grouping (uppercase to match backend enum values)
-export type CompetitionCategory = 'SOLO' | 'FIGURE' | 'CHAMPIONSHIP';
+export type CompetitionCategory = 'SOLO' | 'FIGURE' | 'CHAMPIONSHIP' | 'SPECIAL';
 
 export interface User {
   id: string;
@@ -119,6 +119,8 @@ export interface Competition {
   estimated_duration_minutes?: number;
   adjudicator_id?: string;
   entry_count?: number;
+  description?: string;
+  allowed_levels?: CompetitionLevel[];
 }
 
 export interface StageJudgeCoverage {

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import date, datetime, time
 from uuid import UUID
@@ -68,6 +68,8 @@ class CompetitionCreate(BaseModel):
     level: CompetitionLevel
     gender: Optional[Gender] = None
     code: Optional[str] = None  # Display code (e.g., "407SJ") - auto-generated if not provided
+    description: Optional[str] = None
+    allowed_levels: Optional[List[CompetitionLevel]] = None  # List of levels for special comps
     # Competition category (solo, figure, championship)
     category: CompetitionCategory = CompetitionCategory.SOLO
     is_mixed: bool = False  # For figure dances - mixed gender team
@@ -78,6 +80,8 @@ class CompetitionCreate(BaseModel):
     scoring_method: ScoringMethod = ScoringMethod.SOLO
     price_cents: int = 1000
     max_entries: Optional[int] = None
+    description: Optional[str] = None
+    allowed_levels: Optional[List[CompetitionLevel]] = None
 
 class CompetitionUpdate(BaseModel):
     name: Optional[str] = None
@@ -86,6 +90,8 @@ class CompetitionUpdate(BaseModel):
     level: Optional[CompetitionLevel] = None
     gender: Optional[Gender] = None
     code: Optional[str] = None  # Display code - set to override auto-generated
+    description: Optional[str] = None
+    allowed_levels: Optional[List[CompetitionLevel]] = None
     # Competition category
     category: Optional[CompetitionCategory] = None
     is_mixed: Optional[bool] = None
@@ -125,6 +131,15 @@ class CompetitionResponse(BaseModel):
     scheduled_time: Optional[datetime] = None
     estimated_duration_minutes: Optional[int] = None
     adjudicator_id: Optional[str] = None
+    description: Optional[str] = None
+    allowed_levels: Optional[List[CompetitionLevel]] = None
+
+    @field_validator("allowed_levels", mode="before")
+    @classmethod
+    def parse_allowed_levels(cls, v):
+        if isinstance(v, str):
+            return [CompetitionLevel(l) for l in v.split(",") if l]
+        return v
 
     class Config:
         from_attributes = True
