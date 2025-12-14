@@ -83,14 +83,56 @@ const dancerAge = computed(() => {
   return computeCompetitionAge(props.dancer.dob);
 });
 
+// Team Age Selection (defaults to dancer's age, can be increased)
+const teamAge = ref<number | null>(null);
+
+// Initialize teamAge when dancerAge becomes available
+watch(dancerAge, (newAge) => {
+  if (newAge !== null && teamAge.value === null) {
+    teamAge.value = newAge;
+  }
+}, { immediate: true });
+
+// Clear figure dance selections when team age changes
+watch(teamAge, (newVal, oldVal) => {
+  if (newVal !== oldVal && oldVal !== null) {
+    const figureCompIds = new Set(
+      allCompetitions.value
+        .filter(c => c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType))
+        .map(c => c.id)
+    );
+    
+    const newSelection = new Set(selectedCompetitionIds.value);
+    let changed = false;
+    for (const id of newSelection) {
+      if (figureCompIds.has(id)) {
+        newSelection.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedCompetitionIds.value = newSelection;
+    }
+  }
+});
+
 const isAdultDancer = computed(() => {
   return props.dancer.is_adult || (dancerAge.value !== null && dancerAge.value >= 18);
 });
 
 // Helper to check if a competition matches age and gender
 const matchesAgeAndGender = (comp: Competition): boolean => {
-  if (!dancerAge.value || !props.dancer.gender) return false;
+  if (dancerAge.value === null || !props.dancer.gender) return false;
   const ageMatch = dancerAge.value >= comp.min_age && dancerAge.value <= comp.max_age;
+  // For mixed/open competitions, any gender matches
+  const genderMatch = !comp.gender || comp.gender === props.dancer.gender || comp.is_mixed === true;
+  return ageMatch && genderMatch;
+};
+
+// Helper to check if a competition matches team age and gender
+const matchesTeamAgeAndGender = (comp: Competition): boolean => {
+  if (teamAge.value === null || !props.dancer.gender) return false;
+  const ageMatch = teamAge.value >= comp.min_age && teamAge.value <= comp.max_age;
   // For mixed/open competitions, any gender matches
   const genderMatch = !comp.gender || comp.gender === props.dancer.gender || comp.is_mixed === true;
   return ageMatch && genderMatch;
@@ -121,7 +163,7 @@ const findFigureCompetition = (danceType: DanceType): Competition | null => {
     const categoryMatch = (comp.category || 'SOLO') === 'FIGURE' || 
       FIGURE_DANCE_TYPES.includes(comp.dance_type as DanceType);
     const danceMatch = comp.dance_type === danceType;
-    const demographicMatch = matchesAgeAndGender(comp);
+    const demographicMatch = matchesTeamAgeAndGender(comp);
     return categoryMatch && danceMatch && demographicMatch;
   }) || null;
 };
@@ -177,7 +219,7 @@ const figureDanceRows = computed(() => {
     return allCompetitions.value.some(c => 
       c.dance_type === row.danceType && 
       (c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType)) &&
-      matchesAgeAndGender(c)
+      matchesTeamAgeAndGender(c)
     );
   });
 });
@@ -186,7 +228,7 @@ const figureDanceRows = computed(() => {
 const hasFigureDances = computed(() => {
   return allCompetitions.value.some(c => 
     (c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType)) &&
-    matchesAgeAndGender(c)
+    matchesTeamAgeAndGender(c)
   );
 });
 
@@ -482,8 +524,28 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
             Figure / Ceili Dances
           </h3>
           
+          <!-- Team Age Selection -->
+          <div class="mb-4 bg-purple-50 p-4 rounded-xl border border-purple-100 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-purple-900 mb-1">Team Age Group</label>
+              <p class="text-xs text-purple-700">
+                Select the age group for your team. You can dance up, but not down.
+              </p>
+            </div>
+            <select
+              v-if="teamAge !== null && dancerAge !== null"
+              v-model="teamAge"
+              class="w-full sm:w-auto px-3 py-2 rounded-lg border border-purple-200 text-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none bg-white text-purple-900 font-medium"
+            >
+              <option :value="dancerAge">U{{ dancerAge + 1 }} (Actual)</option>
+              <option v-for="i in 10" :key="i" :value="dancerAge + i">
+                U{{ dancerAge + i + 1 }}
+              </option>
+            </select>
+          </div>
+
           <!-- No level selector - figure dances are by age only -->
-          <p class="text-sm text-slate-500 mb-3">Team dances available for your age group:</p>
+          <p class="text-sm text-slate-500 mb-3">Team dances available for selected age group:</p>
 
           <div class="border border-slate-200 rounded-xl overflow-hidden">
             <div class="divide-y divide-slate-100">
