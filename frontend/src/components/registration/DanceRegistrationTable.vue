@@ -776,7 +776,7 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
               :key="comp.id"
               @click="toggleSpecialCompetition(comp)"
               :class="[
-                'w-full px-4 py-4 rounded-xl text-left transition-all border-2 flex items-center justify-between',
+                'w-full px-4 py-4 rounded-xl text-left transition-all border-2 flex items-center justify-between group/card',
                 selectedCompetitionIds.has(comp.id)
                   ? 'bg-teal-50 border-teal-500'
                   : 'bg-white border-slate-200 hover:border-teal-300'
@@ -785,12 +785,12 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
               <div class="flex-1 min-w-0 pr-4">
                 <div class="font-semibold text-slate-700 flex items-center gap-2">
                   {{ comp.name }}
-                  <div v-if="comp.description" class="group relative inline-block">
-                    <svg class="w-4 h-4 text-slate-400 hover:text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div v-if="comp.description" class="relative inline-block" @click.stop>
+                    <svg class="w-4 h-4 text-slate-400 hover:text-teal-600 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <!-- Tooltip -->
-                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10 whitespace-normal">
+                    <!-- Tooltip - visible on hover over icon OR parent card hover (desktop) -->
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/card:block w-64 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl z-20 whitespace-normal text-left pointer-events-none">
                       {{ comp.description }}
                       <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                     </div>
