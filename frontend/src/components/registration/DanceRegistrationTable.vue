@@ -349,7 +349,68 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
             Solo Dances
           </h3>
           
-          <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <!-- Mobile Layout: Stacked cards -->
+          <div class="md:hidden space-y-3">
+            <div 
+              v-for="row in soloDanceRows" 
+              :key="row.danceType"
+              :class="[
+                'border rounded-xl p-4 transition-all',
+                row.isSelected 
+                  ? 'border-orange-400 bg-orange-50' 
+                  : 'border-slate-200 bg-white'
+              ]"
+            >
+              <!-- Row 1: Dance name + checkbox -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">{{ row.icon }}</span>
+                  <span class="font-semibold text-slate-700">{{ row.label }}</span>
+                </div>
+                <button
+                  v-if="row.matchedCompetition"
+                  @click="toggleSoloCompetition(row.danceType)"
+                  :class="[
+                    'w-7 h-7 rounded-full flex items-center justify-center transition-all',
+                    row.isSelected 
+                      ? 'bg-orange-500' 
+                      : 'border-2 border-slate-300 hover:border-orange-400'
+                  ]"
+                >
+                  <svg v-if="row.isSelected" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </button>
+              </div>
+              
+              <!-- Row 2: Level selector -->
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs text-slate-500 w-12">Level:</span>
+                <select
+                  :value="row.level"
+                  @change="onSoloLevelChange(row.danceType, ($event.target as HTMLSelectElement).value as CompetitionLevel | 'skip')"
+                  class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all outline-none bg-white"
+                >
+                  <option v-for="opt in gradeLevelOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+              
+              <!-- Row 3: Competition match status -->
+              <div class="text-sm">
+                <span v-if="row.matchedCompetition" class="text-slate-600">
+                  {{ row.matchedCompetition.name }}
+                </span>
+                <span v-else class="text-slate-400 italic">
+                  {{ row.level === 'skip' ? 'Not competing' : 'No matching competition' }}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Desktop Layout: Table -->
+          <div class="hidden md:block border border-slate-200 rounded-xl overflow-hidden">
             <table class="w-full">
               <thead class="bg-slate-50">
                 <tr>
@@ -432,30 +493,30 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
                 @click="row.matchedCompetition && toggleFigureCompetition(row.danceType)"
                 :disabled="!row.matchedCompetition"
                 :class="[
-                  'w-full px-4 py-3 text-left transition-all flex items-center justify-between',
+                  'w-full px-4 py-3 text-left transition-all flex items-center justify-between gap-3',
                   row.isSelected
                     ? 'bg-purple-50'
                     : 'bg-white hover:bg-slate-50',
                   !row.matchedCompetition && 'opacity-50 cursor-not-allowed'
                 ]"
               >
-                <div class="flex items-center gap-3">
-                  <span class="text-xl">{{ row.icon }}</span>
-                  <div>
+                <div class="flex items-center gap-3 min-w-0">
+                  <span class="text-xl flex-shrink-0">{{ row.icon }}</span>
+                  <div class="min-w-0">
                     <span class="font-medium text-slate-700">{{ row.label }}</span>
-                    <span v-if="row.matchedCompetition" class="text-xs text-slate-500 ml-2">
+                    <div v-if="row.matchedCompetition" class="text-xs text-slate-500 truncate">
                       {{ row.matchedCompetition.name }}
-                    </span>
+                    </div>
                   </div>
                 </div>
                 <span 
                   v-if="row.matchedCompetition"
                   :class="[
-                    'w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0',
+                    'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0',
                     row.isSelected ? 'bg-purple-500' : 'border-2 border-slate-300'
                   ]"
                 >
-                  <svg v-if="row.isSelected" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg v-if="row.isSelected" class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                   </svg>
                 </span>
