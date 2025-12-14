@@ -635,7 +635,7 @@ const totalSelected = computed(() => selectedCompetitionIds.value.size);
               </option>
             </select>
           </div>
-
+          
           <!-- No level selector - figure dances are by age only -->
           <p class="text-sm text-slate-500 mb-3">Team dances available for selected age group:</p>
 

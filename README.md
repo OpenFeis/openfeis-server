@@ -366,7 +366,7 @@ openfeis-server/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/feis/{feis_id}/competitions` | Create competition for a feis |
+| `POST` | `/api/v1/competitions` | Create competition for a feis |
 | `GET` | `/api/v1/feis/{feis_id}/competitions` | List competitions in a feis |
 | `GET` | `/api/v1/competitions/{id}` | Get a single competition |
 | `PUT` | `/api/v1/competitions/{id}` | Update a competition |
