@@ -93,28 +93,8 @@ watch(dancerAge, (newAge) => {
   }
 }, { immediate: true });
 
-// Clear figure dance selections when team age changes
-watch(teamAge, (newVal, oldVal) => {
-  if (newVal !== oldVal && oldVal !== null) {
-    const figureCompIds = new Set(
-      allCompetitions.value
-        .filter(c => c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType))
-        .map(c => c.id)
-    );
-    
-    const newSelection = new Set(selectedCompetitionIds.value);
-    let changed = false;
-    for (const id of newSelection) {
-      if (figureCompIds.has(id)) {
-        newSelection.delete(id);
-        changed = true;
-      }
-    }
-    if (changed) {
-      selectedCompetitionIds.value = newSelection;
-    }
-  }
-});
+// Note: Removed watcher that clears selections on teamAge change
+// This allows selecting U8 2-hand, changing filter to U10, and selecting U10 8-hand.
 
 const isAdultDancer = computed(() => {
   return props.dancer.is_adult || (dancerAge.value !== null && dancerAge.value >= 18);
@@ -132,6 +112,13 @@ const matchesAgeAndGender = (comp: Competition): boolean => {
 // Helper to check if a competition matches team age and gender
 const matchesTeamAgeAndGender = (comp: Competition): boolean => {
   if (teamAge.value === null || !props.dancer.gender) return false;
+  // Use teamAge for the upper bound (max_age), but ensure dancer meets min_age requirements if any
+  // But wait - figure dances usually just have an upper limit (e.g. U10).
+  // If the user selected U10 as team age, they should see U10 competitions.
+  
+  // Actually, we should match against the selected teamAge.
+  // If I select U10, I should see U10 competitions.
+  
   const ageMatch = teamAge.value >= comp.min_age && teamAge.value <= comp.max_age;
   // For mixed/open competitions, any gender matches
   const genderMatch = !comp.gender || comp.gender === props.dancer.gender || comp.is_mixed === true;
@@ -159,6 +146,19 @@ const findMatchingCompetition = (
 
 // Find figure dance competition (no level requirement)
 const findFigureCompetition = (danceType: DanceType): Competition | null => {
+  // First, check if we already have a selected competition for this dance type
+  // This preserves selections even if the user changes the age filter
+  const selectedCompId = Array.from(selectedCompetitionIds.value).find(id => {
+    const comp = allCompetitions.value.find(c => c.id === id);
+    return comp && comp.dance_type === danceType && 
+           ((comp.category || 'SOLO') === 'FIGURE' || FIGURE_DANCE_TYPES.includes(comp.dance_type as DanceType));
+  });
+  
+  if (selectedCompId) {
+    return allCompetitions.value.find(c => c.id === selectedCompId) || null;
+  }
+
+  // Otherwise, look for one that matches the current team age settings
   return allCompetitions.value.find(comp => {
     const categoryMatch = (comp.category || 'SOLO') === 'FIGURE' || 
       FIGURE_DANCE_TYPES.includes(comp.dance_type as DanceType);
@@ -216,20 +216,38 @@ const figureDanceRows = computed(() => {
     };
   }).filter(row => {
     // Only show if there are figure dance competitions of this type that match demographics
-    return allCompetitions.value.some(c => 
+    // We want to show the row if there are ANY matches for the current teamAge
+    // OR if there is already a selected competition for this dance type (even if it doesn't match current teamAge)
+    
+    // Check for match with current team settings
+    const currentMatch = allCompetitions.value.some(c => 
       c.dance_type === row.danceType && 
       (c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType)) &&
       matchesTeamAgeAndGender(c)
     );
+    
+    // Check if we already have a selected competition for this row
+    const hasSelection = row.matchedCompetition !== null && row.isSelected;
+    
+    return currentMatch || hasSelection;
   });
 });
 
 // Has any figure dances available that match dancer's demographics?
 const hasFigureDances = computed(() => {
-  return allCompetitions.value.some(c => 
+  // Show section if there are ANY matches for the current teamAge
+  // OR if there are any selected figure dances (so you can see what you selected even if you changed the filter)
+  const hasMatches = allCompetitions.value.some(c => 
     (c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType)) &&
     matchesTeamAgeAndGender(c)
   );
+  
+  const hasSelections = selectedCompetitionIds.value.size > 0 && Array.from(selectedCompetitionIds.value).some(id => {
+     const c = allCompetitions.value.find(comp => comp.id === id);
+     return c && (c.category === 'FIGURE' || FIGURE_DANCE_TYPES.includes(c.dance_type as DanceType));
+  });
+  
+  return hasMatches || hasSelections;
 });
 
 // Championship data
@@ -249,6 +267,8 @@ const toggleSoloCompetition = (danceType: DanceType) => {
   if (newSet.has(row.matchedCompetition.id)) {
     newSet.delete(row.matchedCompetition.id);
   } else {
+    // Solo dances: exclusive selection per dance type is handled by onSoloLevelChange logic usually,
+    // but here we just toggle. The logic ensures only one comp matches per level.
     newSet.add(row.matchedCompetition.id);
   }
   selectedCompetitionIds.value = newSet;
@@ -256,13 +276,49 @@ const toggleSoloCompetition = (danceType: DanceType) => {
 
 const toggleFigureCompetition = (danceType: DanceType) => {
   const row = figureDanceRows.value.find(r => r.danceType === danceType);
-  if (!row?.matchedCompetition) return;
+  
+  // If we have a currently matched competition (based on current teamAge filter OR existing selection)
+  const compToToggle = row?.matchedCompetition;
+  
+  if (!compToToggle) return;
   
   const newSet = new Set(selectedCompetitionIds.value);
-  if (newSet.has(row.matchedCompetition.id)) {
-    newSet.delete(row.matchedCompetition.id);
+  
+  if (newSet.has(compToToggle.id)) {
+    // Deselect
+    newSet.delete(compToToggle.id);
   } else {
-    newSet.add(row.matchedCompetition.id);
+    // Select
+    // IMPORTANT: If there was already a selection for this dance type (but different age),
+    // we should probably replace it? 
+    // The requirement says: "join a 2 hand u8 team, and then switch the age setting to u10 and also register a u10 8 hand team."
+    // This implies for DIFFERENT dance types (2-hand vs 8-hand) they can have different ages.
+    // But for the SAME dance type (e.g. 2-hand), can they be in U8 and U10? 
+    // Usually you can only compete once per competition type.
+    // The "toggle" UI implies a checkbox state. 
+    // If I select U8 2-hand, then switch to U10, the U8 2-hand row might disappear if I don't handle it carefully.
+    // My updated findFigureCompetition logic preserves the selection.
+    // But if I want to switch my 2-hand from U8 to U10, I first need to deselect U8?
+    // Or if I click the new U10 option, it should replace the U8 one.
+    
+    // Check if there are other competitions of this same dance type already selected
+    // and remove them (assuming you can only do one age group per dance type)
+    // Wait, the user said "join a 2 hand u8 team... and also register a u10 8 hand team".
+    // This confirms different dance types can have different ages.
+    // Does it allow multiple ages for the SAME dance type? "u8 2-hand AND u10 2-hand"?
+    // Usually strictly forbidden in feis rules (competing against yourself / dual entry).
+    // So we should enforce one selection per dance type.
+    
+    const existingForType = Array.from(newSet).find(id => {
+       const c = allCompetitions.value.find(comp => comp.id === id);
+       return c && c.dance_type === danceType;
+    });
+    
+    if (existingForType) {
+      newSet.delete(existingForType);
+    }
+    
+    newSet.add(compToToggle.id);
   }
   selectedCompetitionIds.value = newSet;
 };
