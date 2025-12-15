@@ -1642,7 +1642,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
     <!-- Footer -->
     <footer class="mt-auto py-6 text-center text-slate-500 text-sm">
       <p>
-        Open Feis v0.2.1 • Built with ☘️ for the Irish Dance Community
+        Open Feis v0.4.0 • Built with ☘️ for the Irish Dance Community
       </p>
     </footer>
   </div>

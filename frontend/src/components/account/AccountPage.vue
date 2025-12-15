@@ -114,6 +114,41 @@ interface RegistrationEntry {
 }
 const registrations = ref<RegistrationEntry[]>([]);
 const registrationsLoading = ref(false);
+const showRegistrationHistory = ref(false);
+
+// Results/Placements
+interface PlacementResult {
+  id: string;
+  dancer_id: string;
+  dancer_name: string;
+  competition_id: string;
+  competition_name: string;
+  feis_id: string;
+  feis_name: string;
+  rank: number;
+  irish_points: number;
+  dance_type?: string;
+  level: string;
+  competition_date: string;
+}
+
+interface DancerResults {
+  dancer_id: string;
+  dancer_name: string;
+  placements: PlacementResult[];
+}
+
+const allResults = ref<DancerResults[]>([]);
+const resultsLoading = ref(false);
+const expandedResults = ref<Set<string>>(new Set());
+
+const toggleResultExpansion = (resultId: string) => {
+  if (expandedResults.value.has(resultId)) {
+    expandedResults.value.delete(resultId);
+  } else {
+    expandedResults.value.add(resultId);
+  }
+};
 
 // Level and gender options
 const levelOptions: { value: CompetitionLevel; label: string }[] = [
@@ -132,10 +167,49 @@ const genderOptions: { value: Gender; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+// Fetch results for all dancers
+const fetchResults = async () => {
+  resultsLoading.value = true;
+  
+  try {
+    // First fetch dancers to get their IDs
+    await fetchDancers();
+    
+    // Then fetch placements for each dancer
+    const resultsPromises = dancers.value.map(async (dancer) => {
+      try {
+        const response = await auth.authFetch(`/api/v1/dancers/${dancer.id}/placements`);
+        if (response.ok) {
+          const data = await response.json();
+          return {
+            dancer_id: dancer.id,
+            dancer_name: dancer.name,
+            placements: data.placements || []
+          };
+        }
+      } catch (e) {
+        console.error(`Failed to fetch results for ${dancer.name}:`, e);
+      }
+      return {
+        dancer_id: dancer.id,
+        dancer_name: dancer.name,
+        placements: []
+      };
+    });
+    
+    allResults.value = await Promise.all(resultsPromises);
+  } catch (error) {
+    console.error('Failed to fetch results:', error);
+  } finally {
+    resultsLoading.value = false;
+  }
+};
+
 // Fetch data on mount
 onMounted(async () => {
   await Promise.all([
     fetchDancers(),
+    fetchResults(),
     fetchRegistrations()
   ]);
 });
@@ -464,6 +538,29 @@ const registrationsByDancer = computed(() => {
   }
   return grouped;
 });
+
+// Format date for display
+const formatDate = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric' 
+  });
+};
+
+// Get medal icon/badge for placement
+const getMedalBadge = (rank: number) => {
+  if (rank === 1) return { icon: '🥇', class: 'bg-amber-100 text-amber-800', label: '1st' };
+  if (rank === 2) return { icon: '🥈', class: 'bg-slate-200 text-slate-700', label: '2nd' };
+  if (rank === 3) return { icon: '🥉', class: 'bg-orange-100 text-orange-700', label: '3rd' };
+  return { icon: '', class: 'bg-slate-100 text-slate-600', label: `${rank}th` };
+};
+
+// Count total placements
+const totalPlacements = computed(() => {
+  return allResults.value.reduce((sum, dancer) => sum + dancer.placements.length, 0);
+});
 </script>
 
 <template>
@@ -471,7 +568,7 @@ const registrationsByDancer = computed(() => {
     <!-- Page Header -->
     <div>
       <h1 class="text-3xl font-bold text-slate-800">My Account</h1>
-      <p class="text-slate-600 mt-1">Manage your profile, dancers, and registrations</p>
+      <p class="text-slate-600 mt-1">View your results, manage your profile and dancers</p>
     </div>
 
     <!-- Profile Section -->
@@ -653,6 +750,136 @@ const registrationsByDancer = computed(() => {
         </div>
       </div>
     </Teleport>
+
+    <!-- Results Section -->
+    <section class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+      <div class="bg-gradient-to-r from-violet-600 to-purple-600 px-6 py-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+          </svg>
+          My Results
+          <span v-if="totalPlacements > 0" class="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+            {{ totalPlacements }} placement{{ totalPlacements !== 1 ? 's' : '' }}
+          </span>
+        </h2>
+      </div>
+      
+      <div class="p-6">
+        <!-- Loading -->
+        <div v-if="resultsLoading" class="flex items-center justify-center py-12">
+          <div class="animate-spin rounded-full h-8 w-8 border-4 border-violet-200 border-t-violet-600"></div>
+        </div>
+        
+        <!-- Empty State -->
+        <div v-else-if="totalPlacements === 0" class="text-center py-12">
+          <div class="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-700 mb-2">No results to show yet</h3>
+          <p class="text-slate-500 text-sm">Results from your competitions will appear here after they've been tabulated.</p>
+        </div>
+        
+        <!-- Results List by Dancer -->
+        <div v-else class="space-y-6">
+          <div
+            v-for="dancerResults in allResults.filter(d => d.placements.length > 0)"
+            :key="dancerResults.dancer_id"
+            class="border border-slate-200 rounded-xl overflow-hidden"
+          >
+            <!-- Dancer Header -->
+            <div class="bg-gradient-to-r from-violet-50 to-purple-50 px-4 py-3 border-b border-slate-200">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h4 class="font-bold text-slate-800 text-lg">{{ dancerResults.dancer_name }}</h4>
+                  <p class="text-xs text-slate-600 mt-0.5">{{ dancerResults.placements.length }} result{{ dancerResults.placements.length !== 1 ? 's' : '' }}</p>
+                </div>
+                <div class="flex gap-2">
+                  <div class="text-center px-3 py-1 bg-white rounded-lg shadow-sm">
+                    <div class="text-xl font-bold text-amber-600">{{ dancerResults.placements.filter(p => p.rank === 1).length }}</div>
+                    <div class="text-xs text-slate-500">1st Place</div>
+                  </div>
+                  <div class="text-center px-3 py-1 bg-white rounded-lg shadow-sm">
+                    <div class="text-xl font-bold text-violet-600">{{ dancerResults.placements.filter(p => p.rank <= 3).length }}</div>
+                    <div class="text-xs text-slate-500">Podium</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Placements List -->
+            <div class="divide-y divide-slate-100">
+              <div
+                v-for="placement in dancerResults.placements"
+                :key="placement.id"
+                class="px-4 py-3 hover:bg-slate-50 transition-colors"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <!-- Main Info -->
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span 
+                        :class="[
+                          'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-bold',
+                          getMedalBadge(placement.rank).class
+                        ]"
+                      >
+                        <span v-if="getMedalBadge(placement.rank).icon">{{ getMedalBadge(placement.rank).icon }}</span>
+                        {{ getMedalBadge(placement.rank).label }}
+                      </span>
+                      <button
+                        @click="toggleResultExpansion(placement.id)"
+                        class="text-violet-600 hover:text-violet-700 text-sm font-medium flex items-center gap-1"
+                      >
+                        {{ expandedResults.has(placement.id) ? 'Less' : 'Details' }}
+                        <svg 
+                          :class="['w-4 h-4 transition-transform', expandedResults.has(placement.id) && 'rotate-180']"
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    <p class="font-semibold text-slate-800">{{ placement.competition_name }}</p>
+                    <p class="text-sm text-slate-600">{{ placement.feis_name }}</p>
+                    <p class="text-xs text-slate-500 mt-1">{{ formatDate(placement.competition_date) }}</p>
+                    
+                    <!-- Expanded Details -->
+                    <div v-if="expandedResults.has(placement.id)" class="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                      <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <span class="text-slate-500">Irish Points:</span>
+                          <span class="ml-2 font-semibold text-violet-700">{{ placement.irish_points }}</span>
+                        </div>
+                        <div>
+                          <span class="text-slate-500">Level:</span>
+                          <span class="ml-2 font-semibold text-slate-700 capitalize">{{ placement.level.replace('_', ' ') }}</span>
+                        </div>
+                        <div v-if="placement.dance_type" class="col-span-2">
+                          <span class="text-slate-500">Dance:</span>
+                          <span class="ml-2 font-semibold text-slate-700 capitalize">{{ placement.dance_type.replace('_', ' ') }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Points Badge -->
+                  <div class="text-right">
+                    <div class="text-2xl font-bold text-violet-600">{{ placement.irish_points }}</div>
+                    <div class="text-xs text-slate-500">points</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- My Dancers Section -->
     <section class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
@@ -1145,18 +1372,32 @@ const registrationsByDancer = computed(() => {
       </div>
     </Teleport>
 
-    <!-- Registration History Section -->
+    <!-- Registration History Section (Collapsible) -->
     <section class="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-      <div class="bg-gradient-to-r from-orange-600 to-amber-700 px-6 py-4">
+      <button
+        @click="showRegistrationHistory = !showRegistrationHistory"
+        class="w-full bg-gradient-to-r from-slate-600 to-slate-700 px-6 py-4 flex items-center justify-between hover:from-slate-700 hover:to-slate-800 transition-colors"
+      >
         <h2 class="text-lg font-bold text-white flex items-center gap-2">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
           Registration History
+          <span v-if="registrations.length > 0" class="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+            {{ registrations.length }}
+          </span>
         </h2>
-      </div>
+        <svg 
+          :class="['w-5 h-5 text-white transition-transform', showRegistrationHistory && 'rotate-180']"
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
       
-      <div class="p-6">
+      <div v-if="showRegistrationHistory" class="p-6">
         <!-- Loading -->
         <div v-if="registrationsLoading" class="flex items-center justify-center py-8">
           <div class="animate-spin rounded-full h-8 w-8 border-4 border-orange-200 border-t-orange-600"></div>
