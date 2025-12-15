@@ -657,7 +657,7 @@ class PlacementHistory(SQLModel, table=True):
 
 ### 4.2 Advancement Rules Engine
 
-**Description:** Implement CLRG/NAFC advancement rules to automatically track level progression.
+**Description:** Implement CLRG advancement rules to automatically track level progression.
 
 **Technical Requirements:**
 - Define advancement rules per level/region

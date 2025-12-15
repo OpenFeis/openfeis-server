@@ -39,7 +39,7 @@ Parents manage the accounts, pay the fees, and track results. Teachers need visi
 
 ## Section 2: The Regulatory Framework and Business Logic
 
-The software cannot simply allow users to create events; it must enforce the laws of the sport. The *An Coimisiún le Rincí Gaelacha* (CLRG) sets the global standard, but the North American Feis Commission (NAFC) applies specific overlays for events in the US and Canada. The OpenFeis "Rules Engine" must be flexible enough to handle these regional variances.
+The software cannot simply allow users to create events; it must enforce the laws of the sport. The *An Coimisiún le Rincí Gaelacha* (CLRG) sets the global standard. The OpenFeis "Rules Engine" must be flexible enough to handle regional variances.
 
 ### 2.1 The Chronology of Age
 One of the most confusing aspects for new parents—and a critical logic requirement for the software—is age calculation.
@@ -52,7 +52,7 @@ Dancers move through a progression of grades: Beginner, Advanced Beginner, Novic
 *   **Advancement Logic:** The rules for moving up are algorithmic but complex.
     *   *Beginner to Advanced Beginner:* Often requires a 1st place win.
     *   *Novice to Prizewinner:* In some regions, winning a 1st place in Novice forces the dancer to move to Prizewinner for *that specific dance only*.
-    *   *Preliminary to Open Championship:* This is the major threshold. Typically, winning two Preliminary Championships moves the dancer to Open for *all dances*. However, the NAFC rules state that if the second win occurs in the same calendar year as the first, the move is mandatory at the start of the next year, whereas CLRG rules might differ slightly.[10, 11]
+    *   *Preliminary to Open Championship:* This is the major threshold. Typically, winning two Preliminary Championships moves the dancer to Open for *all dances*. Regional rules may vary on the timing of when this advancement takes effect.[10, 11]
 *   **The "Sandbagging" Prevention:** The system needs a feature to track a dancer's placement history. If a dancer has won out of a grade, the system should technically block them from registering for that lower grade again. Current systems rely largely on the "honor system" or teacher oversight; OpenFeis could revolutionize this with a centralized advancement database.[12]
 
 ## Section 3: Competitive Analysis of Legacy Systems

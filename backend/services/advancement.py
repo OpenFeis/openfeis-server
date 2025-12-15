@@ -1,7 +1,7 @@
 """
 Advancement Rules Engine for Open Feis.
 
-Implements CLRG/NAFC advancement rules to automatically track level progression.
+Implements CLRG advancement rules to automatically track level progression.
 Detects when dancers have "won out" and should advance to the next level.
 
 Rules overview:

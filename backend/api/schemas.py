@@ -1251,8 +1251,8 @@ class AdjudicatorCreate(BaseModel):
     name: str  # Required even without account
     email: Optional[str] = None  # For sending invites
     phone: Optional[str] = None
-    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "TMRF"
-    organization: Optional[str] = None  # e.g., "CLRG", "NAFC", "CRN"
+    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "SDCRG"
+    organization: Optional[str] = None  # e.g., "CLRG", "CRN", "WIDA"
     school_affiliation_id: Optional[str] = None  # User ID of their school (for conflict detection)
     user_id: Optional[str] = None  # If linking to existing user account
 

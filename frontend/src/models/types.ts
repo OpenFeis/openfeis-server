@@ -801,8 +801,8 @@ export interface FeisAdjudicator {
   name: string;
   email: string | null;
   phone: string | null;
-  credential: string | null;  // e.g., "TCRG", "ADCRG", "TMRF"
-  organization: string | null;  // e.g., "CLRG", "NAFC", "CRN"
+  credential: string | null;  // e.g., "TCRG", "ADCRG", "SDCRG"
+  organization: string | null;  // e.g., "CLRG", "CRN", "WIDA"
   school_affiliation_id: string | null;  // FK to User (teacher) for conflict detection
   school_affiliation_name: string | null;  // Display name
   status: AdjudicatorStatus;
@@ -985,14 +985,12 @@ export function getAvailabilityTypeBadge(type: AvailabilityType): { color: strin
 export const ADJUDICATOR_CREDENTIALS = [
   { value: 'TCRG', label: 'TCRG (Teacher)' },
   { value: 'ADCRG', label: 'ADCRG (Adjudicator)' },
-  { value: 'TMRF', label: 'TMRF (Teacher of Music)' },
   { value: 'SDCRG', label: 'SDCRG (Examiner)' },
 ];
 
 // Common dance organizations for autocomplete
 export const DANCE_ORGANIZATIONS = [
   { value: 'CLRG', label: 'CLRG - An Coimisiún' },
-  { value: 'NAFC', label: 'NAFC - North American Feis Commission' },
   { value: 'CRN', label: 'CRN - An Comhdháil' },
   { value: 'WIDA', label: 'WIDA - World Irish Dance Association' },
 ];

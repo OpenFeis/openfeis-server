@@ -466,7 +466,7 @@ class PlacementHistory(SQLModel, table=True):
     """
     Records a dancer's placement in a competition.
     
-    Used for tracking advancement eligibility (e.g., CLRG/NAFC rules
+    Used for tracking advancement eligibility (e.g., CLRG rules
     where winning at a level advances the dancer to the next level).
     """
     __tablename__ = "placementhistory"
@@ -664,8 +664,8 @@ class FeisAdjudicator(SQLModel, table=True):
     phone: Optional[str] = None  # Optional contact
     
     # Credentials
-    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "TMRF"
-    organization: Optional[str] = None  # e.g., "CLRG", "NAFC", "CRN"
+    credential: Optional[str] = None  # e.g., "TCRG", "ADCRG", "SDCRG"
+    organization: Optional[str] = None  # e.g., "CLRG", "CRN", "WIDA"
     school_affiliation_id: Optional[UUID] = Field(default=None, foreign_key="user.id")  # FK to User (teacher) for conflict detection
     
     # Status
