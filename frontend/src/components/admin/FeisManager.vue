@@ -67,12 +67,13 @@ const editingFeis = ref<Feis | null>(null);
 
 // Co-organizer management state
 const organizerData = ref<OrganizerList | null>(null);
-const allUsers = ref<User[]>([]);
+const filteredUsers = ref<User[]>([]);
 const userSearchQuery = ref('');
 const selectedUser = ref<User | null>(null);
 const showConfirmModal = ref(false);
 const organizerLoading = ref(false);
 const organizerError = ref<string | null>(null);
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Form state
 const form = ref<FeisForm>({
@@ -88,26 +89,50 @@ const isFormValid = computed(() => {
          form.value.location.trim().length >= 3;
 });
 
-// Filtered users for search (exclude existing organizers)
-const filteredUsers = computed(() => {
-  if (!userSearchQuery.value.trim()) return [];
-  
-  const query = userSearchQuery.value.toLowerCase();
-  const existingOrganizerIds = new Set<string>();
-  
-  if (organizerData.value) {
-    existingOrganizerIds.add(organizerData.value.primary_organizer_id);
-    organizerData.value.co_organizers.forEach(co => existingOrganizerIds.add(co.user_id));
+// Debounced search function for users
+const searchUsers = async (query: string) => {
+  // Clear results if query is empty
+  if (!query.trim()) {
+    filteredUsers.value = [];
+    return;
   }
   
-  return allUsers.value
-    .filter(u => !existingOrganizerIds.has(u.id))
-    .filter(u => 
-      u.name.toLowerCase().includes(query) || 
-      u.email.toLowerCase().includes(query)
-    )
-    .slice(0, 10); // Limit to 10 results
-});
+  try {
+    // Call backend with search parameter (server-side filtering)
+    const response = await authStore.authFetch(`/api/v1/users?search=${encodeURIComponent(query)}&limit=20`);
+    if (!response.ok) {
+      console.error('Failed to search users');
+      return;
+    }
+    
+    const users: User[] = await response.json();
+    
+    // Exclude existing organizers from results
+    const existingOrganizerIds = new Set<string>();
+    if (organizerData.value) {
+      existingOrganizerIds.add(organizerData.value.primary_organizer_id);
+      organizerData.value.co_organizers.forEach(co => existingOrganizerIds.add(co.user_id));
+    }
+    
+    filteredUsers.value = users.filter(u => !existingOrganizerIds.has(u.id));
+  } catch (err) {
+    console.error('Error searching users:', err);
+    filteredUsers.value = [];
+  }
+};
+
+// Watch for search query changes and debounce the API call
+const onSearchQueryChange = () => {
+  // Clear existing timer
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+  }
+  
+  // Set new timer (300ms debounce)
+  searchDebounceTimer = setTimeout(() => {
+    searchUsers(userSearchQuery.value);
+  }, 300);
+};
 
 // Fetch feiseanna that the current user can manage
 const fetchFeiseanna = async () => {
@@ -125,17 +150,6 @@ const fetchFeiseanna = async () => {
   }
 };
 
-// Fetch all users for search
-const fetchUsers = async () => {
-  try {
-    const response = await authStore.authFetch('/api/v1/users');
-    if (response.ok) {
-      allUsers.value = await response.json();
-    }
-  } catch (err) {
-    console.error('Failed to fetch users:', err);
-  }
-};
 
 // Fetch organizers for a feis
 const fetchOrganizers = async (feisId: string) => {
@@ -159,6 +173,7 @@ const fetchOrganizers = async (feisId: string) => {
 const selectUserToAdd = (user: User) => {
   selectedUser.value = user;
   userSearchQuery.value = '';
+  filteredUsers.value = [];
   showConfirmModal.value = true;
 };
 
@@ -320,19 +335,20 @@ const startEdit = async (feis: Feis) => {
   };
   showCreateForm.value = false;
   
-  // Fetch organizers and users for co-organizer management
-  await Promise.all([
-    fetchOrganizers(feis.id),
-    fetchUsers()
-  ]);
+  // Fetch organizers for co-organizer management
+  await fetchOrganizers(feis.id);
 };
 
 const cancelEdit = () => {
   editingFeis.value = null;
   organizerData.value = null;
   userSearchQuery.value = '';
+  filteredUsers.value = [];
   selectedUser.value = null;
   organizerError.value = null;
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+  }
   resetForm();
 };
 
@@ -513,6 +529,7 @@ onMounted(() => {
           <p class="text-sm text-slate-500 mb-2">Add Co-Organizer</p>
           <input
             v-model="userSearchQuery"
+            @input="onSearchQueryChange"
             type="text"
             placeholder="Search by name or email..."
             class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
