@@ -43,6 +43,17 @@ const showAdjudicatorModal = ref(false);
 const selectedCompetition = ref<ScheduledCompetition | null>(null);
 const selectedAdjudicatorId = ref<string>('');
 
+// Competition editor
+const showCompetitionEditor = ref(false);
+const editingCompetition = ref<ScheduledCompetition | null>(null);
+const competitionForm = ref({
+  name: '',
+  stage_id: '',
+  scheduled_time: '',
+  estimated_duration_minutes: 0,
+  adjudicator_id: ''
+});
+
 // Stage management
 const showStageModal = ref(false);
 const editingStage = ref<Stage | null>(null);
@@ -175,8 +186,8 @@ const loadAdjudicators = async () => {
 // Open adjudicator assignment modal
 const openAdjudicatorModal = (comp: ScheduledCompetition) => {
   selectedCompetition.value = comp;
-  // Find current adjudicator if any (would need to extend ScheduledCompetition type)
-  selectedAdjudicatorId.value = '';
+  // Pre-select current adjudicator if assigned
+  selectedAdjudicatorId.value = comp.adjudicator_id || '';
   showAdjudicatorModal.value = true;
 };
 
@@ -201,6 +212,67 @@ const assignAdjudicator = async () => {
     await loadSchedulerData();
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to assign adjudicator';
+  }
+};
+
+// Open competition editor modal
+const openCompetitionEditor = (comp: ScheduledCompetition) => {
+  editingCompetition.value = comp;
+  
+  // Format scheduled time for datetime-local input
+  let formattedTime = '';
+  if (comp.scheduled_time) {
+    const dt = new Date(comp.scheduled_time);
+    // Format as YYYY-MM-DDTHH:mm for datetime-local input
+    formattedTime = dt.toISOString().slice(0, 16);
+  }
+  
+  competitionForm.value = {
+    name: comp.name,
+    stage_id: comp.stage_id || '',
+    scheduled_time: formattedTime,
+    estimated_duration_minutes: comp.estimated_duration_minutes || 0,
+    adjudicator_id: comp.adjudicator_id || ''
+  };
+  
+  showCompetitionEditor.value = true;
+};
+
+// Save competition changes
+const saveCompetition = async () => {
+  if (!editingCompetition.value) return;
+  
+  try {
+    // Prepare update payload
+    const payload: any = {
+      name: competitionForm.value.name,
+      stage_id: competitionForm.value.stage_id || null,
+      estimated_duration_minutes: competitionForm.value.estimated_duration_minutes,
+      adjudicator_id: competitionForm.value.adjudicator_id || null
+    };
+    
+    // Convert datetime-local to ISO string if provided
+    if (competitionForm.value.scheduled_time) {
+      payload.scheduled_time = new Date(competitionForm.value.scheduled_time).toISOString();
+    } else {
+      payload.scheduled_time = null;
+    }
+    
+    const response = await auth.authFetch(`/api/v1/competitions/${editingCompetition.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to update competition');
+    }
+    
+    showCompetitionEditor.value = false;
+    editingCompetition.value = null;
+    await loadSchedulerData();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to save competition';
   }
 };
 
@@ -793,14 +865,27 @@ watch(() => props.feisId, () => {
                   draggable="true"
                   @dragstart="onDragStart(comp, $event)"
                   @dragend="onDragEnd"
+                  @dblclick="openCompetitionEditor(comp)"
+                  :title="`${comp.name} - Double-click to edit`"
                 >
                   <span class="text-lg flex-shrink-0">{{ getDanceIcon(comp.dance_type) }}</span>
                   <span class="truncate">{{ comp.name }}</span>
                   <div class="ml-auto flex items-center gap-1 flex-shrink-0">
+                    <!-- Judge assigned indicator -->
+                    <div 
+                      v-if="comp.adjudicator_id" 
+                      class="flex items-center justify-center w-5 h-5 bg-white/30 rounded-full"
+                      title="Judge assigned"
+                    >
+                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
                     <button
                       @click.stop="openAdjudicatorModal(comp)"
                       class="p-1 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Assign adjudicator"
+                      :class="{ 'opacity-40': !comp.adjudicator_id }"
+                      :title="comp.adjudicator_id ? 'Change adjudicator' : 'Assign adjudicator'"
                     >
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -849,6 +934,8 @@ watch(() => props.feisId, () => {
               draggable="true"
               @dragstart="onDragStart(comp, $event)"
               @dragend="onDragEnd"
+              @dblclick="openCompetitionEditor(comp)"
+              title="Double-click to edit"
             >
               <span class="text-lg">{{ getDanceIcon(comp.dance_type) }}</span>
               <span>{{ comp.name }}</span>
@@ -1015,6 +1102,133 @@ watch(() => props.feisId, () => {
             class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
           >
             Assign
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Competition Editor Modal -->
+    <div
+      v-if="showCompetitionEditor && editingCompetition"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="showCompetitionEditor = false"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+          <h3 class="text-lg font-bold text-white">Edit Competition</h3>
+          <p class="text-blue-100 text-sm">{{ editingCompetition.name }}</p>
+        </div>
+        
+        <div class="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+          <!-- Competition Name -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Competition Name</label>
+            <input
+              v-model="competitionForm.name"
+              type="text"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+              placeholder="Competition name"
+            />
+          </div>
+
+          <!-- Info badges -->
+          <div class="flex items-center gap-3 text-sm">
+            <div class="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg">
+              <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <span class="font-medium text-slate-700">{{ editingCompetition.entry_count }} entries</span>
+            </div>
+            <div class="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg">
+              <span class="font-medium text-slate-700">{{ editingCompetition.level.replace(/_/g, ' ').toUpperCase() }}</span>
+            </div>
+            <div v-if="editingCompetition.dance_type" class="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg">
+              <span>{{ getDanceIcon(editingCompetition.dance_type) }}</span>
+              <span class="font-medium text-slate-700">{{ editingCompetition.dance_type.replace(/_/g, ' ') }}</span>
+            </div>
+          </div>
+
+          <!-- Stage Assignment -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Stage</label>
+            <select
+              v-model="competitionForm.stage_id"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+            >
+              <option value="">-- Unassigned --</option>
+              <option 
+                v-for="stage in stages" 
+                :key="stage.id" 
+                :value="stage.id"
+              >
+                {{ stage.name }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Scheduled Time -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Scheduled Time</label>
+            <input
+              v-model="competitionForm.scheduled_time"
+              type="datetime-local"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+            />
+            <p class="text-xs text-slate-500 mt-1">Leave empty to unschedule</p>
+          </div>
+
+          <!-- Duration -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Estimated Duration (minutes)</label>
+            <input
+              v-model.number="competitionForm.estimated_duration_minutes"
+              type="number"
+              min="5"
+              max="180"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+            />
+          </div>
+
+          <!-- Adjudicator Assignment -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Assigned Judge</label>
+            <select
+              v-model="competitionForm.adjudicator_id"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none"
+            >
+              <option value="">-- No judge assigned --</option>
+              <option 
+                v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
+                :key="adj.id" 
+                :value="adj.user_id || adj.id"
+              >
+                {{ adj.name }}
+                <template v-if="adj.credential"> ({{ adj.credential }})</template>
+              </option>
+            </select>
+            <p class="text-xs text-slate-500 mt-1">Judges are auto-assigned based on stage coverage when you drag competitions</p>
+          </div>
+
+          <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <strong>Tip:</strong> Double-click any competition on the timeline to edit it
+          </div>
+        </div>
+        
+        <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+          <button
+            @click="showCompetitionEditor = false"
+            class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            @click="saveCompetition"
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          >
+            Save Changes
           </button>
         </div>
       </div>

@@ -296,3 +296,98 @@ async def get_competition_capacity_status(
         "is_full": cap_info.is_full,
         "waitlist_count": cap_info.waitlist_count
     }
+
+
+@router.put("/competitions/{comp_id}/schedule")
+async def update_competition_schedule(
+    comp_id: str,
+    schedule_update: dict,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Update competition scheduling details (stage, time, adjudicator).
+    Auto-assigns judge based on stage coverage if not explicitly provided.
+    """
+    from backend.scoring_engine.models_platform import Stage, StageJudgeCoverage, FeisAdjudicator
+    from datetime import datetime as dt
+    
+    competition = session.get(Competition, UUID(comp_id))
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+    
+    # Check ownership
+    feis = session.get(Feis, competition.feis_id)
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Update fields if provided
+    if "stage_id" in schedule_update:
+        competition.stage_id = UUID(schedule_update["stage_id"]) if schedule_update["stage_id"] else None
+    if "scheduled_time" in schedule_update:
+        if schedule_update["scheduled_time"]:
+            competition.scheduled_time = dt.fromisoformat(schedule_update["scheduled_time"].replace('Z', '+00:00'))
+        else:
+            competition.scheduled_time = None
+    if "estimated_duration_minutes" in schedule_update:
+        competition.estimated_duration_minutes = schedule_update["estimated_duration_minutes"]
+    
+    # Handle adjudicator assignment
+    if "adjudicator_id" in schedule_update:
+        # Explicit assignment
+        competition.adjudicator_id = UUID(schedule_update["adjudicator_id"]) if schedule_update["adjudicator_id"] else None
+    elif competition.stage_id and competition.scheduled_time:
+        # Auto-assign based on stage coverage
+        comp_start = competition.scheduled_time
+        comp_date = comp_start.date()
+        comp_time = comp_start.time()
+        
+        # Find judges with coverage on this stage during this time
+        coverages = session.exec(
+            select(StageJudgeCoverage)
+            .where(StageJudgeCoverage.stage_id == competition.stage_id)
+            .where(StageJudgeCoverage.feis_day == comp_date)
+        ).all()
+        
+        # Find a coverage block that includes this time
+        for cov in coverages:
+            if cov.start_time <= comp_time <= cov.end_time:
+                # Get the FeisAdjudicator to find their user_id
+                feis_adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+                if feis_adj and feis_adj.user_id:
+                    competition.adjudicator_id = feis_adj.user_id
+                    break
+    
+    session.add(competition)
+    session.commit()
+    session.refresh(competition)
+    
+    entry_count = session.exec(
+        select(func.count(Entry.id)).where(Entry.competition_id == competition.id)
+    ).one()
+    
+    return CompetitionResponse(
+        id=str(competition.id),
+        feis_id=str(competition.feis_id),
+        name=competition.name,
+        min_age=competition.min_age,
+        max_age=competition.max_age,
+        level=competition.level,
+        gender=competition.gender,
+        code=competition.code,
+        category=competition.category,
+        is_mixed=competition.is_mixed,
+        entry_count=entry_count,
+        dance_type=competition.dance_type,
+        tempo_bpm=competition.tempo_bpm,
+        bars=competition.bars,
+        scoring_method=competition.scoring_method,
+        price_cents=competition.price_cents,
+        max_entries=competition.max_entries,
+        stage_id=str(competition.stage_id) if competition.stage_id else None,
+        scheduled_time=competition.scheduled_time,
+        estimated_duration_minutes=competition.estimated_duration_minutes,
+        adjudicator_id=str(competition.adjudicator_id) if competition.adjudicator_id else None,
+        description=competition.description,
+        allowed_levels=competition.allowed_levels.split(',') if competition.allowed_levels else None
+    )

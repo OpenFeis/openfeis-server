@@ -238,7 +238,8 @@ async def get_scheduler_view(
             entry_count=entry_count,
             level=comp.level,
             dance_type=comp.dance_type,
-            has_conflicts=str(comp.id) in conflict_comp_ids
+            has_conflicts=str(comp.id) in conflict_comp_ids,
+            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
         ))
     
     conflict_responses = [
@@ -270,7 +271,7 @@ async def bulk_schedule_competitions(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_organizer_or_admin())
 ):
-    """Schedule multiple competitions at once."""
+    """Schedule multiple competitions at once with auto-judge assignment."""
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
@@ -284,6 +285,29 @@ async def bulk_schedule_competitions(
         if comp and comp.feis_id == feis.id:
             comp.stage_id = UUID(schedule.stage_id) if schedule.stage_id else None
             comp.scheduled_time = schedule.scheduled_time
+            
+            # Auto-assign judge based on stage coverage
+            if comp.stage_id and comp.scheduled_time:
+                comp_start = comp.scheduled_time
+                comp_date = comp_start.date()
+                comp_time = comp_start.time()
+                
+                # Find judges with coverage on this stage during this time
+                coverages = session.exec(
+                    select(StageJudgeCoverage)
+                    .where(StageJudgeCoverage.stage_id == comp.stage_id)
+                    .where(StageJudgeCoverage.feis_day == comp_date)
+                ).all()
+                
+                # Find a coverage block that includes this time
+                for cov in coverages:
+                    if cov.start_time <= comp_time <= cov.end_time:
+                        # Get the FeisAdjudicator to find their user_id
+                        feis_adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+                        if feis_adj and feis_adj.user_id:
+                            comp.adjudicator_id = feis_adj.user_id
+                            break
+            
             session.add(comp)
             scheduled_count += 1
     

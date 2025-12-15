@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
+from datetime import datetime, date, time
 from uuid import UUID
 from sqlmodel import Session, select, func
 from backend.db.database import get_session
@@ -147,9 +148,9 @@ async def get_stage_coverage(
             stage_name=stage.name if stage else "Unknown",
             feis_adjudicator_id=str(cov.feis_adjudicator_id),
             adjudicator_name=adj.name if adj else "Unknown",
-            feis_day=cov.feis_day,
-            start_time=cov.start_time,
-            end_time=cov.end_time,
+            feis_day=cov.feis_day.isoformat(),
+            start_time=cov.start_time.strftime("%H:%M"),
+            end_time=cov.end_time.strftime("%H:%M"),
             note=cov.note
         ))
     
@@ -164,7 +165,6 @@ async def create_stage_coverage(
     current_user: User = Depends(require_organizer_or_admin())
 ):
     """Add a judge coverage block to a stage."""
-    from datetime import time as dt_time
     
     stage = session.get(Stage, UUID(stage_id))
     if not stage:
@@ -183,12 +183,39 @@ async def create_stage_coverage(
     if not adj or adj.feis_id != feis.id:
         raise HTTPException(status_code=400, detail="Adjudicator not found on this feis roster")
     
+    try:
+        # Parse date and time strings
+        if isinstance(coverage_data.feis_day, str):
+            feis_day_parsed = date.fromisoformat(coverage_data.feis_day)
+        else:
+            feis_day_parsed = coverage_data.feis_day
+
+        # Handle time format HH:MM or HH:MM:SS
+        if isinstance(coverage_data.start_time, str):
+            if len(coverage_data.start_time) == 5:
+                start_time_parsed = datetime.strptime(coverage_data.start_time, "%H:%M").time()
+            else:
+                start_time_parsed = time.fromisoformat(coverage_data.start_time)
+        else:
+            start_time_parsed = coverage_data.start_time
+             
+        if isinstance(coverage_data.end_time, str):
+            if len(coverage_data.end_time) == 5:
+                end_time_parsed = datetime.strptime(coverage_data.end_time, "%H:%M").time()
+            else:
+                end_time_parsed = time.fromisoformat(coverage_data.end_time)
+        else:
+            end_time_parsed = coverage_data.end_time
+             
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date or time format: {str(e)}")
+    
     coverage = StageJudgeCoverage(
         stage_id=stage.id,
         feis_adjudicator_id=UUID(coverage_data.feis_adjudicator_id),
-        feis_day=coverage_data.feis_day,
-        start_time=coverage_data.start_time,
-        end_time=coverage_data.end_time,
+        feis_day=feis_day_parsed,
+        start_time=start_time_parsed,
+        end_time=end_time_parsed,
         note=coverage_data.note
     )
     session.add(coverage)
@@ -201,9 +228,9 @@ async def create_stage_coverage(
         stage_name=stage.name,
         feis_adjudicator_id=str(coverage.feis_adjudicator_id),
         adjudicator_name=adj.name,
-        feis_day=coverage.feis_day,
-        start_time=coverage.start_time,
-        end_time=coverage.end_time,
+        feis_day=coverage.feis_day.isoformat(),
+        start_time=coverage.start_time.strftime("%H:%M"),
+        end_time=coverage.end_time.strftime("%H:%M"),
         note=coverage.note
     )
 

@@ -67,14 +67,16 @@ async def list_judge_competitions(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_adjudicator())
 ):
-    """List competitions for a feis (judge view)."""
+    """List competitions assigned to the current judge for a feis."""
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
-    # Get competitions for this feis
+    # Get competitions assigned to this judge
     competitions = session.exec(
-        select(Competition).where(Competition.feis_id == feis.id)
+        select(Competition)
+        .where(Competition.feis_id == feis.id)
+        .where(Competition.adjudicator_id == current_user.id)
     ).all()
     
     result = []
