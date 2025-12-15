@@ -1,5 +1,6 @@
 # Database schema version: 4.3 (data migration to fix enum values)
 import os
+import secrets
 from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,6 @@ from backend.db.database import create_db_and_tables, engine
 from backend.scoring_engine.models_platform import User, Feis, Competition, Dancer, Entry, RoleType, CompetitionLevel
 from backend.scoring_engine.models import Round
 from sqlmodel import Session, select
-from backend.admin import setup_admin
 from backend.api.auth import hash_password
 from datetime import date
 import uuid
@@ -20,18 +20,43 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# In local/venue mode, allow all origins for network access
+LOCAL_MODE = os.getenv("OPENFEIS_LOCAL_MODE", "false").lower() == "true"
+
 # Initial Data Seeding for MVP
 def seed_data():
     with Session(engine) as session:
+        seed_admin_email = os.getenv("OPENFEIS_SEED_ADMIN_EMAIL", "admin@openfeis.org")
+        seed_admin_password = os.getenv("OPENFEIS_SEED_ADMIN_PASSWORD")
+
+        # Default dev password (local mode only). In non-local mode we generate a random
+        # password if one is not provided via env var.
+        default_local_password = "admin123"
+        if not seed_admin_password:
+            if LOCAL_MODE:
+                seed_admin_password = default_local_password
+                logger.warning(
+                    "OPENFEIS_SEED_ADMIN_PASSWORD is not set; using default local admin password for %s. "
+                    "Change it immediately in any non-local deployment.",
+                    seed_admin_email,
+                )
+            else:
+                seed_admin_password = secrets.token_urlsafe(18)
+                logger.warning(
+                    "OPENFEIS_SEED_ADMIN_PASSWORD is not set; generated an initial admin password for %s: %s",
+                    seed_admin_email,
+                    seed_admin_password,
+                )
+
         # Check if we have a super admin
         # Use select statement for SQLModel compatibility
-        statement = select(User).where(User.email == "admin@openfeis.org")
+        statement = select(User).where(User.email == seed_admin_email)
         existing_admin = session.exec(statement).first()
         
         if not existing_admin:
             admin = User(
-                email="admin@openfeis.org",
-                password_hash=hash_password("admin123"),  # Now properly hashed!
+                email=seed_admin_email,
+                password_hash=hash_password(seed_admin_password),
                 role=RoleType.SUPER_ADMIN,
                 name="System Administrator",
                 email_verified=True  # Admin starts verified
@@ -80,15 +105,14 @@ app = FastAPI(
 
 # CORS middleware for frontend
 # In production, Caddy handles CORS, but we keep localhost for development
-# In local/venue mode, allow all origins for network access
-LOCAL_MODE = os.getenv("OPENFEIS_LOCAL_MODE", "false").lower() == "true"
-
 if LOCAL_MODE:
     # Local mode: allow any origin (devices on local network)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        # We use Bearer tokens (Authorization header), not cookies.
+        # Browsers disallow allow_credentials with wildcard origins anyway.
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -109,9 +133,6 @@ else:
     )
 
 app.include_router(api_router, prefix="/api/v1")
-
-# Setup SQLAdmin (Moved logic to backend/admin.py to keep main clean)
-# setup_admin(app, engine)
 
 @app.get("/health")
 async def health_check():
@@ -202,8 +223,8 @@ if FRONTEND_DIR.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
         """Serve the Vue SPA for all non-API routes."""
-        # Don't intercept API, admin, docs routes
-        if full_path.startswith(("api/", "admin/", "docs", "redoc", "openapi.json")):
+        # Don't intercept API/docs routes
+        if full_path.startswith(("api/", "docs", "redoc", "openapi.json")):
             return None
         
         # Try to serve the exact file first (for favicon.ico, etc.)

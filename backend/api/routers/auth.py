@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List
@@ -21,6 +22,10 @@ from backend.services.email import (
 )
 
 router = APIRouter()
+
+LOCAL_MODE = os.getenv("OPENFEIS_LOCAL_MODE", "false").lower() == "true"
+SEED_ADMIN_EMAIL = os.getenv("OPENFEIS_SEED_ADMIN_EMAIL", "admin@openfeis.org")
+DEFAULT_LOCAL_ADMIN_PASSWORD = "admin123"
 
 # ============= Authentication Endpoints =============
 
@@ -51,6 +56,18 @@ async def login(
     
     # Create access token
     access_token = create_access_token(user.id, user.role)
+
+    warning = None
+    if (
+        LOCAL_MODE
+        and credentials.email == SEED_ADMIN_EMAIL
+        and credentials.password == DEFAULT_LOCAL_ADMIN_PASSWORD
+        and user.role == RoleType.SUPER_ADMIN
+    ):
+        warning = (
+            "You're signed in with the default local admin password. "
+            "Go to My Account → Change Password before using this outside a private/dev environment."
+        )
     
     return AuthResponse(
         access_token=access_token,
@@ -61,7 +78,8 @@ async def login(
             name=user.name,
             role=user.role,
             email_verified=user.email_verified
-        )
+        ),
+        warning=warning,
     )
 
 @router.post("/auth/login/form", response_model=AuthResponse)
@@ -92,6 +110,18 @@ async def login_form(
     
     # Create access token
     access_token = create_access_token(user.id, user.role)
+
+    warning = None
+    if (
+        LOCAL_MODE
+        and form_data.username == SEED_ADMIN_EMAIL
+        and form_data.password == DEFAULT_LOCAL_ADMIN_PASSWORD
+        and user.role == RoleType.SUPER_ADMIN
+    ):
+        warning = (
+            "You're signed in with the default local admin password. "
+            "Go to My Account → Change Password before using this outside a private/dev environment."
+        )
     
     return AuthResponse(
         access_token=access_token,
@@ -102,7 +132,8 @@ async def login_form(
             name=user.name,
             role=user.role,
             email_verified=user.email_verified
-        )
+        ),
+        warning=warning,
     )
 
 @router.post("/auth/register", response_model=AuthResponse)

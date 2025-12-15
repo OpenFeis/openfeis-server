@@ -82,7 +82,6 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Refund Processing** — Process refunds with full audit logging 🆕
 - **Stripe Connect Ready** — Payment infrastructure ready for online payments (stubbed)
 - **Site Settings** — Configure email (Resend API key) and site-wide settings (Super Admin only)
-- **Admin Panel** — Fallback CRUD interface via `sqladmin` for edge cases
 - **Tabulator Dashboard** — Real-time results with Irish Points, Drop High/Low, and recall calculations
 - **Protected Operations** — Only organizers can modify their own feiseanna
 - **Multi-Organizer Support** — Add co-organizers to collaborate on feis planning 🆕
@@ -146,7 +145,6 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 | **ORM** | SQLModel (SQLAlchemy) | Type-safe models with Pydantic validation |
 | **Auth** | JWT + bcrypt (passlib, python-jose) | Stateless auth, secure password hashing |
 | **Email** | Resend | Transactional emails (verification, notifications) |
-| **Admin** | sqladmin | Auto-generated CRUD interface |
 | **Frontend** | Vue 3, TypeScript, Vite | Modern reactivity with Composition API |
 | **Styling** | Tailwind CSS v4 | Utility-first, highly customizable |
 | **State** | Pinia | Official Vue state management |
@@ -206,18 +204,19 @@ npm run dev
 **Access the app:**
 - **Frontend:** http://localhost:5173
 - **API Docs:** http://localhost:8000/docs
-- **Admin Panel (sqladmin):** http://localhost:8000/admin
+- **Admin Dashboard:** Use the **Admin** tab in the frontend (organizers/admins only)
 
 > **Note:** The frontend dev server proxies `/api` requests to the backend automatically via `vite.config.ts`.
 
 ### Initial Data
 
 On first run, the database is seeded with:
-- A Super Admin user (`admin@openfeis.org` / `admin123`)
+- A Super Admin user (`admin@openfeis.org`)
 - A sample feis ("Great Irish Feis 2025")
 - A sample competition
 
-> **Demo Credentials:** Email: `admin@openfeis.org` Password: `admin123`
+> **Local/Venue default (only when `OPENFEIS_LOCAL_MODE=true`):** Email: `admin@openfeis.org` Password: `admin123`  
+> **Non-local deployments:** set `OPENFEIS_SEED_ADMIN_PASSWORD` (recommended) or check server logs for the generated initial password.
 
 ---
 
@@ -227,7 +226,6 @@ On first run, the database is seeded with:
 openfeis-server/
 ├── backend/
 │   ├── main.py                 # FastAPI app entry point
-│   ├── admin.py                # sqladmin configuration
 │   ├── api/
 │   │   ├── auth.py             # Authentication utilities (JWT, password hashing)
 │   │   ├── routes.py           # Router aggregation (imports all sub-routers)
@@ -556,7 +554,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@openfeis.org",
-    "password": "admin123"
+    "password": "YOUR_PASSWORD"
   }'
 ```
 
@@ -771,7 +769,7 @@ For local testing, you have two options:
    - Preview the competitions to be generated
    - Click "Generate" — competitions are created instantly
 
-> **Note:** The `sqladmin` panel at `/admin` is available for edge cases but most operations are now handled in the frontend.
+> **Note:** Administrative operations are handled in the Vue frontend (Admin tab) and the `/api/v1/admin/*` API endpoints.
 
 ### For Organizers: Using the Instant Scheduler 🆕
 
@@ -1179,6 +1177,10 @@ www.yourdomain.com {
 
 ### Step 4: Deploy
 
+> **Recommended environment variables (production):**
+> - `OPENFEIS_JWT_SECRET`: long random string used to sign JWTs (keep stable across restarts)
+> - `OPENFEIS_SEED_ADMIN_PASSWORD`: initial super-admin password on first boot
+
 ```bash
 # Build and start the containers
 docker compose up -d --build
@@ -1194,9 +1196,9 @@ docker compose logs -f
 
 Visit `https://yourdomain.com` — you should see the Open Feis homepage with a valid SSL certificate!
 
-**Default admin credentials:**
-- Email: `admin@openfeis.org`
-- Password: `admin123`
+**Initial admin credentials:**
+- Email: `admin@openfeis.org` (or `OPENFEIS_SEED_ADMIN_EMAIL`)
+- Password: set via `OPENFEIS_SEED_ADMIN_PASSWORD` (recommended) or check server logs for the generated initial password
 
 > ⚠️ **Important:** Change the admin password immediately after first login!
 

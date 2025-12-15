@@ -9,6 +9,7 @@ interface AuthResponse {
   access_token: string;
   token_type: string;
   user: User;
+  warning?: string | null;
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -17,6 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY));
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const warning = ref<string | null>(null);
 
   // Computed
   const isAuthenticated = computed(() => !!token.value && !!user.value);
@@ -96,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Store token and user
       token.value = data.access_token;
       user.value = data.user;
+      warning.value = data.warning ?? null;
       localStorage.setItem(TOKEN_KEY, data.access_token);
       
       return true;
@@ -128,6 +131,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Store token and user (auto-login)
       token.value = data.access_token;
       user.value = data.user;
+      warning.value = data.warning ?? null;
       localStorage.setItem(TOKEN_KEY, data.access_token);
       
       return true;
@@ -173,6 +177,11 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null;
     user.value = null;
     localStorage.removeItem(TOKEN_KEY);
+    warning.value = null;
+  }
+
+  function dismissWarning() {
+    warning.value = null;
   }
 
   async function verifyEmail(verificationToken: string): Promise<{ success: boolean; message: string }> {
@@ -252,6 +261,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     loading,
     error,
+    warning,
     
     // Computed
     isAuthenticated,
@@ -271,6 +281,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     register,
     logout,
+    dismissWarning,
     fetchCurrentUser,
     initialize,
     authFetch,

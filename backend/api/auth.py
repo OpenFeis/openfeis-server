@@ -2,6 +2,9 @@
 Authentication utilities for Open Feis.
 Handles password hashing and JWT token management.
 """
+import logging
+import os
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -14,10 +17,22 @@ from sqlmodel import Session, select
 from backend.db.database import get_session
 from backend.scoring_engine.models_platform import User, RoleType
 
+logger = logging.getLogger(__name__)
+
 # ============= Configuration =============
 
-# Secret key for JWT signing - in production, use environment variable
-SECRET_KEY = "open-feis-super-secret-key-change-in-production"
+# Secret key for JWT signing.
+# Proper usage:
+# - Set OPENFEIS_JWT_SECRET in production and keep it stable.
+# - If unset, an ephemeral random secret is generated at runtime (tokens become invalid after restart).
+SECRET_KEY = os.getenv("OPENFEIS_JWT_SECRET")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_urlsafe(48)
+    logger.warning(
+        "OPENFEIS_JWT_SECRET is not set; using an ephemeral random JWT secret. "
+        "All tokens will become invalid on restart. Set OPENFEIS_JWT_SECRET to keep logins stable."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 

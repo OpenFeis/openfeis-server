@@ -354,6 +354,7 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    warning: Optional[str] = None
 
 class TokenPayload(BaseModel):
     sub: str  # user_id

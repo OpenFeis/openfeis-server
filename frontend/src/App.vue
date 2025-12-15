@@ -669,6 +669,26 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
     <!-- Email Verification Banner -->
     <EmailVerificationBanner />
 
+    <!-- Auth Warning Banner (e.g., default local admin password) -->
+    <div v-if="auth.warning" class="max-w-7xl mx-auto px-4 pt-4">
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p class="text-amber-800 text-sm font-medium flex-1">{{ auth.warning }}</p>
+        <button
+          type="button"
+          @click="auth.dismissWarning()"
+          class="text-amber-700/70 hover:text-amber-900"
+          aria-label="Dismiss warning"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <!-- Auth Modal -->
     <AuthModal 
       :show="showAuthModal" 

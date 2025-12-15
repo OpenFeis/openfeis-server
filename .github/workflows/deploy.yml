@@ -68,6 +68,18 @@ jobs:
             
             echo "🍀 Starting Open Feis deployment..."
             cd /opt/openfeis
+
+            # Write runtime secrets/config for docker compose (file is gitignored).
+            # Configure these in GitHub → Settings → Secrets and variables → Actions:
+            # - OPENFEIS_JWT_SECRET (required for stable logins)
+            # - OPENFEIS_SEED_ADMIN_PASSWORD (recommended for fresh installs)
+            # - OPENFEIS_SEED_ADMIN_EMAIL (optional)
+            umask 077
+            cat > .env <<'EOF'
+            OPENFEIS_JWT_SECRET=${{ secrets.OPENFEIS_JWT_SECRET }}
+            OPENFEIS_SEED_ADMIN_PASSWORD=${{ secrets.OPENFEIS_SEED_ADMIN_PASSWORD }}
+            OPENFEIS_SEED_ADMIN_EMAIL=${{ secrets.OPENFEIS_SEED_ADMIN_EMAIL }}
+            EOF
             
             echo "📥 Pulling latest code (for Caddyfile, docker-compose.yml)..."
             git fetch origin main

@@ -24,6 +24,13 @@ services:
     restart: unless-stopped
     volumes:
       - app_data:/data
+    # Load runtime secrets/config from a non-committed file on the server.
+    # Create `/opt/openfeis/.env` on the VM (gitignored) with:
+    # - OPENFEIS_JWT_SECRET
+    # - OPENFEIS_SEED_ADMIN_PASSWORD (optional, used only on first boot / empty DB)
+    # - OPENFEIS_SEED_ADMIN_EMAIL (optional)
+    env_file:
+      - ./.env
     environment:
       - DB_PATH=/data/openfeis.db
       - PYTHONUNBUFFERED=1

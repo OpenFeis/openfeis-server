@@ -87,7 +87,9 @@ Before the event, set up your feis data:
 
 1. Start the server: `docker compose -f docker-compose.local.yml up`
 2. Open http://localhost:8000 in your browser
-3. Log in as admin (`admin@openfeis.org` / `admin123`)
+3. Log in as admin:
+   - Local/venue default (when `OPENFEIS_LOCAL_MODE=true`): `admin@openfeis.org` / `admin123`
+   - Otherwise: set `OPENFEIS_SEED_ADMIN_PASSWORD` (recommended) or check the server logs for the generated initial password
 4. Create your feis and generate the syllabus
 5. Import registrations or let dancers register online
 6. Export/backup the database
@@ -237,7 +239,7 @@ Once you have internet connectivity:
 
 - The local server has no HTTPS - this is fine for a private network
 - Don't expose the local server to the internet
-- Change the default admin password before the event
+- Change the admin password before the event
 - Create individual accounts for each judge
 
 ## Hardware Recommendations
