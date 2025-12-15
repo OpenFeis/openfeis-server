@@ -13,8 +13,9 @@ from backend.scoring_engine.models_platform import (
 class SyllabusGenerationRequest(BaseModel):
     feis_id: str
     levels: List[CompetitionLevel]
-    min_age: int
-    max_age: int
+    min_age: Optional[int] = None
+    max_age: Optional[int] = None
+    selected_ages: Optional[List[str]] = None  # e.g., ["U6", "U7", "O15", "Adult"]
     genders: List[Gender]
     dances: List[str] = ["Reel", "Light Jig", "Slip Jig", "Treble Jig", "Hornpipe"]
     # New options

@@ -85,7 +85,9 @@ def generate_competition_code(
     min_age: int,
     dance_type: Optional[str] = None,
     is_second_chance: bool = False,
-    variant_suffix: Optional[str] = None
+    variant_suffix: Optional[str] = None,
+    is_over: bool = False,
+    is_mixed: bool = False
 ) -> str:
     """
     Generate a competition code following industry conventions.
@@ -96,9 +98,11 @@ def generate_competition_code(
         dance_type: Dance type enum value (e.g., "REEL", "SLIP_JIG")
         is_second_chance: Whether this is a second chance competition
         variant_suffix: Optional custom suffix (overrides second chance)
+        is_over: Whether this is an "Over" age group (e.g. O15)
+        is_mixed: Whether this is a mixed-gender competition (for Figure dances)
     
     Returns:
-        Competition code string (e.g., "407SJ", "609PC")
+        Competition code string (e.g., "407SJ", "609PC", "9210FD", "9410FM")
     """
     # Get level digit
     level_digit = LEVEL_DIGITS.get(level.lower(), "9")
@@ -118,7 +122,27 @@ def generate_competition_code(
     else:
         dance_code = ""
     
-    # Build the code
+    # Special logic for Figure/Ceili dances
+    # Format: 9 + [Hands] + [Age] + [FD/FM]
+    if dance_code in ["2H", "3H", "4H", "6H", "8H"]:
+        first_digit = "9"
+        hands_digit = dance_code[0]  # "2", "3", etc.
+        
+        # Age logic
+        if min_age >= 99:
+            # Adults
+            age_str = "99"
+        elif is_over:
+            # Over 15 -> 16
+            age_str = str(min_age + 1).zfill(2)
+        else:
+            # Under 10 -> 10
+            age_str = str(min_age).zfill(2)
+            
+        suffix = "FM" if is_mixed else "FD"
+        return f"{first_digit}{hands_digit}{age_str}{suffix}"
+
+    # Build the code for solo/other
     code = f"{level_digit}{age_index}{dance_code}"
     
     # Add suffix

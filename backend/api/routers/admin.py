@@ -86,11 +86,66 @@ async def generate_syllabus(
         raise HTTPException(status_code=403, detail="You can only generate syllabus for your own feis")
     
     count = 0
-    current_age = request.min_age
     
+    # Determine age configs to process
+    age_configs = []
+    
+    if request.selected_ages:
+        for age_str in request.selected_ages:
+            if age_str.lower() == "adult":
+                age_configs.append({
+                    "label": "Adult",
+                    "min_age": 25,
+                    "max_age": 99,
+                    "code_age": 99,
+                    "is_over": False, # Adults usually treated as U99 or similar
+                    "is_adult": True
+                })
+            elif age_str.startswith("U"):
+                try:
+                    val = int(age_str[1:])
+                    age_configs.append({
+                        "label": age_str,
+                        "min_age": 0, # Allow dancing up
+                        "max_age": val,
+                        "code_age": val,
+                        "is_over": False,
+                        "is_adult": False
+                    })
+                except ValueError:
+                    continue
+            elif age_str.startswith("O"):
+                try:
+                    val = int(age_str[1:])
+                    age_configs.append({
+                        "label": age_str,
+                        "min_age": val + 1,
+                        "max_age": 99,
+                        "code_age": val, # Pass the reference age (e.g. 15 for O15)
+                        "is_over": True,
+                        "is_adult": False
+                    })
+                except ValueError:
+                    continue
+    else:
+        # Legacy loop behavior (U-ages only, step 2)
+        current_age = request.min_age
+        while current_age <= request.max_age:
+            age_configs.append({
+                "label": f"U{current_age}",
+                "min_age": current_age - 2,
+                "max_age": current_age,
+                "code_age": current_age,
+                "is_over": False,
+                "is_adult": False
+            })
+            current_age += 2
+            
     # ===== SOLO DANCES =====
-    while current_age <= request.max_age:
-        age_group = f"U{current_age}"
+    for age_config in age_configs:
+        age_group = age_config["label"]
+        min_age_val = age_config["min_age"]
+        max_age_val = age_config["max_age"]
         
         for gender in request.genders:
             for level in request.levels:
@@ -110,15 +165,16 @@ async def generate_syllabus(
                     # Generate competition code
                     code = generate_competition_code(
                         level=level.value,
-                        min_age=current_age,  # Use age group (e.g., U6 -> 6)
-                        dance_type=dance_type.value if dance_type else None
+                        min_age=age_config["code_age"],
+                        dance_type=dance_type.value if dance_type else None,
+                        is_over=age_config["is_over"]
                     )
                     
                     comp = Competition(
                         feis_id=feis.id,
                         name=comp_name,
-                        min_age=current_age - 2,
-                        max_age=current_age,
+                        min_age=min_age_val,
+                        max_age=max_age_val,
                         level=level,
                         gender=None if is_open else gender,  # Open competitions have no gender restriction
                         code=code,
@@ -133,8 +189,6 @@ async def generate_syllabus(
                     )
                     session.add(comp)
                     count += 1
-        
-        current_age += 2
     
     # ===== FIGURE/CEILI DANCES =====
     # Figure dances are NOT leveled - they're open to all grade levels, divided by age only
@@ -147,9 +201,10 @@ async def generate_syllabus(
             "8-Hand": DanceType.EIGHT_HAND,
         }
         
-        current_age = request.min_age
-        while current_age <= request.max_age:
-            age_group = f"U{current_age}"
+        for age_config in age_configs:
+            age_group = age_config["label"]
+            min_age_val = age_config["min_age"]
+            max_age_val = age_config["max_age"]
             
             for fig_dance in request.figure_dances:
                 dance_type = figure_dance_map.get(fig_dance)
@@ -160,15 +215,21 @@ async def generate_syllabus(
                 comp_name = f"Girls {age_group} {fig_dance}"
                 code = generate_competition_code(
                     level="novice",  # Use novice as placeholder since figure dances aren't leveled
-                    min_age=current_age,
-                    dance_type=dance_type.value
-                ) + "G"  # Add 'G' suffix for girls
+                    min_age=age_config["code_age"],
+                    dance_type=dance_type.value,
+                    is_over=age_config["is_over"],
+                    is_mixed=False
+                )
+                
+                # Only add suffix if not using the new figure dance format (ending in FD/FM)
+                if not (code.endswith("FD") or code.endswith("FM")):
+                    code += "G"  # Add 'G' suffix for girls
                 
                 comp = Competition(
                     feis_id=feis.id,
                     name=comp_name,
-                    min_age=current_age - 2,
-                    max_age=current_age,
+                    min_age=min_age_val,
+                    max_age=max_age_val,
                     level=CompetitionLevel.NOVICE,  # Placeholder - figure dances are open level
                     gender=Gender.FEMALE,
                     code=code,
@@ -188,15 +249,21 @@ async def generate_syllabus(
                     comp_name = f"Mixed {age_group} {fig_dance}"
                     code = generate_competition_code(
                         level="novice",
-                        min_age=current_age,
-                        dance_type=dance_type.value
-                    ) + "M"  # Add 'M' suffix for mixed
+                        min_age=age_config["code_age"],
+                        dance_type=dance_type.value,
+                        is_over=age_config["is_over"],
+                        is_mixed=True
+                    )
+                    
+                    # Only add suffix if not using the new figure dance format
+                    if not (code.endswith("FD") or code.endswith("FM")):
+                        code += "M"  # Add 'M' suffix for mixed
                     
                     comp = Competition(
                         feis_id=feis.id,
                         name=comp_name,
-                        min_age=current_age - 2,
-                        max_age=current_age,
+                        min_age=min_age_val,
+                        max_age=max_age_val,
                         level=CompetitionLevel.NOVICE,  # Placeholder - figure dances are open level
                         gender=None,  # Mixed - no gender restriction
                         code=code,
@@ -210,8 +277,6 @@ async def generate_syllabus(
                     )
                     session.add(comp)
                     count += 1
-            
-            current_age += 2
     
     # ===== CHAMPIONSHIPS =====
     if request.include_championships and request.championship_types:
@@ -220,9 +285,10 @@ async def generate_syllabus(
             "open": CompetitionLevel.OPEN_CHAMPIONSHIP,
         }
         
-        current_age = request.min_age
-        while current_age <= request.max_age:
-            age_group = f"U{current_age}"
+        for age_config in age_configs:
+            age_group = age_config["label"]
+            min_age_val = age_config["min_age"]
+            max_age_val = age_config["max_age"]
             
             for gender in request.genders:
                 for champ_type in request.championship_types:
@@ -241,14 +307,15 @@ async def generate_syllabus(
                     
                     code = generate_competition_code(
                         level=level.value,
-                        min_age=current_age
+                        min_age=age_config["code_age"],
+                        is_over=age_config["is_over"]
                     )
                     
                     comp = Competition(
                         feis_id=feis.id,
                         name=comp_name,
-                        min_age=current_age - 2,
-                        max_age=current_age,
+                        min_age=min_age_val,
+                        max_age=max_age_val,
                         level=level,
                         gender=None if is_open else gender,  # Open championships have no gender restriction
                         code=code,
@@ -262,8 +329,6 @@ async def generate_syllabus(
                     )
                     session.add(comp)
                     count += 1
-            
-            current_age += 2
     
     session.commit()
     

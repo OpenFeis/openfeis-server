@@ -175,8 +175,9 @@ export interface Cart {
 export interface SyllabusGenerationRequest {
   feis_id: string;
   levels: CompetitionLevel[];
-  min_age: number;
-  max_age: number;
+  min_age?: number;
+  max_age?: number;
+  selected_ages?: string[];
   genders: Gender[];
   dances: string[];
 }

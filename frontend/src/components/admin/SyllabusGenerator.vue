@@ -13,9 +13,12 @@ const emit = defineEmits<{
   (e: 'generated', response: SyllabusGenerationResponse): void;
 }>();
 
-// Form State - Use even ages (U6, U8, U10...) which is standard in Irish dancing
-const minAge = ref(6);
-const maxAge = ref(18);
+// Form State
+const selectedAges = ref<Set<string>>(new Set(['U6', 'U8', 'U10', 'U12', 'U14', 'U16', 'O16', 'Adult']));
+
+// Available age options
+const uAges = Array.from({ length: 16 }, (_, i) => `U${i + 5}`); // U5..U20
+const oAges = Array.from({ length: 16 }, (_, i) => `O${i + 5}`); // O5..O20
 
 // Level selection (multi-select)
 const selectedLevels = ref<Set<CompetitionLevel>>(new Set(['beginner_1', 'novice', 'prizewinner']));
@@ -48,16 +51,43 @@ const generationResult = ref<SyllabusGenerationResponse | null>(null);
 const error = ref<string | null>(null);
 const showPreview = ref(true);
 
-// Age groups for display
-const ageGroups = computed(() => {
-  const groups: string[] = [];
-  let age = minAge.value;
-  while (age <= maxAge.value) {
-    groups.push(`U${age}`);
-    age += 2; // Step by 2 years
+// Toggle age function
+const toggleAge = (age: string) => {
+  const newSet = new Set(selectedAges.value);
+  if (newSet.has(age)) {
+    newSet.delete(age);
+  } else {
+    newSet.add(age);
   }
-  return groups;
+  selectedAges.value = newSet;
+};
+
+// Clear all ages
+const clearAges = () => {
+  selectedAges.value = new Set();
+};
+
+// Age groups for display (sorted)
+const ageGroups = computed(() => {
+  const ages = Array.from(selectedAges.value);
+  return ages.sort((a, b) => {
+    if (a === 'Adult') return 1;
+    if (b === 'Adult') return -1;
+    
+    const typeA = a.charAt(0);
+    const typeB = b.charAt(0);
+    const valA = parseInt(a.slice(1));
+    const valB = parseInt(b.slice(1));
+    
+    if (typeA === typeB) {
+      return valA - valB;
+    }
+    // U comes before O
+    return typeA === 'U' ? -1 : 1;
+  });
 });
+
+// Toggle figure dance
 
 // Toggle figure dance
 const toggleFigureDance = (dance: string) => {
@@ -189,11 +219,13 @@ const generateSyllabus = async () => {
     include_mixed_figure?: boolean;
     include_championships?: boolean;
     championship_types?: string[];
+    selected_ages?: string[];
   } = {
     feis_id: props.feisId,
     levels: Array.from(selectedLevels.value),
-    min_age: minAge.value,
-    max_age: maxAge.value,
+    min_age: 0, // Deprecated but required by types if not optional in frontend types yet
+    max_age: 0, // Deprecated
+    selected_ages: Array.from(selectedAges.value),
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
     price_cents: priceDollars.value * 100,
@@ -289,40 +321,70 @@ const previewMatrix = computed(() => {
     <div class="p-6 space-y-6">
       <!-- Age Range -->
       <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-3">
-          Age Range
-        </label>
-        <div class="flex items-center gap-4">
-          <div class="flex-1">
-            <label class="text-xs text-slate-500 mb-1 block">Minimum Age</label>
-            <input 
-              type="number" 
-              v-model.number="minAge" 
-              min="4" 
-              max="17"
-              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-center text-lg font-bold"
-            />
-          </div>
-          <div class="text-2xl text-slate-400 pt-6">→</div>
-          <div class="flex-1">
-            <label class="text-xs text-slate-500 mb-1 block">Maximum Age</label>
-            <input 
-              type="number" 
-              v-model.number="maxAge" 
-              :min="minAge" 
-              max="21"
-              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all outline-none text-center text-lg font-bold"
-            />
-          </div>
-        </div>
-        <div class="mt-2 flex flex-wrap gap-1">
-          <span 
-            v-for="age in ageGroups" 
-            :key="age"
-            class="px-2 py-1 text-xs rounded-lg bg-indigo-100 text-indigo-700 font-medium"
+        <div class="flex items-center justify-between mb-3">
+          <label class="block text-sm font-semibold text-slate-700">
+            Age Groups
+          </label>
+          <button 
+            @click="clearAges"
+            class="text-xs text-red-600 hover:text-red-800 font-medium"
+            v-if="selectedAges.size > 0"
           >
-            {{ age }}
-          </span>
+            Clear All
+          </button>
+        </div>
+        
+        <div class="space-y-3">
+          <!-- U Ages Row -->
+          <div class="flex flex-wrap gap-2">
+            <div class="w-8 h-8 flex items-center justify-center font-bold text-slate-400 text-sm">U</div>
+            <button
+              v-for="age in uAges"
+              :key="age"
+              @click="toggleAge(age)"
+              :class="[
+                'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
+                selectedAges.has(age)
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+              ]"
+            >
+              {{ age.substring(1) }}
+            </button>
+          </div>
+
+          <!-- O Ages Row -->
+          <div class="flex flex-wrap gap-2">
+            <div class="w-8 h-8 flex items-center justify-center font-bold text-slate-400 text-sm">O</div>
+            <button
+              v-for="age in oAges"
+              :key="age"
+              @click="toggleAge(age)"
+              :class="[
+                'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
+                selectedAges.has(age)
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+              ]"
+            >
+              {{ age.substring(1) }}
+            </button>
+          </div>
+
+          <!-- Special Buttons -->
+          <div class="flex gap-2 pt-1 pl-10">
+            <button
+              @click="toggleAge('Adult')"
+              :class="[
+                'px-4 py-1.5 rounded-lg text-sm font-bold transition-all border',
+                selectedAges.has('Adult')
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+              ]"
+            >
+              ADULT
+            </button>
+          </div>
         </div>
       </div>
 
