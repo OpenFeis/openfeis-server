@@ -150,3 +150,7 @@ def require_adjudicator():
     """Shortcut for requiring adjudicator or super_admin role."""
     return require_role(RoleType.ADJUDICATOR, RoleType.SUPER_ADMIN)
 
+def require_teacher():
+    """Shortcut for requiring teacher, organizer, or super_admin role."""
+    return require_role(RoleType.TEACHER, RoleType.ORGANIZER, RoleType.SUPER_ADMIN)
+

@@ -230,22 +230,40 @@ openfeis-server/
 │   ├── admin.py                # sqladmin configuration
 │   ├── api/
 │   │   ├── auth.py             # Authentication utilities (JWT, password hashing)
-│   │   ├── routes.py           # API endpoints
+│   │   ├── routes.py           # Router aggregation (imports all sub-routers)
 │   │   ├── schemas.py          # Pydantic request/response models
-│   │   └── websocket.py        # WebSocket connection manager
+│   │   ├── websocket.py        # WebSocket connection manager
+│   │   └── routers/            # Domain-specific API routes (16 files)
+│   │       ├── auth.py         # Authentication endpoints
+│   │       ├── users.py        # User management
+│   │       ├── feis.py         # Feis CRUD, settings, Stripe
+│   │       ├── feis_operations.py  # Scheduling, entries, check-in
+│   │       ├── competitions.py # Competition CRUD
+│   │       ├── entries.py      # Entry management
+│   │       ├── adjudicators.py # Adjudicator roster & availability
+│   │       ├── scoring.py      # Score submission & results
+│   │       ├── scheduling.py   # Stage & schedule management
+│   │       ├── checkin.py      # Check-in operations
+│   │       ├── checkout.py     # Cart & payment processing
+│   │       ├── waitlist.py     # Waitlist management
+│   │       ├── advancement.py  # Level progression tracking
+│   │       ├── teacher.py      # Teacher portal
+│   │       ├── admin.py        # Admin operations
+│   │       └── sync.py         # Offline sync
 │   ├── db/
 │   │   └── database.py         # SQLite connection & session
 │   ├── services/
 │   │   ├── email.py            # Email service (Resend integration)
 │   │   ├── number_cards.py     # PDF generation for competitor numbers
 │   │   ├── scheduling.py       # Time estimation & conflict detection
+│   │   ├── instant_scheduler.py # Algorithmic schedule generation
 │   │   ├── cart.py             # Cart calculation with family cap logic
 │   │   ├── stripe.py           # Stripe Connect integration (stubbed)
-│   │   ├── waitlist.py         # Waitlist management 🆕
-│   │   ├── checkin.py          # Check-in operations 🆕
-│   │   └── refund.py           # Refund processing 🆕
+│   │   ├── waitlist.py         # Waitlist management
+│   │   ├── checkin.py          # Check-in operations
+│   │   └── refund.py           # Refund processing
 │   ├── utils/
-│   │   └── competition_codes.py  # Competition code generation 🆕
+│   │   └── competition_codes.py  # Competition code generation
 │   └── scoring_engine/
 │       ├── calculator.py       # Irish Points calculation logic
 │       ├── models.py           # Round, JudgeScore models

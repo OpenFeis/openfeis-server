@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
-from datetime import date, datetime, time
+from datetime import date as Date, datetime as DateTime, time as Time
 from uuid import UUID
 from backend.scoring_engine.models_platform import (
     CompetitionLevel, Gender, RoleType, DanceType, ScoringMethod,
@@ -35,20 +35,20 @@ class SyllabusGenerationResponse(BaseModel):
 
 class FeisCreate(BaseModel):
     name: str
-    date: date
+    date: Date
     location: str
     organizer_id: Optional[str] = None  # Will use current user if not provided
 
 class FeisUpdate(BaseModel):
     name: Optional[str] = None
-    date: Optional[date] = None
+    date: Optional[Date] = None
     location: Optional[str] = None
     stripe_account_id: Optional[str] = None
 
 class FeisResponse(BaseModel):
     id: UUID
     name: str
-    date: date
+    date: Date
     location: str
     organizer_id: UUID
     stripe_account_id: Optional[str] = None
@@ -103,7 +103,7 @@ class CompetitionUpdate(BaseModel):
     price_cents: Optional[int] = None
     max_entries: Optional[int] = None
     stage_id: Optional[str] = None
-    scheduled_time: Optional[datetime] = None
+    scheduled_time: Optional[DateTime] = None
     estimated_duration_minutes: Optional[int] = None
     adjudicator_id: Optional[str] = None
 
@@ -128,7 +128,7 @@ class CompetitionResponse(BaseModel):
     price_cents: int = 1000
     max_entries: Optional[int] = None
     stage_id: Optional[str] = None
-    scheduled_time: Optional[datetime] = None
+    scheduled_time: Optional[DateTime] = None
     estimated_duration_minutes: Optional[int] = None
     adjudicator_id: Optional[str] = None
     description: Optional[str] = None
@@ -252,7 +252,7 @@ class BulkNumberAssignmentResponse(BaseModel):
 class DancerCreate(BaseModel):
     """Request to create a new dancer profile."""
     name: str
-    dob: date
+    dob: Date
     gender: Gender
     current_level: CompetitionLevel
     clrg_number: Optional[str] = None
@@ -272,7 +272,7 @@ class DancerCreate(BaseModel):
 class DancerUpdate(BaseModel):
     """Request to update an existing dancer profile."""
     name: Optional[str] = None
-    dob: Optional[date] = None
+    dob: Optional[Date] = None
     gender: Optional[Gender] = None
     current_level: Optional[CompetitionLevel] = None
     clrg_number: Optional[str] = None
@@ -292,7 +292,7 @@ class DancerUpdate(BaseModel):
 class DancerResponse(BaseModel):
     id: str
     name: str
-    dob: date
+    dob: Date
     current_level: CompetitionLevel
     gender: Gender
     clrg_number: Optional[str] = None
@@ -520,7 +520,7 @@ class ScheduleCompetitionRequest(BaseModel):
     """Request to schedule a competition on a stage."""
     competition_id: str
     stage_id: str
-    scheduled_time: datetime
+    scheduled_time: DateTime
 
 
 class BulkScheduleRequest(BaseModel):
@@ -570,7 +570,7 @@ class ScheduledCompetition(BaseModel):
     name: str
     stage_id: Optional[str] = None
     stage_name: Optional[str] = None
-    scheduled_time: Optional[datetime] = None
+    scheduled_time: Optional[DateTime] = None
     estimated_duration_minutes: int
     entry_count: int
     level: CompetitionLevel
@@ -585,7 +585,7 @@ class SchedulerViewResponse(BaseModel):
     """Full data for the scheduler view."""
     feis_id: str
     feis_name: str
-    feis_date: date
+    feis_date: Date
     stages: List[StageResponse]
     competitions: List[ScheduledCompetition]
     conflicts: List[ScheduleConflict]
@@ -600,10 +600,10 @@ class FeisSettingsCreate(BaseModel):
     per_competition_fee_cents: int = 1000
     family_max_cents: Optional[int] = 15000
     late_fee_cents: int = 500
-    late_fee_date: Optional[date] = None
+    late_fee_date: Optional[Date] = None
     change_fee_cents: int = 1000
-    registration_opens: Optional[datetime] = None
-    registration_closes: Optional[datetime] = None
+    registration_opens: Optional[DateTime] = None
+    registration_closes: Optional[DateTime] = None
 
 
 class FeisSettingsUpdate(BaseModel):
@@ -612,10 +612,10 @@ class FeisSettingsUpdate(BaseModel):
     per_competition_fee_cents: Optional[int] = None
     family_max_cents: Optional[int] = None  # Use -1 to remove cap
     late_fee_cents: Optional[int] = None
-    late_fee_date: Optional[date] = None
+    late_fee_date: Optional[Date] = None
     change_fee_cents: Optional[int] = None
-    registration_opens: Optional[datetime] = None
-    registration_closes: Optional[datetime] = None
+    registration_opens: Optional[DateTime] = None
+    registration_closes: Optional[DateTime] = None
 
 
 class FeisSettingsResponse(BaseModel):
@@ -626,10 +626,10 @@ class FeisSettingsResponse(BaseModel):
     per_competition_fee_cents: int
     family_max_cents: Optional[int]
     late_fee_cents: int
-    late_fee_date: Optional[date]
+    late_fee_date: Optional[Date]
     change_fee_cents: int
-    registration_opens: Optional[datetime]
-    registration_closes: Optional[datetime]
+    registration_opens: Optional[DateTime]
+    registration_closes: Optional[DateTime]
     # Stripe status
     stripe_account_id: Optional[str]
     stripe_onboarding_complete: bool
@@ -722,7 +722,7 @@ class CartCalculationResponse(BaseModel):
     # Late fee
     late_fee_cents: int
     late_fee_applied: bool
-    late_fee_date: Optional[date]
+    late_fee_date: Optional[Date]
     
     # Final
     total_cents: int
@@ -765,8 +765,8 @@ class OrderResponse(BaseModel):
     late_fee_cents: int
     total_cents: int
     status: PaymentStatus
-    created_at: datetime
-    paid_at: Optional[datetime]
+    created_at: DateTime
+    paid_at: Optional[DateTime]
     entry_count: int
 
     class Config:
@@ -777,8 +777,8 @@ class RegistrationStatusResponse(BaseModel):
     """Response with registration status for a feis."""
     is_open: bool
     message: str
-    opens_at: Optional[datetime]
-    closes_at: Optional[datetime]
+    opens_at: Optional[DateTime]
+    closes_at: Optional[DateTime]
     is_late: bool
     late_fee_cents: int
     stripe_enabled: bool
@@ -823,7 +823,7 @@ class PlacementHistoryCreate(BaseModel):
     irish_points: Optional[float] = None
     dance_type: Optional[DanceType] = None
     level: CompetitionLevel
-    competition_date: date
+    competition_date: Date
 
 
 class PlacementHistoryResponse(BaseModel):
@@ -839,9 +839,9 @@ class PlacementHistoryResponse(BaseModel):
     irish_points: Optional[float]
     dance_type: Optional[DanceType]
     level: CompetitionLevel
-    competition_date: date
+    competition_date: Date
     triggered_advancement: bool
-    created_at: datetime
+    created_at: DateTime
 
     class Config:
         from_attributes = True
@@ -876,10 +876,10 @@ class AdvancementNoticeResponse(BaseModel):
     to_level: CompetitionLevel
     dance_type: Optional[DanceType]  # None = all dances
     acknowledged: bool
-    acknowledged_at: Optional[datetime]
+    acknowledged_at: Optional[DateTime]
     overridden: bool
     override_reason: Optional[str]
-    created_at: datetime
+    created_at: DateTime
 
     class Config:
         from_attributes = True
@@ -928,9 +928,9 @@ class EntryFlagResponse(BaseModel):
     resolved: bool
     resolved_by: Optional[str]
     resolved_by_name: Optional[str]
-    resolved_at: Optional[datetime]
+    resolved_at: Optional[DateTime]
     resolution_note: Optional[str]
-    created_at: datetime
+    created_at: DateTime
 
     class Config:
         from_attributes = True
@@ -965,7 +965,7 @@ class TeacherStudentEntry(BaseModel):
     paid: bool
     feis_id: str
     feis_name: str
-    feis_date: date
+    feis_date: Date
     is_flagged: bool
     flag_id: Optional[str] = None
 
@@ -982,7 +982,7 @@ class SchoolStudentInfo(BaseModel):
     """Information about a student in the school roster."""
     id: str
     name: str
-    dob: date
+    dob: Date
     current_level: CompetitionLevel
     gender: Gender
     parent_name: str
@@ -1034,9 +1034,9 @@ class WaitlistEntryResponse(BaseModel):
     competition_name: Optional[str]
     position: int
     status: WaitlistStatus
-    offer_sent_at: Optional[datetime]
-    offer_expires_at: Optional[datetime]
-    created_at: datetime
+    offer_sent_at: Optional[DateTime]
+    offer_expires_at: Optional[DateTime]
+    created_at: DateTime
     
     class Config:
         from_attributes = True
@@ -1055,7 +1055,7 @@ class WaitlistOfferResponse(BaseModel):
     dancer_name: str
     competition_name: Optional[str]
     feis_name: str
-    expires_at: datetime
+    expires_at: DateTime
     accept_url: str
 
 
@@ -1083,7 +1083,7 @@ class CheckInResponse(BaseModel):
     competitor_number: Optional[int]
     competition_name: str
     status: CheckInStatus
-    checked_in_at: Optional[datetime]
+    checked_in_at: Optional[DateTime]
     message: str
 
 
@@ -1168,7 +1168,7 @@ class RefundLogResponse(BaseModel):
     reason: str
     refund_type: str
     processed_by_name: str
-    created_at: datetime
+    created_at: DateTime
     
     class Config:
         from_attributes = True
@@ -1193,10 +1193,10 @@ class FeisSettingsUpdatePhase5(BaseModel):
     per_competition_fee_cents: Optional[int] = None
     family_max_cents: Optional[int] = None
     late_fee_cents: Optional[int] = None
-    late_fee_date: Optional[date] = None
+    late_fee_date: Optional[Date] = None
     change_fee_cents: Optional[int] = None
-    registration_opens: Optional[datetime] = None
-    registration_closes: Optional[datetime] = None
+    registration_opens: Optional[DateTime] = None
+    registration_closes: Optional[DateTime] = None
     
     # Phase 5 fields
     global_dancer_cap: Optional[int] = None  # None = unlimited
@@ -1204,7 +1204,7 @@ class FeisSettingsUpdatePhase5(BaseModel):
     waitlist_offer_hours: Optional[int] = None
     allow_scratches: Optional[bool] = None
     scratch_refund_percent: Optional[int] = None  # 0-100
-    scratch_deadline: Optional[datetime] = None
+    scratch_deadline: Optional[DateTime] = None
 
 
 class FeisCapacityStatus(BaseModel):
@@ -1280,11 +1280,11 @@ class AdjudicatorResponse(BaseModel):
     school_affiliation_id: Optional[str]
     school_affiliation_name: Optional[str]  # Teacher's name for display
     status: AdjudicatorStatus
-    invite_sent_at: Optional[datetime]
-    invite_expires_at: Optional[datetime]
+    invite_sent_at: Optional[DateTime]
+    invite_expires_at: Optional[DateTime]
     has_access_pin: bool  # True if a PIN has been generated
-    created_at: datetime
-    confirmed_at: Optional[datetime]
+    created_at: DateTime
+    confirmed_at: Optional[DateTime]
     
     class Config:
         from_attributes = True
@@ -1312,7 +1312,7 @@ class AdjudicatorInviteResponse(BaseModel):
     success: bool
     adjudicator_id: str
     invite_link: str  # The magic link URL
-    expires_at: datetime
+    expires_at: DateTime
     message: str
 
 
@@ -1366,18 +1366,18 @@ class PinLoginResponse(BaseModel):
 
 class AvailabilityBlockCreate(BaseModel):
     """Request to create an availability block for an adjudicator."""
-    feis_day: date  # Which day of the feis
-    start_time: time  # e.g., "08:00"
-    end_time: time  # e.g., "17:00"
+    feis_day: Date  # Which day of the feis
+    start_time: Time  # e.g., "08:00"
+    end_time: Time  # e.g., "17:00"
     availability_type: AvailabilityType = AvailabilityType.AVAILABLE
     note: Optional[str] = None
 
 
 class AvailabilityBlockUpdate(BaseModel):
     """Request to update an availability block."""
-    feis_day: Optional[date] = None
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
+    feis_day: Optional[Date] = None
+    start_time: Optional[Time] = None
+    end_time: Optional[Time] = None
     availability_type: Optional[AvailabilityType] = None
     note: Optional[str] = None
 
@@ -1386,12 +1386,12 @@ class AvailabilityBlockResponse(BaseModel):
     """Response with availability block details."""
     id: str
     feis_adjudicator_id: str
-    feis_day: date
-    start_time: time
-    end_time: time
+    feis_day: Date
+    start_time: Time
+    end_time: Time
     availability_type: AvailabilityType
     note: Optional[str]
-    created_at: datetime
+    created_at: DateTime
     
     class Config:
         from_attributes = True
@@ -1402,7 +1402,7 @@ class AdjudicatorAvailabilityResponse(BaseModel):
     adjudicator_id: str
     adjudicator_name: str
     feis_id: str
-    feis_dates: List[date]  # All dates of the feis (for multi-day support)
+    feis_dates: List[Date]  # All dates of the feis (for multi-day support)
     availability_blocks: List[AvailabilityBlockResponse]
 
 
@@ -1436,8 +1436,8 @@ class SchedulingDefaultsUpdate(BaseModel):
     grades_judges_per_stage: Optional[int] = None  # Default 1
     champs_judges_per_panel: Optional[int] = None  # Default 3
     lunch_duration_minutes: Optional[int] = None  # Default 30
-    lunch_window_start: Optional[time] = None  # e.g., 11:00
-    lunch_window_end: Optional[time] = None  # e.g., 13:00
+    lunch_window_start: Optional[Time] = None  # e.g., 11:00
+    lunch_window_end: Optional[Time] = None  # e.g., 13:00
 
 
 class SchedulingDefaultsResponse(BaseModel):
@@ -1446,8 +1446,8 @@ class SchedulingDefaultsResponse(BaseModel):
     grades_judges_per_stage: int
     champs_judges_per_panel: int
     lunch_duration_minutes: int
-    lunch_window_start: Optional[time]
-    lunch_window_end: Optional[time]
+    lunch_window_start: Optional[Time]
+    lunch_window_end: Optional[Time]
     
     class Config:
         from_attributes = True
@@ -1491,7 +1491,7 @@ class FeisOrganizerResponse(BaseModel):
     can_add_organizers: bool
     added_by: str
     added_by_name: str
-    added_at: datetime
+    added_at: DateTime
     
     class Config:
         from_attributes = True
@@ -1583,8 +1583,8 @@ class PlacementResponse(BaseModel):
     competition_name: str
     stage_id: str
     stage_name: str
-    scheduled_start: datetime
-    scheduled_end: datetime
+    scheduled_start: DateTime
+    scheduled_end: DateTime
     duration_minutes: int
     entry_count: int
 
@@ -1593,8 +1593,8 @@ class LunchHoldResponse(BaseModel):
     """A lunch break hold on a stage."""
     stage_id: str
     stage_name: str
-    start_time: datetime
-    end_time: datetime
+    start_time: DateTime
+    end_time: DateTime
     duration_minutes: int
 
 
