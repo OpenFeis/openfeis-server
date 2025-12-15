@@ -334,56 +334,63 @@ const previewMatrix = computed(() => {
           </button>
         </div>
         
-        <div class="space-y-3">
+        <div class="space-y-1">
           <!-- U Ages Row -->
-          <div class="flex flex-wrap gap-2">
-            <div class="w-8 h-8 flex items-center justify-center font-bold text-slate-400 text-sm">U</div>
-            <button
-              v-for="age in uAges"
-              :key="age"
-              @click="toggleAge(age)"
-              :class="[
-                'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
-                selectedAges.has(age)
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
-              ]"
-            >
-              {{ age.substring(1) }}
-            </button>
+          <div class="flex items-start gap-2 py-1">
+            <div class="w-8 pt-1.5 flex-shrink-0 flex justify-center font-bold text-slate-400 text-sm">U</div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="age in uAges"
+                :key="age"
+                @click="toggleAge(age)"
+                :class="[
+                  'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
+                  selectedAges.has(age)
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+                ]"
+              >
+                {{ age.substring(1) }}
+              </button>
+            </div>
           </div>
+
+          <!-- Divider -->
+          <div class="border-t border-slate-100 w-full"></div>
 
           <!-- O Ages Row -->
-          <div class="flex flex-wrap gap-2">
-            <div class="w-8 h-8 flex items-center justify-center font-bold text-slate-400 text-sm">O</div>
-            <button
-              v-for="age in oAges"
-              :key="age"
-              @click="toggleAge(age)"
-              :class="[
-                'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
-                selectedAges.has(age)
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
-              ]"
-            >
-              {{ age.substring(1) }}
-            </button>
-          </div>
+          <div class="flex items-start gap-2 py-2 px-3 -mx-3 rounded-xl bg-slate-50/80 border border-transparent hover:border-slate-200/50 transition-colors">
+            <div class="w-8 pt-1.5 flex-shrink-0 flex justify-center font-bold text-slate-400 text-sm">O</div>
+            <div class="flex flex-wrap gap-2 flex-1 items-center">
+              <button
+                v-for="age in oAges"
+                :key="age"
+                @click="toggleAge(age)"
+                :class="[
+                  'px-2 py-1.5 min-w-[2.5rem] rounded-lg text-sm font-semibold transition-all border',
+                  selectedAges.has(age)
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+                ]"
+              >
+                {{ age.substring(1) }}
+              </button>
 
-          <!-- Special Buttons -->
-          <div class="flex gap-2 pt-1 pl-10">
-            <button
-              @click="toggleAge('Adult')"
-              :class="[
-                'px-4 py-1.5 rounded-lg text-sm font-bold transition-all border',
-                selectedAges.has('Adult')
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
-              ]"
-            >
-              ADULT
-            </button>
+              <!-- Spacer to push Adult button to the right if there's room -->
+              <div class="flex-grow min-w-[1rem]"></div>
+
+              <button
+                @click="toggleAge('Adult')"
+                :class="[
+                  'px-4 py-1.5 rounded-lg text-sm font-bold transition-all border',
+                  selectedAges.has('Adult')
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+                ]"
+              >
+                ADULT
+              </button>
+            </div>
           </div>
         </div>
       </div>
