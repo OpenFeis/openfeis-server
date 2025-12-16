@@ -239,7 +239,8 @@ async def get_scheduler_view(
             level=comp.level,
             dance_type=comp.dance_type,
             has_conflicts=str(comp.id) in conflict_comp_ids,
-            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None
+            adjudicator_id=str(comp.adjudicator_id) if comp.adjudicator_id else None,
+            code=comp.code
         ))
     
     conflict_responses = [

@@ -11,7 +11,7 @@ import EntryManager from './components/admin/EntryManager.vue';
 import CompetitionManager from './components/admin/CompetitionManager.vue';
 import SiteSettings from './components/admin/SiteSettings.vue';
 import CloudSync from './components/admin/CloudSync.vue';
-import ScheduleGantt from './components/admin/ScheduleGantt.vue';
+import ScheduleDragDrop from './components/admin/ScheduleDragDrop.vue';
 import FeisSettingsManager from './components/admin/FeisSettingsManager.vue';
 import UserManager from './components/admin/UserManager.vue';
 import AdjudicatorManager from './components/admin/AdjudicatorManager.vue';
@@ -1427,7 +1427,7 @@ const handleSyllabusGenerated = (response: { generated_count: number; message: s
                 Back to {{ selectedFeis.name }}
               </button>
             </div>
-            <ScheduleGantt
+            <ScheduleDragDrop
               :feis-id="selectedFeis.id"
               :feis-name="selectedFeis.name"
               @saved="() => {}"

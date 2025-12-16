@@ -246,6 +246,7 @@ export interface ScheduledCompetition {
   dance_type?: DanceType;
   has_conflicts: boolean;
   adjudicator_id?: string;
+  code?: string;
 }
 
 export interface SchedulerViewResponse {

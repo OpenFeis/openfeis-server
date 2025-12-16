@@ -5,7 +5,11 @@ from sqlmodel import Session, select, func
 from backend.db.database import get_session
 from backend.api.auth import get_current_user, require_adjudicator
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
-from backend.scoring_engine.models_platform import User, Feis, Competition, Entry, Dancer, RoleType
+from backend.scoring_engine.models_platform import (
+    User, Feis, Competition, Entry, Dancer, RoleType,
+    FeisAdjudicator, StageJudgeCoverage
+)
+from datetime import datetime
 from backend.scoring_engine.calculator import IrishPointsCalculator
 from backend.api.schemas import (
     ScoreSubmission, ScoreSubmissionResponse,
@@ -67,20 +71,84 @@ async def list_judge_competitions(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_adjudicator())
 ):
-    """List competitions assigned to the current judge for a feis."""
+    """
+    List competitions assigned to the current judge for a feis.
+    
+    Includes:
+    1. Direct assignments (Competition.adjudicator_id)
+    2. Coverage assignments (StageJudgeCoverage) - allows for panels/ping-pong judging
+    """
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
-    # Get competitions assigned to this judge
-    competitions = session.exec(
+    # 1. Get directly assigned competitions
+    direct_competitions = session.exec(
         select(Competition)
         .where(Competition.feis_id == feis.id)
         .where(Competition.adjudicator_id == current_user.id)
     ).all()
     
+    # 2. Get competitions via stage coverage
+    # Find all coverage blocks for this judge on this feis
+    # We need to find the FeisAdjudicator record first to get the ID
+    feis_adjudicator = session.exec(
+        select(FeisAdjudicator)
+        .where(FeisAdjudicator.feis_id == feis.id)
+        .where(FeisAdjudicator.user_id == current_user.id)
+    ).first()
+
+    coverage_competitions = []
+    if feis_adjudicator:
+        coverages = session.exec(
+            select(StageJudgeCoverage)
+            .where(StageJudgeCoverage.feis_adjudicator_id == feis_adjudicator.id)
+        ).all()
+        
+        if coverages:
+            # For each coverage block, find overlapping competitions
+            for cov in coverages:
+                # Convert coverage times to full datetimes for comparison if needed, 
+                # but Competition.scheduled_time is a datetime.
+                # We'll filter by stage and date first.
+                
+                # Note: We catch competitions that start within the window
+                # or strictly overlap.
+                stage_comps = session.exec(
+                    select(Competition)
+                    .where(Competition.feis_id == feis.id)
+                    .where(Competition.stage_id == cov.stage_id)
+                    .where(Competition.scheduled_time.isnot(None))
+                ).all()
+                
+                for comp in stage_comps:
+                    if not comp.scheduled_time:
+                        continue
+                        
+                    comp_date = comp.scheduled_time.date()
+                    if comp_date != cov.feis_day:
+                        continue
+                        
+                    comp_start_time = comp.scheduled_time.time()
+                    
+                    # Simple check: does the competition start within the judge's block?
+                    # or is it running during the block?
+                    # Let's check if the Start Time is within the window [start, end)
+                    if cov.start_time <= comp_start_time < cov.end_time:
+                        coverage_competitions.append(comp)
+
+    # Merge and deduplicate
+    all_competitions_map = {c.id: c for c in direct_competitions}
+    for c in coverage_competitions:
+        all_competitions_map[c.id] = c
+        
+    sorted_competitions = sorted(
+        all_competitions_map.values(), 
+        key=lambda x: x.scheduled_time if x.scheduled_time else datetime.min
+    )
+    
     result = []
-    for comp in competitions:
+    for comp in sorted_competitions:
         # Count entries
         entry_count = session.exec(
             select(func.count(Entry.id)).where(Entry.competition_id == comp.id)

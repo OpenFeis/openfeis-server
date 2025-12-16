@@ -579,6 +579,7 @@ class ScheduledCompetition(BaseModel):
     dance_type: Optional[DanceType] = None
     has_conflicts: bool = False
     adjudicator_id: Optional[str] = None
+    code: Optional[str] = None
 
     class Config:
         from_attributes = True

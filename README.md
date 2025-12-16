@@ -68,11 +68,12 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Number Card Generator** — Create printable PDF number cards with QR codes for check-in
 - **Cap Enforcement** — Set per-competition limits and global feis dancer caps
 - **Waitlist Management** — Automatic waitlisting with configurable offer windows
-- **Schedule Builder** — Visual drag-and-drop scheduler for arranging competitions on stages
+- **Schedule Builder** — Visual vertical drag-and-drop scheduler for arranging competitions on stages 🆕
 - **Instant Scheduler** — One-click algorithmic schedule generation with automatic merge/split of competitions 🆕
 - **Stage Management** — Create and manage multiple stages/areas for your feis
 - **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations
 - **Judge Coverage Blocks** — Assign judges to stages with specific time ranges (e.g., "Mary: Stage A, 9am-12pm")
+- **Shared Panels** — Support for 3-judge panels spanning multiple stages ("Ping Pong" judging) 🆕
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
 - **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking)
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
@@ -779,6 +780,7 @@ The **Instant Scheduler** generates a complete draft schedule with one click, fo
 1. **Open Schedule Builder:**
    - Go to **Admin** → **Manage Feis** → **Schedule Builder**
    - Create stages if you haven't already (e.g., "Stage A", "Stage B")
+   - Use the **Vertical View** to easily align concurrent stages
 
 2. **Click "Instant Scheduler"** (amber button in header)
 
