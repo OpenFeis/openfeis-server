@@ -359,43 +359,43 @@ const addCoverage = async () => {
 };
 
 // Delete coverage block
-// const deleteCoverage = async (coverage: StageJudgeCoverage) => {
-//   if (!confirm(`Remove ${coverage.adjudicator_name}'s coverage (${coverage.start_time}-${coverage.end_time})?`)) {
-//     return;
-//   }
+const deleteCoverage = async (coverage: StageJudgeCoverage) => {
+  if (!confirm(`Remove ${coverage.adjudicator_name}'s coverage (${coverage.start_time}-${coverage.end_time})?`)) {
+    return;
+  }
   
-//   try {
-//     const response = await auth.authFetch(`/api/v1/stage-coverage/${coverage.id}`, {
-//       method: 'DELETE'
-//     });
+  try {
+    const response = await auth.authFetch(`/api/v1/stage-coverage/${coverage.id}`, {
+      method: 'DELETE'
+    });
     
-//     if (!response.ok) throw new Error('Failed to delete coverage');
-//     await loadSchedulerData();
-//   } catch (err) {
-//     error.value = err instanceof Error ? err.message : 'Failed to delete coverage';
-//   }
-// };
+    if (!response.ok) throw new Error('Failed to delete coverage');
+    await loadSchedulerData();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to delete coverage';
+  }
+};
 
 // Remove a competition from the schedule
-// const unscheduleCompetition = (comp: ScheduledCompetition) => {
-//   const existing = competitions.value.find(c => c.id === comp.id);
-//   if (existing) {
-//     const index = competitions.value.indexOf(existing);
-//     competitions.value[index] = {
-//       id: existing.id,
-//       name: existing.name,
-//       estimated_duration_minutes: existing.estimated_duration_minutes,
-//       entry_count: existing.entry_count,
-//       level: existing.level,
-//       has_conflicts: existing.has_conflicts,
-//       dance_type: existing.dance_type,
-//       stage_id: undefined,
-//       stage_name: undefined,
-//       scheduled_time: undefined,
-//       code: existing.code
-//     };
-//   }
-// };
+const unscheduleCompetition = (comp: ScheduledCompetition) => {
+  const existing = competitions.value.find(c => c.id === comp.id);
+  if (existing) {
+    const index = competitions.value.indexOf(existing);
+    competitions.value[index] = {
+      id: existing.id,
+      name: existing.name,
+      estimated_duration_minutes: existing.estimated_duration_minutes,
+      entry_count: existing.entry_count,
+      level: existing.level,
+      has_conflicts: existing.has_conflicts,
+      dance_type: existing.dance_type,
+      stage_id: undefined,
+      stage_name: undefined,
+      scheduled_time: undefined,
+      code: existing.code
+    };
+  }
+};
 const onDragStart = (comp: ScheduledCompetition, event: DragEvent) => {
   draggedComp.value = comp;
   if (event.dataTransfer) {
@@ -546,28 +546,6 @@ const saveSchedule = async () => {
   }
 };
 
-// Remove a competition from the schedule
-const unscheduleCompetition = (comp: ScheduledCompetition) => {
-  const existing = competitions.value.find(c => c.id === comp.id);
-  if (existing) {
-    const index = competitions.value.indexOf(existing);
-    competitions.value[index] = {
-      id: existing.id,
-      name: existing.name,
-      estimated_duration_minutes: existing.estimated_duration_minutes,
-      entry_count: existing.entry_count,
-      level: existing.level,
-      has_conflicts: existing.has_conflicts,
-      dance_type: existing.dance_type,
-      stage_id: undefined,
-      stage_name: undefined,
-      scheduled_time: undefined,
-      code: existing.code
-    };
-  }
-};
-
-// Drag and drop handlers
 const getLevelColor = (level: CompetitionLevel): string => {
   const colors: Record<CompetitionLevel, string> = {
     first_feis: 'bg-pink-500',
@@ -920,10 +898,21 @@ watch(() => props.feisId, () => {
                         <div
                             v-for="cov in stage.judge_coverage"
                             :key="'cov-' + cov.id"
-                            class="absolute left-1 right-1 bg-emerald-100/40 border border-emerald-200 rounded-md z-0"
+                            class="absolute left-1 right-1 bg-emerald-100/40 border border-emerald-200 rounded-md z-0 group"
                             :style="getCoverageStyle(cov)"
                         >
-                            <div class="text-[10px] text-emerald-800 font-semibold px-1 pt-1 truncate">{{ cov.adjudicator_name }}</div>
+                            <div class="flex justify-between items-start">
+                                <div class="text-[10px] text-emerald-800 font-semibold px-1 pt-1 truncate">{{ cov.adjudicator_name }}</div>
+                                <button
+                                    @click.stop="deleteCoverage(cov)"
+                                    class="text-emerald-400 hover:text-red-500 p-0.5 mr-0.5 mt-0.5 transition-colors"
+                                    title="Remove Judge Coverage"
+                                >
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
                             <div class="text-[9px] text-emerald-600 px-1 truncate">{{ cov.note }}</div>
                         </div>
 

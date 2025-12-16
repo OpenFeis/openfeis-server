@@ -121,6 +121,13 @@ async def delete_stage(
         comp.stage_id = None
         session.add(comp)
     
+    # Delete judge coverage blocks for this stage
+    coverage_blocks = session.exec(
+        select(StageJudgeCoverage).where(StageJudgeCoverage.stage_id == stage.id)
+    ).all()
+    for block in coverage_blocks:
+        session.delete(block)
+    
     session.delete(stage)
     session.commit()
     
@@ -209,6 +216,23 @@ async def create_stage_coverage(
              
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date or time format: {str(e)}")
+
+    # Check for overlapping coverage for this judge
+    existing_coverage = session.exec(
+        select(StageJudgeCoverage)
+        .where(StageJudgeCoverage.feis_adjudicator_id == UUID(coverage_data.feis_adjudicator_id))
+        .where(StageJudgeCoverage.feis_day == feis_day_parsed)
+    ).all()
+
+    for cov in existing_coverage:
+        # Check if times overlap
+        if (start_time_parsed < cov.end_time and end_time_parsed > cov.start_time):
+            conflicting_stage = session.get(Stage, cov.stage_id)
+            stage_name = conflicting_stage.name if conflicting_stage else "Unknown Stage"
+            raise HTTPException(
+                status_code=409, 
+                detail=f"Judge {adj.name} is already covering {stage_name} from {cov.start_time.strftime('%H:%M')} to {cov.end_time.strftime('%H:%M')}"
+            )
     
     coverage = StageJudgeCoverage(
         stage_id=stage.id,
