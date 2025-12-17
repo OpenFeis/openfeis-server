@@ -72,9 +72,9 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Instant Scheduler** — One-click algorithmic schedule generation with automatic merge/split of competitions 🆕
 - **Stage Management** — Create and manage multiple stages/areas for your feis
 - **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations
-- **Judge Panels** — Create formal 3-judge or 5-judge panels for championships 🆕
-- **Panel Management** — Assign panels to single stages (major events) or multiple stages (ping-pong judging) 🆕
-- **Judge Coverage Blocks** — Assign individual judges or panels to stages with specific time ranges
+- **Judge Panels** — Define panels (e.g., "Championship Panel A" with 3 or 5 judges) as first-class entities in the Adjudicator Roster 🆕
+- **Panel Assignment** — Assign panels to one or more stages for flexible judging setups (e.g., single-stage championships, multi-stage "Ping Pong" judging) 🆕
+- **Judge Coverage Blocks** — Assign individual judges or panels to stages with specific time ranges, displayed with color-coded indicators
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
 - **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking)
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
