@@ -144,10 +144,11 @@ const hourMarkers = computed(() => {
     } else {
       label = `${h - 12}PM`;
     }
+    const position = (h - startHour.value) * 60 * pixelsPerMinute.value;
     markers.push({
       hour: h,
       label,
-      position: (h - startHour.value) * 60 * pixelsPerMinute.value
+      position
     });
   }
   return markers;
@@ -530,7 +531,7 @@ const getBlockStyle = (comp: ScheduledCompetition) => {
   };
 };
 
-// Calculate coverage block position and HEIGHT
+// Calculate coverage block position and height
 const getCoverageStyle = (cov: StageJudgeCoverage) => {
   const startParts = cov.start_time.split(':');
   const endParts = cov.end_time.split(':');
@@ -962,7 +963,7 @@ watch(() => props.feisId, () => {
                               cov.is_panel ? 'bg-purple-100/40 border-purple-200' : 'bg-emerald-100/40 border-emerald-200',
                               getMultiStagePanelInfo(cov).length > 0 ? 'border-l-4' : ''
                             ]"
-                            class="absolute left-1 right-1 border rounded-md z-0 group relative"
+                            class="absolute left-1 right-1 border rounded-md z-0 group"
                             :style="getCoverageStyle(cov)"
                         >
                             <!-- Multi-Stage Indicator Badge -->
