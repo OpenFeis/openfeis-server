@@ -239,22 +239,17 @@ async def create_stage_coverage(
         else:
             feis_day_parsed = coverage_data.feis_day
 
-        # Handle time format HH:MM or HH:MM:SS
-        if isinstance(coverage_data.start_time, str):
-            if len(coverage_data.start_time) == 5:
-                start_time_parsed = datetime.strptime(coverage_data.start_time, "%H:%M").time()
-            else:
-                start_time_parsed = time.fromisoformat(coverage_data.start_time)
-        else:
-            start_time_parsed = coverage_data.start_time
-             
-        if isinstance(coverage_data.end_time, str):
-            if len(coverage_data.end_time) == 5:
-                end_time_parsed = datetime.strptime(coverage_data.end_time, "%H:%M").time()
-            else:
-                end_time_parsed = time.fromisoformat(coverage_data.end_time)
-        else:
-            end_time_parsed = coverage_data.end_time
+        # Handle time format HH:MM or HH:MM:SS manually to avoid any timezone/locale issues
+        def parse_time_str(t_str: str) -> time:
+            if not isinstance(t_str, str):
+                return t_str
+            parts = t_str.split(':')
+            return time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+
+        start_time_parsed = parse_time_str(coverage_data.start_time)
+        end_time_parsed = parse_time_str(coverage_data.end_time)
+        
+        print(f"DEBUG: coverage_data.start_time='{coverage_data.start_time}' -> parsed={start_time_parsed}")
              
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date or time format: {str(e)}")
@@ -300,8 +295,10 @@ async def create_stage_coverage(
         panel_name=panel_name,
         is_panel=coverage.panel_id is not None,
         feis_day=coverage.feis_day.isoformat(),
-        start_time=coverage.start_time.strftime("%H:%M"),
-        end_time=coverage.end_time.strftime("%H:%M"),
+        # Use input strings to guarantee immediate UI consistency, 
+        # avoiding any DB roundtrip formatting quirks for the immediate response
+        start_time=coverage_data.start_time, 
+        end_time=coverage_data.end_time,
         note=coverage.note
     )
 

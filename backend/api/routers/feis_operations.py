@@ -222,6 +222,11 @@ async def get_scheduler_view(
                 panel_name = panel.name if panel else "Unknown Panel"
                 is_panel = True
             
+            # Explicit formatting to avoid any locale/timezone interpretation
+            # cov.start_time is a time object, we just want HH:MM
+            start_time_str = f"{cov.start_time.hour:02d}:{cov.start_time.minute:02d}"
+            end_time_str = f"{cov.end_time.hour:02d}:{cov.end_time.minute:02d}"
+
             coverage_responses.append(StageJudgeCoverageResponse(
                 id=str(cov.id),
                 stage_id=str(cov.stage_id),
@@ -232,8 +237,8 @@ async def get_scheduler_view(
                 panel_name=panel_name,
                 is_panel=is_panel,
                 feis_day=cov.feis_day.isoformat(),
-                start_time=cov.start_time.strftime("%H:%M"),
-                end_time=cov.end_time.strftime("%H:%M"),
+                start_time=start_time_str,
+                end_time=end_time_str,
                 note=cov.note
             ))
         

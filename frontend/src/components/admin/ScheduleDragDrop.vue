@@ -32,8 +32,19 @@ const auth = useAuthStore();
 const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
-const showCodes = ref(false);
-const pixelsPerMinute = ref(3); // Scale factor (Height in vertical view) - Increased from 2 to 3
+const showCodes = ref(true);
+const pixelsPerMinute = ref(5); // Scale factor (Height in vertical view) - Default "M" size
+
+const getZoomLabel = (level: number): string => {
+  const labels: Record<number, string> = {
+    3: 'XS',
+    4: 'S',
+    5: 'M',
+    6: 'L',
+    7: 'XL'
+  };
+  return labels[level] || '?';
+};
 
 const stages = ref<Stage[]>([]);
 const competitions = ref<ScheduledCompetition[]>([]);
@@ -453,9 +464,9 @@ const onDragOver = (stageId: string, event: DragEvent) => {
   const rect = target.getBoundingClientRect();
   const y = event.clientY - rect.top + target.scrollTop; // Account for scrolling if any
   
-  // Snap to 5-minute grid
+  // Snap to 4-minute grid (15 events per hour)
   const rawMinutes = Math.floor(y / pixelsPerMinute.value);
-  const minutes = Math.round(rawMinutes / 5) * 5;
+  const minutes = Math.round(rawMinutes / 4) * 4;
   
   dragOverTime.value = minutes;
 };
@@ -707,7 +718,7 @@ watch(() => props.feisId, () => {
             <span class="text-[10px] font-bold text-indigo-100 leading-none mb-1">ZOOM LEVEL</span>
             <div class="flex items-center gap-1">
               <button 
-                @click="pixelsPerMinute = Math.max(1, pixelsPerMinute - 1)"
+                @click="pixelsPerMinute = Math.max(3, pixelsPerMinute - 1)"
                 class="p-1 text-white hover:bg-white/10 rounded transition-colors leading-none flex items-center justify-center h-6 w-6"
                 title="Zoom Out"
               >
@@ -715,9 +726,9 @@ watch(() => props.feisId, () => {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
                 </svg>
               </button>
-              <span class="text-xs font-medium text-white px-1 w-4 text-center">{{ pixelsPerMinute }}</span>
+              <span class="text-xs font-medium text-white px-1 w-5 text-center">{{ getZoomLabel(pixelsPerMinute) }}</span>
               <button 
-                @click="pixelsPerMinute = Math.min(6, pixelsPerMinute + 1)"
+                @click="pixelsPerMinute = Math.min(7, pixelsPerMinute + 1)"
                 class="p-1 text-white hover:bg-white/10 rounded transition-colors leading-none flex items-center justify-center h-6 w-6"
                 title="Zoom In"
               >
