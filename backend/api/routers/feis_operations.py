@@ -134,14 +134,36 @@ async def get_feis_judge_schedule(
     
     result = []
     for cov in coverage_blocks:
-        adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
         stage = stage_map.get(cov.stage_id)
+        
+        # Handle both single judge and panel coverage
+        adj_id = None
+        adj_name = None
+        panel_id = None
+        panel_name = None
+        is_panel = False
+        
+        if cov.feis_adjudicator_id:
+            adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+            adj_id = str(cov.feis_adjudicator_id)
+            adj_name = adj.name if adj else "Unknown"
+        
+        if cov.panel_id:
+            from backend.scoring_engine.models_platform import JudgePanel
+            panel = session.get(JudgePanel, cov.panel_id)
+            panel_id = str(cov.panel_id)
+            panel_name = panel.name if panel else "Unknown Panel"
+            is_panel = True
+        
         result.append(StageJudgeCoverageResponse(
             id=str(cov.id),
             stage_id=str(cov.stage_id),
             stage_name=stage.name if stage else "Unknown",
-            feis_adjudicator_id=str(cov.feis_adjudicator_id),
-            adjudicator_name=adj.name if adj else "Unknown",
+            feis_adjudicator_id=adj_id,
+            adjudicator_name=adj_name,
+            panel_id=panel_id,
+            panel_name=panel_name,
+            is_panel=is_panel,
             feis_day=cov.feis_day.isoformat(),
             start_time=cov.start_time.strftime("%H:%M"),
             end_time=cov.end_time.strftime("%H:%M"),
@@ -181,13 +203,34 @@ async def get_scheduler_view(
         
         coverage_responses = []
         for cov in coverage_blocks:
-            adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+            # Handle both single judge and panel coverage
+            adj_id = None
+            adj_name = None
+            panel_id = None
+            panel_name = None
+            is_panel = False
+            
+            if cov.feis_adjudicator_id:
+                adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+                adj_id = str(cov.feis_adjudicator_id)
+                adj_name = adj.name if adj else "Unknown"
+            
+            if cov.panel_id:
+                from backend.scoring_engine.models_platform import JudgePanel
+                panel = session.get(JudgePanel, cov.panel_id)
+                panel_id = str(cov.panel_id)
+                panel_name = panel.name if panel else "Unknown Panel"
+                is_panel = True
+            
             coverage_responses.append(StageJudgeCoverageResponse(
                 id=str(cov.id),
                 stage_id=str(cov.stage_id),
                 stage_name=stage.name,
-                feis_adjudicator_id=str(cov.feis_adjudicator_id),
-                adjudicator_name=adj.name if adj else "Unknown",
+                feis_adjudicator_id=adj_id,
+                adjudicator_name=adj_name,
+                panel_id=panel_id,
+                panel_name=panel_name,
+                is_panel=is_panel,
                 feis_day=cov.feis_day.isoformat(),
                 start_time=cov.start_time.strftime("%H:%M"),
                 end_time=cov.end_time.strftime("%H:%M"),

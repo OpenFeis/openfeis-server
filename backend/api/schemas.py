@@ -163,8 +163,9 @@ class StageUpdate(BaseModel):
 # ============= Stage Judge Coverage =============
 
 class StageJudgeCoverageCreate(BaseModel):
-    """Create a time-based judge assignment to a stage."""
-    feis_adjudicator_id: str  # UUID of the adjudicator on the feis roster
+    """Create a time-based judge or panel assignment to a stage."""
+    feis_adjudicator_id: Optional[str] = None  # For single judge assignment
+    panel_id: Optional[str] = None  # For panel assignment
     feis_day: str  # ISO date string (YYYY-MM-DD)
     start_time: str  # HH:MM format
     end_time: str    # HH:MM format
@@ -174,8 +175,11 @@ class StageJudgeCoverageResponse(BaseModel):
     id: str
     stage_id: str
     stage_name: str
-    feis_adjudicator_id: str
-    adjudicator_name: str
+    feis_adjudicator_id: Optional[str] = None
+    adjudicator_name: Optional[str] = None
+    panel_id: Optional[str] = None
+    panel_name: Optional[str] = None
+    is_panel: bool = False  # True if this is a panel assignment
     feis_day: str
     start_time: str
     end_time: str
@@ -1364,6 +1368,63 @@ class PinLoginResponse(BaseModel):
     feis_name: str
     adjudicator_name: str
     message: str
+
+
+# --- Judge Panels ---
+
+class PanelMemberCreate(BaseModel):
+    """Member to add to a panel."""
+    feis_adjudicator_id: str
+    sequence: int  # Position in panel (0, 1, 2 for 3-judge; 0-4 for 5-judge)
+
+
+class JudgePanelCreate(BaseModel):
+    """Request to create a new judge panel."""
+    name: str  # e.g., "Championship Panel A"
+    description: Optional[str] = None
+    members: List[PanelMemberCreate]  # List of judges in the panel
+
+
+class JudgePanelUpdate(BaseModel):
+    """Request to update a judge panel."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    members: Optional[List[PanelMemberCreate]] = None  # Replaces all members if provided
+
+
+class PanelMemberResponse(BaseModel):
+    """Response with panel member details."""
+    id: str
+    feis_adjudicator_id: str
+    adjudicator_name: str
+    credential: Optional[str]
+    sequence: int
+    
+    class Config:
+        from_attributes = True
+
+
+class JudgePanelResponse(BaseModel):
+    """Response with judge panel details."""
+    id: str
+    feis_id: str
+    name: str
+    description: Optional[str]
+    members: List[PanelMemberResponse]
+    member_count: int  # Computed: 3 or 5 typically
+    created_at: DateTime
+    updated_at: DateTime
+    
+    class Config:
+        from_attributes = True
+
+
+class JudgePanelListResponse(BaseModel):
+    """Response with list of panels for a feis."""
+    feis_id: str
+    feis_name: str
+    total_panels: int
+    panels: List[JudgePanelResponse]
 
 
 # --- Adjudicator Availability ---

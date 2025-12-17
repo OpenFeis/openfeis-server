@@ -164,6 +164,7 @@ class Feis(SQLModel, table=True):
     fee_items: List["FeeItem"] = Relationship(back_populates="feis")
     orders: List["Order"] = Relationship(back_populates="feis")
     adjudicators: List["FeisAdjudicator"] = Relationship(back_populates="feis")
+    judge_panels: List["JudgePanel"] = Relationship()
     co_organizers: List["FeisOrganizer"] = Relationship(
         back_populates="feis",
         sa_relationship_kwargs={"foreign_keys": "FeisOrganizer.feis_id"}
@@ -186,26 +187,35 @@ class Stage(SQLModel, table=True):
 
 class StageJudgeCoverage(SQLModel, table=True):
     """
-    Time-based judge assignment to a stage.
-    Judges can cover multiple stages at different times throughout a feis.
+    Time-based judge or panel assignment to a stage.
+    
+    Can represent either:
+    - Single judge coverage (feis_adjudicator_id set, panel_id is None)
+    - Panel coverage (panel_id set, feis_adjudicator_id can be None)
+    
+    For multi-stage panels, multiple StageJudgeCoverage records share the same panel_id.
     """
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     stage_id: UUID = Field(foreign_key="stage.id", index=True)
-    feis_adjudicator_id: UUID = Field(foreign_key="feisadjudicator.id", index=True)
+    
+    # Either a single judge OR a panel (mutually exclusive in most cases)
+    feis_adjudicator_id: Optional[UUID] = Field(default=None, foreign_key="feisadjudicator.id", index=True)
+    panel_id: Optional[UUID] = Field(default=None, foreign_key="judgepanel.id", index=True)
     
     # Time range for this coverage
     feis_day: date  # Which day of the feis
     start_time: time  # e.g., 09:00
     end_time: time    # e.g., 12:30
     
-    # Optional note (e.g., "covering lunch break", "grades only")
+    # Optional note (e.g., "covering lunch break", "grades only", "Championship Panel A")
     note: Optional[str] = None
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     # Relationships
     stage: Stage = Relationship(back_populates="judge_coverage")
-    feis_adjudicator: "FeisAdjudicator" = Relationship(back_populates="stage_coverage")
+    feis_adjudicator: Optional["FeisAdjudicator"] = Relationship(back_populates="stage_coverage")
+    panel: Optional["JudgePanel"] = Relationship(back_populates="stage_coverage")
 
 class Dancer(SQLModel, table=True):
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
@@ -722,6 +732,56 @@ class AdjudicatorAvailability(SQLModel, table=True):
     
     # Relationships
     adjudicator: "FeisAdjudicator" = Relationship(back_populates="availability_blocks")
+
+
+class JudgePanel(SQLModel, table=True):
+    """
+    A formal panel of judges (e.g., 3-judge or 5-judge panel).
+    
+    Panels are first-class entities that can be assigned to one or more stages.
+    Examples:
+    - Championship Panel A (3 judges, single stage for major events)
+    - Ping Pong Panel B (3 judges, stages 3 and 4)
+    - Grand Championship Panel (5 judges, single stage)
+    """
+    __tablename__ = "judgepanel"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    feis_id: UUID = Field(foreign_key="feis.id", index=True)
+    
+    name: str  # e.g., "Championship Panel A", "Ping Pong Panel B"
+    description: Optional[str] = None  # Optional notes
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    feis: "Feis" = Relationship(sa_relationship_kwargs={"overlaps": "judge_panels"})
+    members: List["PanelMember"] = Relationship(back_populates="panel", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    stage_coverage: List["StageJudgeCoverage"] = Relationship(back_populates="panel")
+
+
+class PanelMember(SQLModel, table=True):
+    """
+    Junction table linking judges to panels.
+    
+    Tracks which judges are part of which panel and their position/sequence.
+    """
+    __tablename__ = "panelmember"
+    
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    panel_id: UUID = Field(foreign_key="judgepanel.id", index=True)
+    feis_adjudicator_id: UUID = Field(foreign_key="feisadjudicator.id", index=True)
+    
+    sequence: int = Field(default=0)  # Order in panel (Judge 1, Judge 2, Judge 3, etc.)
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationships
+    panel: JudgePanel = Relationship(back_populates="members")
+    feis_adjudicator: "FeisAdjudicator" = Relationship()
 
 
 # ============= Phase 7: Multi-Organizer Support =============

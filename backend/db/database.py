@@ -92,6 +92,9 @@ def run_migrations():
         # Competition table - Special competition fields (added in Special Competitions feature)
         ("competition", "description", "ALTER TABLE competition ADD COLUMN description VARCHAR"),
         ("competition", "allowed_levels", "ALTER TABLE competition ADD COLUMN allowed_levels VARCHAR"),
+        
+        # StageJudgeCoverage table - panel support (Judge Panel feature)
+        ("stagejudgecoverage", "panel_id", "ALTER TABLE stagejudgecoverage ADD COLUMN panel_id VARCHAR"),
     ]
     
     with engine.connect() as conn:
@@ -123,6 +126,56 @@ def run_migrations():
             print("Migration: Fixed enum values to uppercase")
         except Exception as e:
             print(f"Migration warning (enum fix): {e}")
+        
+        # Special migration: Make feis_adjudicator_id nullable for panel support
+        # SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+        try:
+            # Check current schema
+            result = conn.execute(text("PRAGMA table_info('stagejudgecoverage')"))
+            columns = {row[1]: row for row in result.fetchall()}
+            
+            if 'feis_adjudicator_id' in columns:
+                # row[3] is the 'notnull' flag (1 = NOT NULL, 0 = nullable)
+                is_not_null = columns['feis_adjudicator_id'][3] == 1
+                
+                if is_not_null:
+                    print("Migration: Making stagejudgecoverage.feis_adjudicator_id nullable for panel support")
+                    
+                    # Recreate table with nullable feis_adjudicator_id
+                    conn.execute(text("""
+                        CREATE TABLE stagejudgecoverage_new (
+                            id VARCHAR PRIMARY KEY,
+                            stage_id VARCHAR NOT NULL,
+                            feis_adjudicator_id VARCHAR,
+                            panel_id VARCHAR,
+                            feis_day DATE NOT NULL,
+                            start_time TIME NOT NULL,
+                            end_time TIME NOT NULL,
+                            note VARCHAR,
+                            created_at DATETIME NOT NULL,
+                            FOREIGN KEY (stage_id) REFERENCES stage(id),
+                            FOREIGN KEY (feis_adjudicator_id) REFERENCES feisadjudicator(id),
+                            FOREIGN KEY (panel_id) REFERENCES judgepanel(id)
+                        )
+                    """))
+                    
+                    # Copy existing data
+                    conn.execute(text("""
+                        INSERT INTO stagejudgecoverage_new 
+                        SELECT id, stage_id, feis_adjudicator_id, panel_id, feis_day, start_time, end_time, note, created_at
+                        FROM stagejudgecoverage
+                    """))
+                    
+                    # Drop old table
+                    conn.execute(text("DROP TABLE stagejudgecoverage"))
+                    
+                    # Rename new table
+                    conn.execute(text("ALTER TABLE stagejudgecoverage_new RENAME TO stagejudgecoverage"))
+                    
+                    conn.commit()
+                    print("Migration: Successfully made feis_adjudicator_id nullable")
+        except Exception as e:
+            print(f"Migration warning (nullable feis_adjudicator_id): {e}")
 
 
 def create_db_and_tables():
@@ -134,7 +187,8 @@ def create_db_and_tables():
         PlacementHistory, EntryFlag, AdvancementNotice,  # Phase 4 models
         WaitlistEntry, RefundLog,  # Phase 5 models
         FeisAdjudicator, AdjudicatorAvailability, StageJudgeCoverage,  # Phase 6 models
-        FeisOrganizer  # Phase 7 models
+        FeisOrganizer,  # Phase 7 models
+        JudgePanel, PanelMember  # Judge Panel feature
     )
     from backend.scoring_engine.models import Round, JudgeScore
     

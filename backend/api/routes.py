@@ -23,6 +23,7 @@ from backend.api.routers import teacher as teacher_router
 from backend.api.routers import feis as feis_router
 from backend.api.routers import feis_operations as feis_operations_router
 from backend.api.routers import adjudicators as adjudicators_router
+from backend.api.routers import panels as panels_router
 
 # Create main router
 router = APIRouter()
@@ -44,3 +45,4 @@ router.include_router(teacher_router.router, tags=["teacher"])
 router.include_router(feis_router.router, tags=["feis"])
 router.include_router(feis_operations_router.router, tags=["feis-operations"])
 router.include_router(adjudicators_router.router, tags=["adjudicators"])
+router.include_router(panels_router.router, tags=["panels"])

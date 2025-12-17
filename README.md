@@ -72,8 +72,9 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Instant Scheduler** — One-click algorithmic schedule generation with automatic merge/split of competitions 🆕
 - **Stage Management** — Create and manage multiple stages/areas for your feis
 - **Adjudicator Roster** — Build a roster of judges before they have accounts, track invites and confirmations
-- **Judge Coverage Blocks** — Assign judges to stages with specific time ranges (e.g., "Mary: Stage A, 9am-12pm")
-- **Shared Panels** — Support for 3-judge panels spanning multiple stages ("Ping Pong" judging) 🆕
+- **Judge Panels** — Create formal 3-judge or 5-judge panels for championships 🆕
+- **Panel Management** — Assign panels to single stages (major events) or multiple stages (ping-pong judging) 🆕
+- **Judge Coverage Blocks** — Assign individual judges or panels to stages with specific time ranges
 - **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
 - **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking)
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
@@ -460,12 +461,21 @@ openfeis-server/
 | `POST` | `/api/v1/adjudicators/{id}/invite` | Send email invite to adjudicator | Organizer/Admin |
 | `POST` | `/api/v1/adjudicators/{id}/generate-pin` | Generate day-of access PIN | Organizer/Admin |
 
+### Judge Panels 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/panels` | List all panels for a feis | No |
+| `POST` | `/api/v1/feis/{feis_id}/panels` | Create a new judge panel (3-judge, 5-judge, etc.) | Organizer/Admin |
+| `PUT` | `/api/v1/panels/{panel_id}` | Update panel name, description, or members | Organizer/Admin |
+| `DELETE` | `/api/v1/panels/{panel_id}` | Delete a panel (must not be assigned to stages) | Organizer/Admin |
+
 ### Stage Judge Coverage 🆕
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| `GET` | `/api/v1/stages/{stage_id}/coverage` | List judge coverage blocks for a stage | No |
-| `POST` | `/api/v1/stages/{stage_id}/coverage` | Add a coverage block (judge + date + time range) | Organizer/Admin |
+| `GET` | `/api/v1/stages/{stage_id}/coverage` | List judge/panel coverage blocks for a stage | No |
+| `POST` | `/api/v1/stages/{stage_id}/coverage` | Add coverage (single judge or panel + time range) | Organizer/Admin |
 | `DELETE` | `/api/v1/stage-coverage/{coverage_id}` | Remove a coverage block | Organizer/Admin |
 | `GET` | `/api/v1/feis/{feis_id}/judge-schedule` | Get all coverage blocks across all stages (cross-stage view) | No |
 

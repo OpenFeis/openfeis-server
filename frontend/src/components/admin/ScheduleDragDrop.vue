@@ -11,7 +11,8 @@ import type {
   AdjudicatorListResponse,
   StageJudgeCoverage,
   InstantSchedulerRequest,
-  InstantSchedulerResponse
+  InstantSchedulerResponse,
+  JudgePanel
 } from '../../models/types';
 import { DANCE_TYPE_INFO } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
@@ -39,8 +40,9 @@ const competitions = ref<ScheduledCompetition[]>([]);
 const conflicts = ref<ScheduleConflict[]>([]);
 const feisDate = ref<string>('');
 
-// Adjudicator data
+// Adjudicator and panel data
 const adjudicators = ref<FeisAdjudicator[]>([]);
+const panels = ref<JudgePanel[]>([]);
 // const showAdjudicatorModal = ref(false); // Deprecated
 // const selectedCompetition = ref<ScheduledCompetition | null>(null); // Deprecated
 // const selectedAdjudicatorId = ref<string>(''); // Deprecated
@@ -65,7 +67,9 @@ const stageForm = ref({ name: '', color: '#6366f1' });
 const showCoverageModal = ref(false);
 const coverageStage = ref<Stage | null>(null);
 const coverageForm = ref({
+  assignment_type: 'judge' as 'judge' | 'panel', // NEW: Select judge or panel
   feis_adjudicator_id: '',
+  panel_id: '', // NEW: For panel assignment
   feis_day: '',
   start_time: '09:00',
   end_time: '12:00',
@@ -182,6 +186,19 @@ const loadAdjudicators = async () => {
     }
   } catch (err) {
     console.error('Failed to load adjudicators:', err);
+  }
+};
+
+// Fetch panels for assignment dropdown
+const loadPanels = async () => {
+  try {
+    const response = await auth.authFetch(`/api/v1/feis/${props.feisId}/panels`);
+    if (response.ok) {
+      const data = await response.json();
+      panels.value = data.panels;
+    }
+  } catch (err) {
+    console.error('Failed to load panels:', err);
   }
 };
 
@@ -321,7 +338,9 @@ const openCoverageModal = (stage: Stage) => {
   coverageStage.value = stage;
   const today = new Date().toISOString().split('T')[0] ?? '';
   coverageForm.value = {
+    assignment_type: 'judge',
     feis_adjudicator_id: '',
+    panel_id: '',
     feis_day: feisDate.value || today,
     start_time: '09:00',
     end_time: '12:00',
@@ -331,21 +350,41 @@ const openCoverageModal = (stage: Stage) => {
   showCoverageModal.value = true;
 };
 
-// Add coverage block (Multi-stage supported)
+// Add coverage block (Multi-stage supported, judge or panel)
 const addCoverage = async () => {
-  if (!coverageForm.value.feis_adjudicator_id || coverageForm.value.selected_stage_ids.length === 0) return;
+  // Validation
+  if (coverageForm.value.assignment_type === 'judge' && !coverageForm.value.feis_adjudicator_id) {
+    error.value = 'Please select a judge';
+    return;
+  }
+  if (coverageForm.value.assignment_type === 'panel' && !coverageForm.value.panel_id) {
+    error.value = 'Please select a panel';
+    return;
+  }
+  if (coverageForm.value.selected_stage_ids.length === 0) {
+    error.value = 'Please select at least one stage';
+    return;
+  }
   
   try {
     const promises = coverageForm.value.selected_stage_ids.map(stageId => {
+      const payload: any = {
+        feis_day: coverageForm.value.feis_day,
+        start_time: coverageForm.value.start_time,
+        end_time: coverageForm.value.end_time,
+        note: coverageForm.value.note
+      };
+      
+      // Add either judge or panel ID based on assignment type
+      if (coverageForm.value.assignment_type === 'judge') {
+        payload.feis_adjudicator_id = coverageForm.value.feis_adjudicator_id;
+      } else {
+        payload.panel_id = coverageForm.value.panel_id;
+      }
+      
       return auth.authFetch(`/api/v1/stages/${stageId}/coverage`, {
         method: 'POST',
-        body: JSON.stringify({
-            feis_adjudicator_id: coverageForm.value.feis_adjudicator_id,
-            feis_day: coverageForm.value.feis_day,
-            start_time: coverageForm.value.start_time,
-            end_time: coverageForm.value.end_time,
-            note: coverageForm.value.note
-        })
+        body: JSON.stringify(payload)
       });
     });
 
@@ -565,6 +604,26 @@ const getDanceIcon = (danceType?: DanceType): string => {
   return DANCE_TYPE_INFO[danceType]?.icon || '🎵';
 };
 
+// Find stages covered by the same panel at the same time
+const getMultiStagePanelInfo = (coverage: StageJudgeCoverage): string[] => {
+  if (!coverage.is_panel || !coverage.panel_id) return [];
+  
+  const relatedStages: string[] = [];
+  for (const stage of stages.value) {
+    const hasSamePanel = stage.judge_coverage.some(cov => 
+      cov.panel_id === coverage.panel_id &&
+      cov.feis_day === coverage.feis_day &&
+      cov.start_time === coverage.start_time &&
+      cov.end_time === coverage.end_time &&
+      cov.stage_id !== coverage.stage_id
+    );
+    if (hasSamePanel) {
+      relatedStages.push(stage.name);
+    }
+  }
+  return relatedStages;
+};
+
 // Stage colors
 const stageColors = [
   '#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6',
@@ -616,6 +675,7 @@ const closeInstantSchedulerSummary = () => {
 onMounted(() => {
   loadSchedulerData();
   loadAdjudicators();
+  loadPanels();
 });
 
 watch(() => props.feisId, () => {
@@ -816,10 +876,10 @@ watch(() => props.feisId, () => {
         </div>
 
         <!-- Vertical Scheduler Scroll Area -->
-        <div class="flex-1 overflow-auto bg-slate-100 flex relative">
+        <div class="flex-1 overflow-auto bg-white flex relative">
             
             <!-- Time Column (Sticky) -->
-            <div class="sticky left-0 z-30 bg-white border-r border-slate-200 w-16 flex-shrink-0">
+            <div class="sticky left-0 z-30 bg-white border-r border-slate-200 w-16 flex-shrink-0" :style="{ minHeight: `${timelineHeight + 56}px` }">
                 <div class="h-14 bg-white border-b border-slate-200 sticky top-0 z-40"></div> <!-- Header spacer -->
                 <div class="relative" :style="{ height: `${timelineHeight}px` }">
                     <div
@@ -834,11 +894,11 @@ watch(() => props.feisId, () => {
             </div>
 
             <!-- Stages Columns -->
-            <div class="flex">
+            <div class="flex" :style="{ minHeight: `${timelineHeight + 56}px` }">
                 <div
                     v-for="stage in stages"
                     :key="stage.id"
-                    class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative flex flex-col"
+                    class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative"
                 >
                     <!-- Stage Header (Sticky Top) -->
                     <div 
@@ -879,7 +939,7 @@ watch(() => props.feisId, () => {
 
                     <!-- Stage Timeline Lane -->
                     <div 
-                        class="relative flex-1 bg-slate-50/50"
+                        class="relative"
                         :style="{ height: `${timelineHeight}px` }"
                         :class="{ 'bg-indigo-50/80 ring-2 ring-indigo-300 inset-0': dragOverStage === stage.id }"
                         @dragover="onDragOver(stage.id, $event)"
@@ -894,26 +954,56 @@ watch(() => props.feisId, () => {
                             :style="{ top: `${marker.position}px` }"
                         ></div>
 
-                        <!-- Judge Coverage Background Blocks -->
+                        <!-- Judge/Panel Coverage Background Blocks -->
                         <div
                             v-for="cov in stage.judge_coverage"
                             :key="'cov-' + cov.id"
-                            class="absolute left-1 right-1 bg-emerald-100/40 border border-emerald-200 rounded-md z-0 group"
+                            :class="[
+                              cov.is_panel ? 'bg-purple-100/40 border-purple-200' : 'bg-emerald-100/40 border-emerald-200',
+                              getMultiStagePanelInfo(cov).length > 0 ? 'border-l-4' : ''
+                            ]"
+                            class="absolute left-1 right-1 border rounded-md z-0 group relative"
                             :style="getCoverageStyle(cov)"
                         >
+                            <!-- Multi-Stage Indicator Badge -->
+                            <div 
+                              v-if="getMultiStagePanelInfo(cov).length > 0"
+                              class="absolute -right-1 -top-1 bg-purple-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10"
+                              :title="'Also covers: ' + getMultiStagePanelInfo(cov).join(', ')"
+                            >
+                              {{ getMultiStagePanelInfo(cov).length + 1 }}
+                            </div>
+                            
                             <div class="flex justify-between items-start">
-                                <div class="text-[10px] text-emerald-800 font-semibold px-1 pt-1 truncate">{{ cov.adjudicator_name }}</div>
+                                <div 
+                                  :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
+                                  class="text-[10px] font-semibold px-1 pt-1 truncate"
+                                >
+                                  {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
+                                  <span 
+                                    v-if="getMultiStagePanelInfo(cov).length > 0" 
+                                    class="text-[8px] opacity-60 ml-1"
+                                  >
+                                    (+ {{ getMultiStagePanelInfo(cov).length }})
+                                  </span>
+                                </div>
                                 <button
                                     @click.stop="deleteCoverage(cov)"
-                                    class="text-emerald-400 hover:text-red-500 p-0.5 mr-0.5 mt-0.5 transition-colors"
-                                    title="Remove Judge Coverage"
+                                    :class="cov.is_panel ? 'text-purple-400 hover:text-red-500' : 'text-emerald-400 hover:text-red-500'"
+                                    class="p-0.5 mr-0.5 mt-0.5 transition-colors"
+                                    :title="cov.is_panel ? 'Remove Panel Coverage' : 'Remove Judge Coverage'"
                                 >
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                                     </svg>
                                 </button>
                             </div>
-                            <div class="text-[9px] text-emerald-600 px-1 truncate">{{ cov.note }}</div>
+                            <div 
+                              :class="cov.is_panel ? 'text-purple-600' : 'text-emerald-600'"
+                              class="text-[9px] px-1 truncate"
+                            >
+                              {{ cov.note }}
+                            </div>
                         </div>
 
                         <!-- Competitions -->
@@ -1015,32 +1105,84 @@ watch(() => props.feisId, () => {
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
-          <h3 class="text-lg font-bold text-white">Judge Assignment</h3>
-          <p class="text-emerald-100 text-sm">Assign judge to one or more stages</p>
+          <h3 class="text-lg font-bold text-white">Judge/Panel Assignment</h3>
+          <p class="text-emerald-100 text-sm">Assign a single judge or panel to one or more stages</p>
         </div>
         
         <div class="p-6 space-y-4">
-          <div v-if="adjudicators.length === 0" class="text-center py-4">
-            <p class="text-slate-500">No adjudicators on roster yet.</p>
-          </div>
-          
-          <div v-else class="space-y-4">
-            <div>
-              <label class="block text-sm font-semibold text-slate-700 mb-2">Select Judge</label>
-              <select
-                v-model="coverageForm.feis_adjudicator_id"
-                class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+          <!-- Assignment Type Selector -->
+          <div>
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Assignment Type</label>
+            <div class="flex gap-3">
+              <button
+                @click="coverageForm.assignment_type = 'judge'"
+                class="flex-1 px-4 py-3 rounded-xl border-2 transition-all font-medium"
+                :class="coverageForm.assignment_type === 'judge'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300'"
               >
-                <option value="">-- Select a judge --</option>
-                <option 
-                  v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
-                  :key="adj.id" 
-                  :value="adj.id"
-                >
-                  {{ adj.name }}
-                </option>
-              </select>
+                <div class="flex items-center justify-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Single Judge
+                </div>
+              </button>
+              <button
+                @click="coverageForm.assignment_type = 'panel'"
+                class="flex-1 px-4 py-3 rounded-xl border-2 transition-all font-medium"
+                :class="coverageForm.assignment_type === 'panel'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300'"
+              >
+                <div class="flex items-center justify-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  Judge Panel
+                </div>
+              </button>
             </div>
+          </div>
+
+          <!-- Single Judge Selection -->
+          <div v-if="coverageForm.assignment_type === 'judge'">
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Select Judge</label>
+            <select
+              v-model="coverageForm.feis_adjudicator_id"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+            >
+              <option value="">-- Select a judge --</option>
+              <option 
+                v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
+                :key="adj.id" 
+                :value="adj.id"
+              >
+                {{ adj.name }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Panel Selection -->
+          <div v-if="coverageForm.assignment_type === 'panel'">
+            <label class="block text-sm font-semibold text-slate-700 mb-2">Select Panel</label>
+            <select
+              v-model="coverageForm.panel_id"
+              class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all outline-none"
+            >
+              <option value="">-- Select a panel --</option>
+              <option 
+                v-for="panel in panels" 
+                :key="panel.id" 
+                :value="panel.id"
+              >
+                {{ panel.name }} ({{ panel.member_count }} judges)
+              </option>
+            </select>
+            <p v-if="panels.length === 0" class="text-xs text-amber-600 mt-2">
+              No panels created yet. Create panels in the Adjudicator Roster.
+            </p>
+          </div>
             
             <div class="grid grid-cols-2 gap-4">
                 <div>
@@ -1078,12 +1220,17 @@ watch(() => props.feisId, () => {
               <label class="block text-sm font-semibold text-slate-700 mb-2">Note</label>
               <input v-model="coverageForm.note" type="text" placeholder="e.g., Championship Panel A" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 outline-none" />
             </div>
-          </div>
         </div>
         
         <div class="px-6 py-4 bg-slate-50 flex justify-end gap-3">
           <button @click="showCoverageModal = false" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium">Close</button>
-          <button @click="addCoverage" :disabled="!coverageForm.feis_adjudicator_id || coverageForm.selected_stage_ids.length === 0" class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50">Add Coverage</button>
+          <button 
+            @click="addCoverage" 
+            :disabled="(coverageForm.assignment_type === 'judge' && !coverageForm.feis_adjudicator_id) || (coverageForm.assignment_type === 'panel' && !coverageForm.panel_id) || coverageForm.selected_stage_ids.length === 0" 
+            class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50"
+          >
+            Add Coverage
+          </button>
         </div>
       </div>
     </div>

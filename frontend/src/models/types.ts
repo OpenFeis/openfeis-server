@@ -123,12 +123,34 @@ export interface Competition {
   allowed_levels?: CompetitionLevel[];
 }
 
+export interface PanelMember {
+  id: string;
+  feis_adjudicator_id: string;
+  adjudicator_name: string;
+  credential?: string;
+  sequence: number;
+}
+
+export interface JudgePanel {
+  id: string;
+  feis_id: string;
+  name: string;
+  description?: string;
+  members: PanelMember[];
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StageJudgeCoverage {
   id: string;
   stage_id: string;
   stage_name: string;
-  feis_adjudicator_id: string;
-  adjudicator_name: string;
+  feis_adjudicator_id?: string;
+  adjudicator_name?: string;
+  panel_id?: string;
+  panel_name?: string;
+  is_panel?: boolean;
   feis_day: string; // ISO date
   start_time: string; // HH:MM
   end_time: string;   // HH:MM

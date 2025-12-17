@@ -139,7 +139,9 @@ async def get_stage_coverage(
     stage_id: str,
     session: Session = Depends(get_session)
 ):
-    """Get judge coverage for a stage."""
+    """Get judge or panel coverage for a stage."""
+    from backend.scoring_engine.models_platform import JudgePanel
+    
     coverage = session.exec(
         select(StageJudgeCoverage).where(StageJudgeCoverage.stage_id == UUID(stage_id))
     ).all()
@@ -147,14 +149,33 @@ async def get_stage_coverage(
     results = []
     for cov in coverage:
         stage = session.get(Stage, cov.stage_id)
-        adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+        
+        adj_id = None
+        adj_name = None
+        panel_id = None
+        panel_name = None
+        is_panel = False
+        
+        if cov.feis_adjudicator_id:
+            adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
+            adj_id = str(cov.feis_adjudicator_id)
+            adj_name = adj.name if adj else "Unknown"
+        
+        if cov.panel_id:
+            panel = session.get(JudgePanel, cov.panel_id)
+            panel_id = str(cov.panel_id)
+            panel_name = panel.name if panel else "Unknown Panel"
+            is_panel = True
         
         results.append(StageJudgeCoverageResponse(
             id=str(cov.id),
             stage_id=str(cov.stage_id),
             stage_name=stage.name if stage else "Unknown",
-            feis_adjudicator_id=str(cov.feis_adjudicator_id),
-            adjudicator_name=adj.name if adj else "Unknown",
+            feis_adjudicator_id=adj_id,
+            adjudicator_name=adj_name,
+            panel_id=panel_id,
+            panel_name=panel_name,
+            is_panel=is_panel,
             feis_day=cov.feis_day.isoformat(),
             start_time=cov.start_time.strftime("%H:%M"),
             end_time=cov.end_time.strftime("%H:%M"),
@@ -171,7 +192,7 @@ async def create_stage_coverage(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_organizer_or_admin())
 ):
-    """Add a judge coverage block to a stage."""
+    """Add a judge or panel coverage block to a stage."""
     
     stage = session.get(Stage, UUID(stage_id))
     if not stage:
@@ -185,10 +206,31 @@ async def create_stage_coverage(
     if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only modify stages for your own feis")
     
-    # Verify adjudicator is on the feis roster
-    adj = session.get(FeisAdjudicator, UUID(coverage_data.feis_adjudicator_id))
-    if not adj or adj.feis_id != feis.id:
-        raise HTTPException(status_code=400, detail="Adjudicator not found on this feis roster")
+    # Validate: must have either feis_adjudicator_id OR panel_id (not both, not neither)
+    if not coverage_data.feis_adjudicator_id and not coverage_data.panel_id:
+        raise HTTPException(status_code=400, detail="Must provide either feis_adjudicator_id or panel_id")
+    if coverage_data.feis_adjudicator_id and coverage_data.panel_id:
+        raise HTTPException(status_code=400, detail="Cannot assign both a single judge and a panel")
+    
+    # Verify adjudicator or panel exists
+    adj = None
+    panel = None
+    adj_name = None
+    panel_name = None
+    
+    if coverage_data.feis_adjudicator_id:
+        from backend.scoring_engine.models_platform import FeisAdjudicator
+        adj = session.get(FeisAdjudicator, UUID(coverage_data.feis_adjudicator_id))
+        if not adj or adj.feis_id != feis.id:
+            raise HTTPException(status_code=400, detail="Adjudicator not found on this feis roster")
+        adj_name = adj.name
+    
+    if coverage_data.panel_id:
+        from backend.scoring_engine.models_platform import JudgePanel
+        panel = session.get(JudgePanel, UUID(coverage_data.panel_id))
+        if not panel or panel.feis_id != feis.id:
+            raise HTTPException(status_code=400, detail="Panel not found for this feis")
+        panel_name = panel.name
     
     try:
         # Parse date and time strings
@@ -217,26 +259,28 @@ async def create_stage_coverage(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date or time format: {str(e)}")
 
-    # Check for overlapping coverage for this judge
-    existing_coverage = session.exec(
-        select(StageJudgeCoverage)
-        .where(StageJudgeCoverage.feis_adjudicator_id == UUID(coverage_data.feis_adjudicator_id))
-        .where(StageJudgeCoverage.feis_day == feis_day_parsed)
-    ).all()
+    # Check for overlapping coverage (for single judge only)
+    if coverage_data.feis_adjudicator_id:
+        existing_coverage = session.exec(
+            select(StageJudgeCoverage)
+            .where(StageJudgeCoverage.feis_adjudicator_id == UUID(coverage_data.feis_adjudicator_id))
+            .where(StageJudgeCoverage.feis_day == feis_day_parsed)
+        ).all()
 
-    for cov in existing_coverage:
-        # Check if times overlap
-        if (start_time_parsed < cov.end_time and end_time_parsed > cov.start_time):
-            conflicting_stage = session.get(Stage, cov.stage_id)
-            stage_name = conflicting_stage.name if conflicting_stage else "Unknown Stage"
-            raise HTTPException(
-                status_code=409, 
-                detail=f"Judge {adj.name} is already covering {stage_name} from {cov.start_time.strftime('%H:%M')} to {cov.end_time.strftime('%H:%M')}"
-            )
+        for cov in existing_coverage:
+            # Check if times overlap
+            if (start_time_parsed < cov.end_time and end_time_parsed > cov.start_time):
+                conflicting_stage = session.get(Stage, cov.stage_id)
+                stage_name = conflicting_stage.name if conflicting_stage else "Unknown Stage"
+                raise HTTPException(
+                    status_code=409, 
+                    detail=f"Judge {adj.name} is already covering {stage_name} from {cov.start_time.strftime('%H:%M')} to {cov.end_time.strftime('%H:%M')}"
+                )
     
     coverage = StageJudgeCoverage(
         stage_id=stage.id,
-        feis_adjudicator_id=UUID(coverage_data.feis_adjudicator_id),
+        feis_adjudicator_id=UUID(coverage_data.feis_adjudicator_id) if coverage_data.feis_adjudicator_id else None,
+        panel_id=UUID(coverage_data.panel_id) if coverage_data.panel_id else None,
         feis_day=feis_day_parsed,
         start_time=start_time_parsed,
         end_time=end_time_parsed,
@@ -250,8 +294,11 @@ async def create_stage_coverage(
         id=str(coverage.id),
         stage_id=str(coverage.stage_id),
         stage_name=stage.name,
-        feis_adjudicator_id=str(coverage.feis_adjudicator_id),
-        adjudicator_name=adj.name,
+        feis_adjudicator_id=str(coverage.feis_adjudicator_id) if coverage.feis_adjudicator_id else None,
+        adjudicator_name=adj_name,
+        panel_id=str(coverage.panel_id) if coverage.panel_id else None,
+        panel_name=panel_name,
+        is_panel=coverage.panel_id is not None,
         feis_day=coverage.feis_day.isoformat(),
         start_time=coverage.start_time.strftime("%H:%M"),
         end_time=coverage.end_time.strftime("%H:%M"),

@@ -14,6 +14,7 @@ import {
   ADJUDICATOR_CREDENTIALS, 
   DANCE_ORGANIZATIONS 
 } from '../../models/types';
+import PanelsManager from './PanelsManager.vue';
 
 // Props
 const props = defineProps<{
@@ -26,6 +27,9 @@ const emit = defineEmits<{
 }>();
 
 const authStore = useAuthStore();
+
+// Tab state
+const activeTab = ref<'judges' | 'panels'>('judges');
 
 // State
 const loading = ref(true);
@@ -391,6 +395,40 @@ onMounted(async () => {
       </button>
     </div>
 
+    <!-- Tabs -->
+    <div class="border-b border-slate-200">
+      <nav class="flex space-x-8">
+        <button
+          @click="activeTab = 'judges'"
+          class="py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+          :class="activeTab === 'judges'
+            ? 'border-emerald-600 text-emerald-600'
+            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+        >
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            Judges
+          </div>
+        </button>
+        <button
+          @click="activeTab = 'panels'"
+          class="py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+          :class="activeTab === 'panels'
+            ? 'border-emerald-600 text-emerald-600'
+            : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+        >
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            Panels
+          </div>
+        </button>
+      </nav>
+    </div>
+
     <!-- Messages -->
     <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
       {{ error }}
@@ -400,8 +438,10 @@ onMounted(async () => {
       {{ successMessage }}
     </div>
 
-    <!-- Capacity Metrics Card -->
-    <div v-if="capacity" class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+    <!-- Judges Tab Content -->
+    <div v-if="activeTab === 'judges'">
+      <!-- Capacity Metrics Card -->
+      <div v-if="capacity" class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
       <div class="flex items-start justify-between">
         <div>
           <h3 class="text-lg font-semibold mb-2">Scheduling Capacity</h3>
@@ -576,6 +616,12 @@ onMounted(async () => {
           </tr>
         </tbody>
       </table>
+    </div>
+    </div>
+
+    <!-- Panels Tab Content -->
+    <div v-if="activeTab === 'panels'">
+      <PanelsManager :feis-id="feisId" :feis-name="feisName" />
     </div>
 
     <!-- Add/Edit Modal -->
