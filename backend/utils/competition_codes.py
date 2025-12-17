@@ -109,7 +109,12 @@ def generate_competition_code(
     
     # Age index - pad to 2 digits
     # Use min_age directly as the index (U6 -> 06, U10 -> 10, U15 -> 15)
-    age_index = str(min_age).zfill(2)
+    # For Over competitions, increment by 1 (O10 -> 11)
+    target_age = min_age
+    if is_over and min_age < 99:
+        target_age += 1
+        
+    age_index = str(target_age).zfill(2)
     
     # For championships, use round code instead of dance code
     if level.lower() in ("preliminary_championship", "open_championship"):

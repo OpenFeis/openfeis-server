@@ -14,14 +14,14 @@ const emit = defineEmits<{
 }>();
 
 // Form State
-const selectedAges = ref<Set<string>>(new Set(['U6', 'U8', 'U10', 'U12', 'U14', 'U16', 'O16', 'Adult']));
+const selectedAges = ref<Set<string>>(new Set());
 
 // Available age options
 const uAges = Array.from({ length: 16 }, (_, i) => `U${i + 5}`); // U5..U20
 const oAges = Array.from({ length: 16 }, (_, i) => `O${i + 5}`); // O5..O20
 
 // Level selection (multi-select)
-const selectedLevels = ref<Set<CompetitionLevel>>(new Set(['beginner_1', 'novice', 'prizewinner']));
+const selectedLevels = ref<Set<CompetitionLevel>>(new Set());
 
 // Gender selection - default to open (non-gendered) competitions
 // Most local feises don't separate by gender for grade competitions
@@ -30,7 +30,7 @@ const selectedGenders = ref<Set<Gender>>(new Set(['other'])); // 'other' = open/
 
 // Solo dance selection (multi-select)
 const availableSoloDances = ['Reel', 'Light Jig', 'Slip Jig', 'Single Jig', 'Treble Jig', 'Hornpipe', 'Traditional Set'];
-const selectedDances = ref<Set<string>>(new Set(['Reel', 'Light Jig', 'Slip Jig']));
+const selectedDances = ref<Set<string>>(new Set());
 
 // Figure dance selection (multi-select) - team dances
 const availableFigureDances = ['2-Hand', '3-Hand', '4-Hand', '6-Hand', '8-Hand'];
