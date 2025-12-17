@@ -14,7 +14,7 @@ Routes:
 - GET/POST /feis/{feis_id}/stripe-* - Stripe integration
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List
+from typing import List, Dict, Any
 from uuid import UUID
 from sqlmodel import Session, select, func
 from backend.db.database import get_session
@@ -22,7 +22,8 @@ from backend.api.auth import get_current_user, require_organizer_or_admin
 from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Entry, RoleType,
     Stage, FeisSettings, FeeItem, StageJudgeCoverage,
-    FeisOrganizer, FeisAdjudicator, ScoringMethod
+    FeisOrganizer, FeisAdjudicator, ScoringMethod,
+    JudgePanel, PanelMember, Order, OrderItem
 )
 from backend.api.schemas import (
     FeisCreate, FeisUpdate, FeisResponse,
@@ -42,6 +43,10 @@ from backend.services.stripe import (
     is_stripe_configured, get_stripe_mode, is_organizer_connected,
     create_organizer_onboarding_link, check_onboarding_status
 )
+from backend.services.feis_export import export_feis, import_feis
+from fastapi.responses import StreamingResponse
+import json
+import io
 
 router = APIRouter()
 
@@ -342,6 +347,9 @@ async def delete_feis(
     if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the primary organizer can delete a feis")
     
+    # Delete in order of dependencies (children first, then parents)
+    
+    # 1. Delete entries (references competitions)
     competitions = session.exec(
         select(Competition).where(Competition.feis_id == feis.id)
     ).all()
@@ -351,14 +359,79 @@ async def delete_feis(
         ).all()
         for entry in entries:
             session.delete(entry)
+    
+    # 2. Delete competitions
+    for comp in competitions:
         session.delete(comp)
     
+    # 3. Delete stage judge coverage (references stages and adjudicators)
+    stages = session.exec(
+        select(Stage).where(Stage.feis_id == feis.id)
+    ).all()
+    for stage in stages:
+        coverage_blocks = session.exec(
+            select(StageJudgeCoverage).where(StageJudgeCoverage.stage_id == stage.id)
+        ).all()
+        for cov in coverage_blocks:
+            session.delete(cov)
+    
+    # 4. Delete stages
+    for stage in stages:
+        session.delete(stage)
+    
+    # 5. Delete panel members and panels
+    panels = session.exec(
+        select(JudgePanel).where(JudgePanel.feis_id == feis.id)
+    ).all()
+    for panel in panels:
+        members = session.exec(
+            select(PanelMember).where(PanelMember.panel_id == panel.id)
+        ).all()
+        for member in members:
+            session.delete(member)
+        session.delete(panel)
+    
+    # 6. Delete adjudicators
+    adjudicators = session.exec(
+        select(FeisAdjudicator).where(FeisAdjudicator.feis_id == feis.id)
+    ).all()
+    for adj in adjudicators:
+        session.delete(adj)
+    
+    # 7. Delete order items and orders
+    orders = session.exec(
+        select(Order).where(Order.feis_id == feis.id)
+    ).all()
+    for order in orders:
+        order_items = session.exec(
+            select(OrderItem).where(OrderItem.order_id == order.id)
+        ).all()
+        for item in order_items:
+            session.delete(item)
+        session.delete(order)
+    
+    # 8. Delete fee items
+    fee_items = session.exec(
+        select(FeeItem).where(FeeItem.feis_id == feis.id)
+    ).all()
+    for item in fee_items:
+        session.delete(item)
+    
+    # 9. Delete settings
+    settings = session.exec(
+        select(FeisSettings).where(FeisSettings.feis_id == feis.id)
+    ).first()
+    if settings:
+        session.delete(settings)
+    
+    # 10. Delete co-organizers
     co_organizers = session.exec(
         select(FeisOrganizer).where(FeisOrganizer.feis_id == feis.id)
     ).all()
     for co_org in co_organizers:
         session.delete(co_org)
     
+    # 11. Finally, delete the feis itself
     session.delete(feis)
     session.commit()
     
@@ -1098,3 +1171,90 @@ async def complete_stripe_onboarding(
         "message": message,
         "is_test_mode": False
     }
+
+
+# ============= Feis Export/Import =============
+
+@router.get("/feis/{feis_id}/export")
+async def export_feis_endpoint(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Export a complete feis as JSON for archival, cloning, or migration.
+    
+    Includes:
+    - Feis metadata and settings
+    - Stages, competitions, and schedules
+    - Adjudicators, panels, and coverage
+    - Dancers and entries
+    - Orders and scores
+    
+    Returns a JSON file download.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check permissions
+    perms = get_feis_organizer_permissions(feis, current_user, session)
+    if not perms:
+        raise HTTPException(status_code=403, detail="You don't have permission to export this feis")
+    
+    # Generate export data
+    try:
+        export_data = export_feis(session, feis.id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+    
+    # Create JSON file for download
+    json_str = json.dumps(export_data, indent=2)
+    json_bytes = json_str.encode('utf-8')
+    
+    # Generate filename
+    safe_name = feis.name.replace(" ", "_").replace("/", "-")
+    filename = f"openfeis_export_{safe_name}_{feis.date.isoformat()}.json"
+    
+    return StreamingResponse(
+        io.BytesIO(json_bytes),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+
+@router.post("/feis/import")
+async def import_feis_endpoint(
+    import_data: Dict[str, Any],
+    include_orders: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Import a feis from exported JSON data.
+    
+    Creates a new feis with the importing user as the primary organizer.
+    
+    Query parameters:
+    - include_orders: Whether to import payment/order history (default: true)
+    
+    Returns a summary report showing:
+    - Number of records created vs. linked
+    - Any errors encountered
+    - The new feis ID
+    """
+    try:
+        report = import_feis(session, import_data, current_user, include_orders)
+        
+        if not report["success"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Import failed: {'; '.join(report['errors'])}"
+            )
+        
+        return report
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")

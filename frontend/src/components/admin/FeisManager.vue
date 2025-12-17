@@ -64,6 +64,12 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 const showCreateForm = ref(false);
 const editingFeis = ref<Feis | null>(null);
+const showImportModal = ref(false);
+const importFile = ref<File | null>(null);
+const importIncludeOrders = ref(true);
+const importLoading = ref(false);
+const importError = ref<string | null>(null);
+const importReport = ref<any | null>(null);
 
 // Co-organizer management state
 const organizerData = ref<OrganizerList | null>(null);
@@ -370,6 +376,96 @@ const formatDate = (dateStr: string) => {
   });
 };
 
+// Export feis
+const exportFeis = async (feis: Feis) => {
+  loading.value = true;
+  error.value = null;
+  try {
+    const response = await authStore.authFetch(`/api/v1/feis/${feis.id}/export`);
+    if (!response.ok) throw new Error('Failed to export feis');
+    
+    // Download the JSON file
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `openfeis_export_${feis.name.replace(/\s+/g, '_')}_${feis.date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Export failed';
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Handle file selection for import
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (target.files && target.files.length > 0 && target.files[0]) {
+    importFile.value = target.files[0];
+  }
+};
+
+// Import feis
+const importFeis = async () => {
+  if (!importFile.value) return;
+  
+  importLoading.value = true;
+  importError.value = null;
+  importReport.value = null;
+  
+  try {
+    // Read the file
+    const fileContent = await importFile.value.text();
+    const importData = JSON.parse(fileContent);
+    
+    // Send to backend
+    const response = await authStore.authFetch(
+      `/api/v1/feis/import?include_orders=${importIncludeOrders.value}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(importData)
+      }
+    );
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || 'Import failed');
+    }
+    
+    const report = await response.json();
+    importReport.value = report;
+    
+    // Refresh feis list
+    await fetchFeiseanna();
+    
+    // Clear file input
+    importFile.value = null;
+    const fileInput = document.getElementById('import-file-input') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
+    
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : 'Import failed';
+  } finally {
+    importLoading.value = false;
+  }
+};
+
+// Close import modal
+const closeImportModal = () => {
+  showImportModal.value = false;
+  importFile.value = null;
+  importError.value = null;
+  importReport.value = null;
+  importIncludeOrders.value = true;
+  const fileInput = document.getElementById('import-file-input') as HTMLInputElement;
+  if (fileInput) fileInput.value = '';
+};
+
 // Select feis for management
 const selectFeis = (feis: Feis) => {
   emit('select', feis);
@@ -388,16 +484,26 @@ onMounted(() => {
         <h2 class="text-2xl font-bold text-slate-800">Feis Management</h2>
         <p class="text-slate-600">Create and manage your feiseanna</p>
       </div>
-      <button
-        v-if="!showCreateForm && !editingFeis"
-        @click="showCreateForm = true"
-        class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        New Feis
-      </button>
+      <div v-if="!showCreateForm && !editingFeis" class="flex gap-3">
+        <button
+          @click="showImportModal = true"
+          class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import Feis
+        </button>
+        <button
+          @click="showCreateForm = true"
+          class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          New Feis
+        </button>
+      </div>
     </div>
 
     <!-- Error Message -->
@@ -458,6 +564,18 @@ onMounted(() => {
             class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors"
           >
             Cancel
+          </button>
+          <button
+            v-if="editingFeis"
+            type="button"
+            @click="exportFeis(editingFeis)"
+            :disabled="loading"
+            class="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export Feis
           </button>
         </div>
       </form>
@@ -708,6 +826,135 @@ onMounted(() => {
               class="px-3 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors text-sm"
             >
               Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Import Modal -->
+    <div 
+      v-if="showImportModal"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      @click.self="closeImportModal"
+    >
+      <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">Import Feis</h3>
+        
+        <!-- Error Message -->
+        <div v-if="importError" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+          {{ importError }}
+        </div>
+        
+        <!-- Success Report -->
+        <div v-if="importReport && importReport.success" class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
+          <h4 class="font-bold text-emerald-800 mb-2">✓ Import Successful!</h4>
+          <p class="text-emerald-700 mb-3">
+            Imported <strong>{{ importReport.feis_name }}</strong>
+          </p>
+          
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p class="font-semibold text-emerald-800 mb-1">Created:</p>
+              <ul class="text-emerald-700 space-y-1">
+                <li>{{ importReport.created.users }} users</li>
+                <li>{{ importReport.created.dancers }} dancers</li>
+                <li>{{ importReport.created.stages }} stages</li>
+                <li>{{ importReport.created.competitions }} competitions</li>
+                <li>{{ importReport.created.adjudicators }} adjudicators</li>
+                <li>{{ importReport.created.panels }} panels</li>
+                <li>{{ importReport.created.entries }} entries</li>
+                <li v-if="importIncludeOrders">{{ importReport.created.orders }} orders</li>
+              </ul>
+            </div>
+            <div>
+              <p class="font-semibold text-emerald-800 mb-1">Linked Existing:</p>
+              <ul class="text-emerald-700 space-y-1">
+                <li>{{ importReport.linked.users }} users</li>
+                <li>{{ importReport.linked.dancers }} dancers</li>
+                <li>{{ importReport.linked.adjudicators }} adjudicators</li>
+              </ul>
+            </div>
+          </div>
+          
+          <button
+            @click="closeImportModal"
+            class="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+        
+        <!-- Import Form (shown when no report) -->
+        <div v-else>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p class="text-sm text-blue-800">
+              <strong>Import a feis from an exported JSON file.</strong>
+            </p>
+            <p class="text-sm text-blue-700 mt-2">
+              This will create a new feis with all competitions, entries, and settings from the export.
+              You will become the primary organizer of the imported feis.
+            </p>
+          </div>
+          
+          <div class="space-y-4">
+            <!-- File Upload -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">
+                Select Export File
+              </label>
+              <input
+                id="import-file-input"
+                type="file"
+                accept=".json"
+                @change="handleFileSelect"
+                class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p class="text-xs text-slate-500 mt-1">
+                Choose a JSON file exported from Open Feis
+              </p>
+            </div>
+            
+            <!-- Include Orders Checkbox -->
+            <div class="flex items-center gap-2">
+              <input
+                id="include-orders"
+                v-model="importIncludeOrders"
+                type="checkbox"
+                class="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+              />
+              <label for="include-orders" class="text-sm text-slate-700">
+                Include payment/order history
+              </label>
+            </div>
+            
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p class="text-sm text-amber-800">
+                <strong>Note:</strong> Import behavior:
+              </p>
+              <ul class="text-sm text-amber-700 mt-1 ml-4 list-disc">
+                <li>Existing users/dancers will be linked by email</li>
+                <li>Missing users will be created with temporary passwords</li>
+                <li>No automated emails will be sent</li>
+                <li>Conflicts will defer to existing local records</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div class="flex gap-3 mt-6">
+            <button
+              @click="importFeis"
+              :disabled="!importFile || importLoading"
+              class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ importLoading ? 'Importing...' : 'Import Feis' }}
+            </button>
+            <button
+              @click="closeImportModal"
+              :disabled="importLoading"
+              class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors"
+            >
+              Cancel
             </button>
           </div>
         </div>

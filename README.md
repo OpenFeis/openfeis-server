@@ -89,6 +89,7 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Protected Operations** — Only organizers can modify their own feiseanna
 - **Multi-Organizer Support** — Add co-organizers to collaborate on feis planning 🆕
 - **Granular Permissions** — Configure per-organizer access (edit feis, manage entries, manage schedule, etc.) 🆕
+- **Feis Export/Import** — Export complete feis data to JSON for archival, cloning, or migration between servers 🆕
 
 ### For Volunteers (Check-In) 🆕
 - **Stage-Centric Check-In** — Select a stage to see only its competitions
@@ -559,6 +560,13 @@ openfeis-server/
 |--------|----------|-------------|---------------|
 | `POST` | `/api/v1/orders/{id}/refund` | Process a refund | Organizer/Admin |
 
+### Feis Export/Import 🆕
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/v1/feis/{feis_id}/export` | Export complete feis as JSON (download) | Organizer/Admin |
+| `POST` | `/api/v1/feis/import?include_orders=true` | Import feis from JSON export | Organizer/Admin |
+
 ### Example: Login
 
 ```bash
@@ -836,6 +844,42 @@ The **Instant Scheduler** generates a complete draft schedule with one click, fo
 6. Click **Refresh** for immediate update
 
 > **Note:** The Tabulator is public — anyone can view results without logging in.
+
+### For Organizers: Exporting & Importing a Feis 🆕
+
+**Export a Feis** (for archival, cloning, or migration):
+
+1. Go to **Admin** → **Feis Management**
+2. Click **Edit** on the feis you want to export
+3. Click the **Export Feis** button (blue button with download icon)
+4. A JSON file will download with all feis data:
+   - Settings, stages, competitions, schedule
+   - Adjudicators, panels, and judge coverage
+   - Dancers, entries, and check-in status
+   - Orders and scores
+
+**Import a Feis:**
+
+1. Go to **Admin** → **Feis Management**
+2. Click **Import Feis** (blue button next to "New Feis")
+3. Select your exported JSON file
+4. Choose whether to include payment/order history
+5. Click **Import Feis**
+6. Review the import report showing:
+   - Records created vs. linked to existing data
+   - Any conflicts or errors
+
+**Import Behavior:**
+- **Existing users/dancers** are matched by email and linked
+- **Missing users** are created with temporary random passwords (no emails sent)
+- **Conflicts** defer to local records (existing data is not overwritten)
+- **You become the primary organizer** of the imported feis
+
+**Use Cases:**
+- **Archival:** Backup a feis for permanent record keeping
+- **Cloning:** Duplicate last year's feis as a template for this year
+- **Migration:** Move a feis from venue laptop to cloud server (or vice versa)
+- **Sharing:** Send a feis to another organizer or region
 
 ---
 
