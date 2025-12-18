@@ -34,7 +34,15 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const showCodes = ref(true);
+const sidebarCollapsed = ref(false);
 const pixelsPerMinute = ref(5); // Scale factor (Height in vertical view) - Default "M" size
+
+// Initialize sidebar state
+const initSidebar = () => {
+  const isMobile = window.innerWidth < 768;
+  const hasNoUnscheduled = unscheduledComps.value.length === 0;
+  sidebarCollapsed.value = isMobile || hasNoUnscheduled;
+};
 
 const getZoomLabel = (level: number): string => {
   const labels: Record<number, string> = {
@@ -251,6 +259,11 @@ const loadSchedulerData = async () => {
     competitions.value = data.competitions;
     conflicts.value = data.conflicts;
     feisDate.value = data.feis_date;
+    
+    // Auto-collapse sidebar if no unscheduled competitions
+    if (competitions.value.filter(c => !c.stage_id || !c.scheduled_time).length === 0) {
+      sidebarCollapsed.value = true;
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load data';
   } finally {
@@ -762,25 +775,6 @@ const getDanceIcon = (danceType?: DanceType): string => {
 };
 
 // Find stages covered by the same panel at the same time
-const getMultiStagePanelInfo = (coverage: StageJudgeCoverage): string[] => {
-  if (!coverage.is_panel || !coverage.panel_id) return [];
-  
-  const relatedStages: string[] = [];
-  for (const stage of stages.value) {
-    const hasSamePanel = stage.judge_coverage.some(cov => 
-      cov.panel_id === coverage.panel_id &&
-      cov.feis_day === coverage.feis_day &&
-      cov.start_time === coverage.start_time &&
-      cov.end_time === coverage.end_time &&
-      cov.stage_id !== coverage.stage_id
-    );
-    if (hasSamePanel) {
-      relatedStages.push(stage.name);
-    }
-  }
-  return relatedStages;
-};
-
 // Stage colors
 const stageColors = [
   '#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6',
@@ -833,6 +827,13 @@ onMounted(() => {
   loadSchedulerData();
   loadAdjudicators();
   loadPanels();
+  initSidebar();
+});
+
+watch(() => unscheduledComps.value.length, (newCount) => {
+  if (newCount === 0) {
+    sidebarCollapsed.value = true;
+  }
 });
 
 watch(() => props.feisId, () => {
@@ -980,12 +981,30 @@ watch(() => props.feisId, () => {
         </button>
       </div>
 
-      <div v-else class="flex flex-row flex-1 h-full overflow-hidden">
+      <div v-else class="flex flex-row flex-1 h-full overflow-hidden relative">
         <!-- Sidebar: Unscheduled Competitions -->
-        <div class="w-72 bg-slate-50 border-r border-slate-200 flex-shrink-0 flex flex-col h-full">
+        <div 
+          v-if="!sidebarCollapsed"
+          class="w-72 bg-slate-50 border-r border-slate-200 flex-shrink-0 flex flex-col h-full z-20"
+        >
+            <div class="p-4 bg-white border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h3 class="font-bold text-slate-700">Unscheduled</h3>
+                  <p class="text-xs text-slate-500">{{ unscheduledComps.length }} competitions</p>
+                </div>
+                <button 
+                  @click="sidebarCollapsed = true"
+                  class="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Collapse Sidebar"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                  </svg>
+                </button>
+            </div>
             <div class="p-4 bg-white border-b border-slate-200">
                 <div class="flex items-center justify-between mb-2">
-                  <h3 class="font-bold text-slate-700">Unscheduled</h3>
+                  <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Display Mode</span>
                   <div class="flex items-center bg-slate-100 rounded-lg p-0.5">
                     <button 
                       @click="showCodes = false"
@@ -1003,7 +1022,6 @@ watch(() => props.feisId, () => {
                     </button>
                   </div>
                 </div>
-                <p class="text-xs text-slate-500">{{ unscheduledComps.length }} competitions</p>
             </div>
             <div class="flex-1 overflow-y-auto p-2 space-y-2">
                 <div
@@ -1031,6 +1049,24 @@ watch(() => props.feisId, () => {
                 </div>
             </div>
         </div>
+
+        <!-- Floating Sidebar Toggle (When Collapsed) -->
+        <button
+          v-if="sidebarCollapsed"
+          @click="sidebarCollapsed = false"
+          class="absolute left-4 top-4 z-40 bg-white border border-slate-200 rounded-full p-2 shadow-lg hover:bg-slate-50 text-indigo-600 transition-all hover:scale-110 flex items-center gap-2 pr-4"
+          title="Show Unscheduled"
+        >
+          <div class="bg-indigo-600 text-white rounded-full p-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+            </svg>
+          </div>
+          <span class="text-xs font-bold uppercase tracking-wider">Show Unscheduled</span>
+          <span v-if="unscheduledComps.length > 0" class="bg-indigo-100 text-indigo-700 text-[10px] px-1.5 py-0.5 rounded-full">
+            {{ unscheduledComps.length }}
+          </span>
+        </button>
 
         <!-- Vertical Scheduler Scroll Area -->
         <div class="flex-1 overflow-auto bg-white flex relative">
@@ -1124,33 +1160,17 @@ watch(() => props.feisId, () => {
                         :key="'cov-' + cov.id"
                         :class="[
                           cov.is_panel ? 'bg-purple-100 border-purple-200' : 'bg-emerald-100 border-emerald-200',
-                          getMultiStagePanelInfo(cov).length > 0 ? 'border-l-4' : '',
                           { 'pointer-events-none opacity-50': draggedComp }
                         ]"
                         class="absolute border rounded-md group pointer-events-auto transition-opacity"
                         :style="getCoverageStyle(cov)"
                     >
-                        <!-- Multi-Stage Indicator Badge -->
-                        <div 
-                          v-if="getMultiStagePanelInfo(cov).length > 0"
-                          class="absolute -right-1 -top-1 bg-purple-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10"
-                          :title="'Also covers: ' + getMultiStagePanelInfo(cov).join(', ')"
-                        >
-                          {{ getMultiStagePanelInfo(cov).length + 1 }}
-                        </div>
-                        
                         <div class="flex justify-between items-start">
                             <div 
                               :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
                               class="text-[10px] font-semibold px-1 pt-1 truncate"
                             >
                               {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
-                              <span 
-                                v-if="getMultiStagePanelInfo(cov).length > 0" 
-                                class="text-[8px] opacity-60 ml-1"
-                              >
-                                (+ {{ getMultiStagePanelInfo(cov).length }})
-                              </span>
                             </div>
                             <button
                                 @click.stop="deleteCoverage(cov)"
