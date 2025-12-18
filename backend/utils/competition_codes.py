@@ -87,7 +87,8 @@ def generate_competition_code(
     is_second_chance: bool = False,
     variant_suffix: Optional[str] = None,
     is_over: bool = False,
-    is_mixed: bool = False
+    is_mixed: bool = False,
+    gender: Optional[str] = None
 ) -> str:
     """
     Generate a competition code following industry conventions.
@@ -100,6 +101,7 @@ def generate_competition_code(
         variant_suffix: Optional custom suffix (overrides second chance)
         is_over: Whether this is an "Over" age group (e.g. O15)
         is_mixed: Whether this is a mixed-gender competition (for Figure dances)
+        gender: Optional gender ("male", "female", "other")
     
     Returns:
         Competition code string (e.g., "407SJ", "609PC", "9210FD", "9410FM")
@@ -149,6 +151,10 @@ def generate_competition_code(
 
     # Build the code for solo/other
     code = f"{level_digit}{age_index}{dance_code}"
+    
+    # Add gender suffix for boys/males if not an open competition
+    if gender == "male":
+        code += "-M"
     
     # Add suffix
     if variant_suffix:

@@ -149,6 +149,10 @@ async def generate_syllabus(
         
         for gender in request.genders:
             for level in request.levels:
+                # Skip championship levels in solo loop - they are one event per age/gender
+                if level in (CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP):
+                    continue
+                    
                 for dance in request.dances:
                     # Handle open (non-gendered) competitions - 'other' means open to all
                     is_open = gender.value == 'other'
@@ -167,7 +171,8 @@ async def generate_syllabus(
                         level=level.value,
                         min_age=age_config["code_age"],
                         dance_type=dance_type.value if dance_type else None,
-                        is_over=age_config["is_over"]
+                        is_over=age_config["is_over"],
+                        gender=gender.value if gender else None
                     )
                     
                     comp = Competition(
@@ -279,26 +284,31 @@ async def generate_syllabus(
                     count += 1
     
     # ===== CHAMPIONSHIPS =====
+    # Find championship levels in the main levels list
+    champ_levels = [l for l in request.levels if l in (CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP)]
+    
+    # Also support the legacy include_championships/championship_types flags
     if request.include_championships and request.championship_types:
         champ_level_map = {
             "prelim": CompetitionLevel.PRELIMINARY_CHAMPIONSHIP,
             "open": CompetitionLevel.OPEN_CHAMPIONSHIP,
         }
+        for ct in request.championship_types:
+            level = champ_level_map.get(ct)
+            if level and level not in champ_levels:
+                champ_levels.append(level)
         
+    if champ_levels:
         for age_config in age_configs:
             age_group = age_config["label"]
             min_age_val = age_config["min_age"]
             max_age_val = age_config["max_age"]
             
             for gender in request.genders:
-                for champ_type in request.championship_types:
-                    level = champ_level_map.get(champ_type)
-                    if not level:
-                        continue
-                    
+                for level in champ_levels:
                     # Handle open (non-gendered) championships
                     is_open = gender.value == 'other'
-                    champ_label = "Preliminary Championship" if champ_type == "prelim" else "Open Championship"
+                    champ_label = "Preliminary Championship" if level == CompetitionLevel.PRELIMINARY_CHAMPIONSHIP else "Open Championship"
                     if is_open:
                         comp_name = f"{age_group} {champ_label}"
                     else:
@@ -308,7 +318,8 @@ async def generate_syllabus(
                     code = generate_competition_code(
                         level=level.value,
                         min_age=age_config["code_age"],
-                        is_over=age_config["is_over"]
+                        is_over=age_config["is_over"],
+                        gender=gender.value if gender else None
                     )
                     
                     comp = Competition(

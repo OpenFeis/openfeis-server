@@ -29,7 +29,8 @@ async def create_competition(
         code = generate_competition_code(
             level=comp_data.level.value,
             min_age=comp_data.min_age,
-            dance_type=comp_data.dance_type.value if comp_data.dance_type else None
+            dance_type=comp_data.dance_type.value if comp_data.dance_type else None,
+            gender=comp_data.gender.value if comp_data.gender else None
         )
     else:
         code = comp_data.code

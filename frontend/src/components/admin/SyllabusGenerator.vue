@@ -37,8 +37,6 @@ const availableFigureDances = ['2-Hand', '3-Hand', '4-Hand', '6-Hand', '8-Hand']
 const selectedFigureDances = ref<Set<string>>(new Set());
 
 // Championship options
-const includeChampionships = ref(false);
-const championshipTypes = ref<Set<string>>(new Set());
 const includeMixedFigure = ref(true); // For boys entering mixed teams
 
 // Pricing
@@ -100,20 +98,13 @@ const toggleFigureDance = (dance: string) => {
   selectedFigureDances.value = newSet;
 };
 
-// Toggle championship type
-const toggleChampionshipType = (type: string) => {
-  const newSet = new Set(championshipTypes.value);
-  if (newSet.has(type)) {
-    newSet.delete(type);
-  } else {
-    newSet.add(type);
-  }
-  championshipTypes.value = newSet;
-};
-
 // Estimated competition count (solo + figure + champs)
 const estimatedSoloCount = computed(() => {
-  return ageGroups.value.length * selectedLevels.value.size * selectedGenders.value.size * selectedDances.value.size;
+  // Filter out championships from solo count - they are handled separately
+  const soloLevels = Array.from(selectedLevels.value).filter(l => 
+    l !== 'preliminary_championship' && l !== 'open_championship'
+  );
+  return ageGroups.value.length * soloLevels.length * selectedGenders.value.size * selectedDances.value.size;
 });
 
 const estimatedFigureCount = computed(() => {
@@ -125,8 +116,12 @@ const estimatedFigureCount = computed(() => {
 });
 
 const estimatedChampCount = computed(() => {
-  if (!includeChampionships.value || championshipTypes.value.size === 0) return 0;
-  return ageGroups.value.length * selectedGenders.value.size * championshipTypes.value.size;
+  const champLevels = Array.from(selectedLevels.value).filter(l => 
+    l === 'preliminary_championship' || l === 'open_championship'
+  );
+  if (champLevels.length === 0) return 0;
+  // Championships are one event per age/gender/level (not per dance)
+  return ageGroups.value.length * selectedGenders.value.size * champLevels.length;
 });
 
 const estimatedCount = computed(() => {
@@ -217,25 +212,19 @@ const generateSyllabus = async () => {
     price_cents: number; 
     figure_dances?: string[];
     include_mixed_figure?: boolean;
-    include_championships?: boolean;
-    championship_types?: string[];
     selected_ages?: string[];
   } = {
     feis_id: props.feisId,
     levels: Array.from(selectedLevels.value),
-    min_age: 0, // Deprecated but required by types if not optional in frontend types yet
-    max_age: 0, // Deprecated
+    min_age: 0, 
+    max_age: 0, 
     selected_ages: Array.from(selectedAges.value),
     genders: Array.from(selectedGenders.value),
     dances: Array.from(selectedDances.value),
     price_cents: priceDollars.value * 100,
-    // Scoring method is auto-determined by backend based on competition type
     // Figure dances
     figure_dances: selectedFigureDances.value.size > 0 ? Array.from(selectedFigureDances.value) : undefined,
     include_mixed_figure: includeMixedFigure.value,
-    // Championships
-    include_championships: includeChampionships.value,
-    championship_types: championshipTypes.value.size > 0 ? Array.from(championshipTypes.value) : undefined,
   };
 
   try {
@@ -281,13 +270,17 @@ const previewMatrix = computed(() => {
   
   for (const age of ageGroups.value) {
     for (const gender of selectedGenders.value) {
-      for (const level of selectedLevels.value) {
+      // 1. SOLO DANCES (filter out champ levels)
+      const soloLevels = Array.from(selectedLevels.value).filter(l => 
+        l !== 'preliminary_championship' && l !== 'open_championship'
+      );
+      for (const level of soloLevels) {
         for (const dance of selectedDances.value) {
           if (count >= maxPreview) break;
           matrix.push({
             age,
             gender: genderInfo[gender]?.label || gender,
-            level: levelInfo[level]?.label || level,
+            level: levelInfo[level as CompetitionLevel]?.label || level,
             dance
           });
           count++;
@@ -295,6 +288,47 @@ const previewMatrix = computed(() => {
         if (count >= maxPreview) break;
       }
       if (count >= maxPreview) break;
+
+      // 2. CHAMPIONSHIPS
+      const champLevels = Array.from(selectedLevels.value).filter(l => 
+        l === 'preliminary_championship' || l === 'open_championship'
+      );
+      for (const level of champLevels) {
+        if (count >= maxPreview) break;
+        matrix.push({
+          age,
+          gender: genderInfo[gender]?.label || gender,
+          level: levelInfo[level as CompetitionLevel]?.label || level,
+          dance: level === 'preliminary_championship' ? 'Preliminary Championship' : 'Open Championship'
+        });
+        count++;
+      }
+      if (count >= maxPreview) break;
+    }
+    if (count >= maxPreview) break;
+
+    // 3. FIGURE DANCES (if room)
+    if (count < maxPreview && selectedFigureDances.value.size > 0) {
+      for (const dance of selectedFigureDances.value) {
+        if (count >= maxPreview) break;
+        matrix.push({
+          age,
+          gender: 'Girls',
+          level: 'Figure',
+          dance
+        });
+        count++;
+        
+        if (includeMixedFigure.value && count < maxPreview) {
+          matrix.push({
+            age,
+            gender: 'Mixed',
+            level: 'Figure',
+            dance
+          });
+          count++;
+        }
+      }
     }
     if (count >= maxPreview) break;
   }
@@ -546,58 +580,6 @@ const previewMatrix = computed(() => {
         </div>
       </div>
 
-      <!-- Championship Selection -->
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-3">
-          Championships
-        </label>
-        <div class="flex items-center gap-3 mb-3">
-          <button
-            type="button"
-            @click="includeChampionships = !includeChampionships"
-            :class="[
-              'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
-              includeChampionships
-                ? 'bg-amber-500 border-amber-500'
-                : 'border-slate-300 hover:border-amber-400'
-            ]"
-          >
-            <svg v-if="includeChampionships" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-            </svg>
-          </button>
-          <label class="text-sm text-slate-700 cursor-pointer" @click="includeChampionships = !includeChampionships">
-            Include Championship competitions
-          </label>
-        </div>
-        <div v-if="includeChampionships" class="grid grid-cols-2 gap-2 ml-8">
-          <button
-            @click="toggleChampionshipType('prelim')"
-            :class="[
-              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center gap-2',
-              championshipTypes.has('prelim')
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-transparent shadow-lg'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
-            ]"
-          >
-            <span class="text-lg">🏆</span>
-            Preliminary
-          </button>
-          <button
-            @click="toggleChampionshipType('open')"
-            :class="[
-              'px-4 py-3 rounded-xl font-semibold transition-all border-2 flex items-center gap-2',
-              championshipTypes.has('open')
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-transparent shadow-lg'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300 hover:bg-amber-50'
-            ]"
-          >
-            <span class="text-lg">👑</span>
-            Open
-          </button>
-        </div>
-      </div>
-
       <!-- Pricing -->
       <div>
         <label class="block text-sm font-semibold text-slate-700 mb-3">
@@ -675,7 +657,7 @@ const previewMatrix = computed(() => {
             </div>
             <div v-if="estimatedChampCount > 0">
               <span class="font-medium">{{ estimatedChampCount }}</span> championships
-              <span class="text-indigo-400">({{ ageGroups.length }} ages × {{ selectedGenders.size }} genders × {{ championshipTypes.size }} types)</span>
+              <span class="text-indigo-400">({{ ageGroups.length }} ages × {{ selectedGenders.size }} genders)</span>
             </div>
           </div>
         </div>

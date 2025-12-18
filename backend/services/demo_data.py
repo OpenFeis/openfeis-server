@@ -661,7 +661,8 @@ class DemoDataGenerator:
         code = generate_competition_code(
             level=level.value,
             min_age=min_age,
-            dance_type=dance_type.value if dance_type else None
+            dance_type=dance_type.value if dance_type else None,
+            gender=gender.value if gender else None
         )
         
         # Assign to a stage based on level
