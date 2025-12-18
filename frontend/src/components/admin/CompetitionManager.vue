@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import type { CompetitionLevel, Gender, CompetitionCategory } from '../../models/types';
+import type { CompetitionLevel, Gender, CompetitionCategory, DanceType } from '../../models/types';
 import { useAuthStore } from '../../stores/auth';
+import CompetitionForm from './CompetitionForm.vue';
 
 interface Competition {
   id: string;
@@ -12,7 +13,7 @@ interface Competition {
   level: CompetitionLevel;
   gender?: Gender;
   code?: string;  // Display code (e.g., "407SJ")
-  dance_type?: string;
+  dance_type?: DanceType;
   entry_count: number;
   category?: CompetitionCategory;
   description?: string;
@@ -48,19 +49,6 @@ const editingComp = ref<Competition | null>(null);
 const isCreating = ref(false);
 const showModal = ref(false);
 
-const editForm = ref({
-  id: undefined as string | undefined,
-  name: '',
-  min_age: 0,
-  max_age: 0,
-  level: 'beginner_1' as CompetitionLevel,
-  gender: null as Gender | null,
-  code: '' as string,
-  category: 'SOLO' as CompetitionCategory,
-  description: '',
-  allowed_levels: [] as CompetitionLevel[]
-});
-
 // Filtered competitions
 const filteredCompetitions = computed(() => {
   let result = competitions.value;
@@ -93,7 +81,7 @@ const stats = computed(() => ({
   totalEntries: competitions.value.reduce((sum, c) => sum + c.entry_count, 0)
 }));
 
-// Level options
+// Level options (for filter dropdown only)
 const levelOptions = [
   { value: 'first_feis', label: 'First Feis' },
   { value: 'beginner_1', label: 'Beginner 1' },
@@ -104,19 +92,11 @@ const levelOptions = [
   { value: 'open_championship', label: 'Open Champ' }
 ];
 
-// Gender options
+// Gender options (for filter dropdown only)
 const genderOptions = [
   { value: 'male', label: 'Boys' },
   { value: 'female', label: 'Girls' },
   { value: 'other', label: 'Open' }
-];
-
-// Category options
-const categoryOptions = [
-  { value: 'SOLO', label: 'Solo' },
-  { value: 'FIGURE', label: 'Figure/Ceili' },
-  { value: 'CHAMPIONSHIP', label: 'Championship' },
-  { value: 'SPECIAL', label: 'Special' }
 ];
 
 // Fetch competitions
@@ -136,21 +116,9 @@ const fetchCompetitions = async () => {
 
 // Start editing
 const startEdit = (comp: Competition) => {
-  editingComp.value = comp;
+  editingComp.value = { ...comp } as Competition;
   isCreating.value = false;
   showModal.value = true;
-  editForm.value = {
-    id: comp.id,
-    name: comp.name,
-    min_age: comp.min_age,
-    max_age: comp.max_age,
-    level: comp.level,
-    gender: comp.gender || null,
-    code: comp.code || '',
-    category: comp.category || 'SOLO',
-    description: comp.description || '',
-    allowed_levels: comp.allowed_levels || []
-  };
 };
 
 // Start creating
@@ -158,18 +126,6 @@ const startCreate = () => {
   editingComp.value = null;
   isCreating.value = true;
   showModal.value = true;
-  editForm.value = {
-    id: undefined,
-    name: 'New Competition',
-    min_age: 5,
-    max_age: 99,
-    level: 'beginner_1',
-    gender: null,
-    code: '',
-    category: 'SPECIAL',
-    description: '',
-    allowed_levels: []
-  };
 };
 
 // Cancel editing
@@ -179,42 +135,29 @@ const cancelEdit = () => {
   showModal.value = false;
 };
 
-// Save edit
-const saveEdit = async () => {
+// Save competition from form
+const saveCompetition = async (payload: any) => {
   loading.value = true;
   error.value = null;
   
   try {
-    const payload = {
-      ...editForm.value,
-      feis_id: props.feisId // Ensure feis_id is included for create
-    };
-    
-    // If Special category, ensure we send allowed_levels
-    if (payload.category === 'SPECIAL' && payload.allowed_levels.length > 0) {
-      // Logic handles multi-level
-    }
-    
     let response;
     if (isCreating.value) {
-      // Use the general competitions creation endpoint
-      response = await fetch(`/api/v1/competitions`, {
+      response = await auth.authFetch(`/api/v1/competitions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
     } else {
-      if (!editForm.value.id) return;
-      response = await fetch(`/api/v1/competitions/${editForm.value.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      if (!editingComp.value?.id) return;
+      response = await auth.authFetch(`/api/v1/competitions/${editingComp.value.id}`, {
+        method: 'PUT',
         body: JSON.stringify(payload)
-    });
+      });
     }
 
     if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Failed to save competition');
+      const errData = await response.json();
+      throw new Error(errData.detail || 'Failed to save competition');
     }
     
     const saved = await response.json();
@@ -224,7 +167,7 @@ const saveEdit = async () => {
       successMessage.value = 'Competition created successfully';
     } else {
       const index = competitions.value.findIndex(c => c.id === saved.id);
-    if (index !== -1) {
+      if (index !== -1) {
         competitions.value[index] = saved;
       }
       successMessage.value = 'Competition updated successfully';
@@ -336,56 +279,6 @@ const formatAgeRange = (min: number, max: number): string => {
   }
   return `Ages ${min}-${max}`;
 };
-
-// Generate competition code from level, age, and dance type
-const generateCode = (level: string, maxAge: number, danceType?: string): string => {
-  const levelDigits: Record<string, string> = {
-    first_feis: '1',
-    beginner_1: '2',
-    beginner_2: '3',
-    novice: '4',
-    prizewinner: '5',
-    preliminary_championship: '6',
-    open_championship: '7',
-  };
-  
-  const danceCodes: Record<string, string> = {
-    REEL: 'RL',
-    LIGHT_JIG: 'LJ',
-    SLIP_JIG: 'SJ',
-    SINGLE_JIG: 'SN',
-    TREBLE_JIG: 'TJ',
-    HORNPIPE: 'HP',
-    TRADITIONAL_SET: 'TS',
-    CONTEMPORARY_SET: 'CS',
-    TREBLE_REEL: 'TR',
-  };
-  
-  const levelDigit = levelDigits[level] || '9';
-  const ageIndex = String(maxAge).padStart(2, '0');
-  
-  // For championships, use PC/OC instead of dance code
-  if (level === 'preliminary_championship') {
-    return `${levelDigit}${ageIndex}PC`;
-  }
-  if (level === 'open_championship') {
-    return `${levelDigit}${ageIndex}OC`;
-  }
-  
-  const danceCode = danceType ? (danceCodes[danceType] || danceType.substring(0, 2).toUpperCase()) : '';
-  return `${levelDigit}${ageIndex}${danceCode}`;
-};
-
-// Computed: the effective code (user-entered or auto-generated)
-const effectiveCode = computed(() => {
-  if (editForm.value.code) return editForm.value.code;
-  if (!editingComp.value) return '';
-  return generateCode(
-    editForm.value.level,
-    editForm.value.max_age,
-    editingComp.value.dance_type
-  );
-});
 
 onMounted(() => {
   fetchCompetitions();
@@ -503,158 +396,15 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Edit Modal -->
-    <div 
+    <!-- Competition Form Modal -->
+    <CompetitionForm
       v-if="showModal"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      @click.self="cancelEdit"
-    >
-      <div class="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <h3 class="text-lg font-bold text-slate-800 mb-4">{{ isCreating ? 'Add New Event' : 'Edit Competition' }}</h3>
-        
-        <form @submit.prevent="saveEdit" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
-            <input
-              v-model="editForm.name"
-              type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              required
-            />
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
-            <select
-              v-model="editForm.category"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-
-          <div v-if="editForm.category === 'SPECIAL'">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Allowed Levels</label>
-            <div class="grid grid-cols-2 gap-2 p-3 border border-slate-200 rounded-lg bg-slate-50">
-              <label 
-                v-for="opt in levelOptions" 
-                :key="opt.value"
-                class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer"
-              >
-                <input 
-                  type="checkbox" 
-                  :value="opt.value" 
-                  v-model="editForm.allowed_levels"
-                  class="rounded text-indigo-600 focus:ring-indigo-500"
-                > 
-                {{ opt.label }}
-              </label>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">Select all levels that can enter this event. Leave empty for "Open to All".</p>
-          </div>
-          
-          <div v-else>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Level</label>
-            <select
-              v-model="editForm.level"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option v-for="opt in levelOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">Min Age</label>
-              <input
-                v-model.number="editForm.min_age"
-                type="number"
-                min="0"
-                max="99"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-1">Max Age</label>
-              <input
-                v-model.number="editForm.max_age"
-                type="number"
-                :min="editForm.min_age"
-                max="99"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Gender</label>
-            <select
-              v-model="editForm.gender"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option :value="null">Open/Mixed</option>
-              <option v-for="opt in genderOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Description (Optional)</label>
-            <textarea
-              v-model="editForm.description"
-              rows="3"
-              placeholder="Describe the event, rules, or special awards..."
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            ></textarea>
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
-              Code
-            </label>
-            <div class="relative">
-              <input
-                v-model="editForm.code"
-                type="text"
-                :placeholder="effectiveCode"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono text-lg tracking-wider placeholder:text-slate-400"
-              />
-              <span 
-                v-if="!editForm.code && effectiveCode"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"
-              >
-                default
-              </span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">
-              Override with a custom value if needed
-            </p>
-          </div>
-          
-          <div class="flex gap-3 pt-2">
-            <button
-              type="submit"
-              :disabled="loading"
-              class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-slate-300 transition-colors"
-            >
-              {{ isCreating ? 'Create Event' : 'Save Changes' }}
-            </button>
-            <button
-              type="button"
-              @click="cancelEdit"
-              class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      :competition="editingComp"
+      :feis-id="feisId"
+      :is-creating="isCreating"
+      @save="saveCompetition"
+      @cancel="cancelEdit"
+    />
 
     <!-- Loading -->
     <div v-if="loading && competitions.length === 0" class="flex justify-center py-12">
