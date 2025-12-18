@@ -121,6 +121,18 @@ async function fetchStripeStatus() {
   }
 }
 
+// Helper to format date for API without UTC shift
+function toLocalISOString(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}:00`;
+}
+
 async function saveSettings() {
   saving.value = true;
   error.value = null;
@@ -140,8 +152,8 @@ async function saveSettings() {
         late_fee_cents: Math.round(lateFee.value * 100),
         late_fee_date: lateFeeDate.value || null,
         change_fee_cents: Math.round(changeFee.value * 100),
-        registration_opens: registrationOpens.value ? new Date(registrationOpens.value).toISOString() : null,
-        registration_closes: registrationCloses.value ? new Date(registrationCloses.value).toISOString() : null
+        registration_opens: registrationOpens.value ? toLocalISOString(registrationOpens.value) : null,
+        registration_closes: registrationCloses.value ? toLocalISOString(registrationCloses.value) : null
       })
     });
     

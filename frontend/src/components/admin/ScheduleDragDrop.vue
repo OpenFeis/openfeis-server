@@ -104,6 +104,21 @@ const draggedComp = ref<ScheduledCompetition | null>(null);
 const dragOverStage = ref<string | null>(null);
 const dragOverTime = ref<number | null>(null);
 
+// Computed: Current drag time label (e.g., "1:20 PM")
+const dragTimeLabel = computed(() => {
+  if (dragOverTime.value === null) return '';
+  
+  const totalMinutes = startHour.value * 60 + dragOverTime.value;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  const displayMinutes = String(minutes).padStart(2, '0');
+  
+  return `${displayHours}:${displayMinutes} ${period}`;
+});
+
 // Timeline configuration
 const startHour = ref(8); // 8 AM
 const endHour = ref(20); // 8 PM
@@ -310,7 +325,8 @@ const openStageModal = (stage?: Stage) => {
 // Open coverage modal for a stage
 const openCoverageModal = (stage: Stage) => {
   coverageStage.value = stage;
-  const today = new Date().toISOString().split('T')[0] ?? '';
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   coverageForm.value = {
     assignment_type: 'judge',
     feis_adjudicator_id: '',
@@ -447,12 +463,18 @@ const onDrop = async (stageId: string, event: DragEvent) => {
     return;
   }
   
-  // Calculate scheduled time
-  const baseDate = new Date(feisDate.value);
+  // Calculate scheduled time using local date parts to avoid timezone shifting
+  // feisDate.value is YYYY-MM-DD
+  const dateParts = feisDate.value.split('-');
+  const year = parseInt(dateParts[0] || '2025');
+  const month = parseInt(dateParts[1] || '1') - 1;
+  const day = parseInt(dateParts[2] || '1');
+  
+  const baseDate = new Date(year, month, day);
   baseDate.setHours(startHour.value, 0, 0, 0);
   baseDate.setMinutes(baseDate.getMinutes() + dragOverTime.value);
   
-  // Create local ISO string (YYYY-MM-DDTHH:mm:ss) to avoid UTC conversion issues
+  // Create local ISO string (YYYY-MM-DDTHH:mm:ss) 
   const localIsoString = baseDate.getFullYear() + '-' +
     String(baseDate.getMonth() + 1).padStart(2, '0') + '-' +
     String(baseDate.getDate()).padStart(2, '0') + 'T' +
@@ -1033,7 +1055,13 @@ watch(() => props.feisId, () => {
                                 top: `${dragOverTime * pixelsPerMinute}px`, 
                                 height: `${(draggedComp?.estimated_duration_minutes || 30) * pixelsPerMinute}px` 
                             }"
-                        ></div>
+                        >
+                            <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded shadow-xl whitespace-nowrap z-50">
+                                {{ dragTimeLabel }}
+                                <!-- Arrow -->
+                                <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 rotate-45"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

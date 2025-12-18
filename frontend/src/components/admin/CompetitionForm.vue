@@ -164,12 +164,21 @@ const initializeForm = () => {
       ...form.value,
       ...props.competition,
       // Ensure allowed_levels is always an array
-      allowed_levels: props.competition.allowed_levels || [],
-      // Format scheduled time for datetime-local input
-      scheduled_time: props.competition.scheduled_time 
-        ? new Date(props.competition.scheduled_time).toISOString().slice(0, 16)
-        : null
+      allowed_levels: props.competition.allowed_levels || []
     };
+
+    // Format scheduled time for datetime-local input without UTC shifting
+    if (props.competition.scheduled_time) {
+      const d = new Date(props.competition.scheduled_time);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      form.value.scheduled_time = `${year}-${month}-${day}T${hours}:${minutes}`;
+    } else {
+      form.value.scheduled_time = null;
+    }
     // Enable multi-level mode if this competition has allowed_levels set
     useMultipleLevels.value = !!(props.competition.category === 'SPECIAL' || 
       (props.competition.allowed_levels && props.competition.allowed_levels.length > 0));
