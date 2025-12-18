@@ -453,18 +453,21 @@ onMounted(() => {
               <h4 class="font-semibold text-slate-800">{{ comp.name }}</h4>
             </div>
             <div class="flex flex-wrap gap-2 mt-2">
+              <!-- Show multiple levels if allowed_levels is set -->
               <span 
-                v-if="comp.category === 'SPECIAL' && comp.allowed_levels && comp.allowed_levels.length > 0"
+                v-if="comp.allowed_levels && comp.allowed_levels.length > 0"
                 class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs"
               >
                 {{ comp.allowed_levels.map(l => formatLevel(l)).join(', ') }}
               </span>
+              <!-- Show "Open to All" for SPECIAL category with no specific levels -->
               <span 
                 v-else-if="comp.category === 'SPECIAL'"
                 class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs"
               >
                 Open to All Levels
               </span>
+              <!-- Show single level for standard competitions -->
               <span 
                 v-else
                 class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs"
