@@ -128,23 +128,87 @@ const unscheduledComps = computed(() => {
   return competitions.value.filter(c => !c.stage_id || !c.scheduled_time);
 });
 
-// Scheduled competitions grouped by stage
-const scheduledByStage = computed(() => {
-  const grouped: Record<string, ScheduledCompetition[]> = {};
-  for (const stage of stages.value) {
-    grouped[stage.id] = competitions.value.filter(
-      c => c.stage_id === stage.id && c.scheduled_time
-    ).sort((a, b) => {
-      if (!a.scheduled_time || !b.scheduled_time) return 0;
-      return new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime();
-    });
-  }
-  return grouped;
-});
-
 // Calculate total timeline height
 const timelineHeight = computed(() => {
   return (endHour.value - startHour.value) * 60 * pixelsPerMinute.value;
+});
+
+const columnWidth = 240; // w-60 in pixels
+
+// Find if a coverage block is the "primary" (first) among its merged group
+const isPrimaryStageForCoverage = (cov: StageJudgeCoverage, stageId: string) => {
+  if (!cov.is_panel || !cov.panel_id) return true;
+  
+  // Find all stages that have this exact panel assignment at the same time
+  const coverageStages = stages.value.filter(s => 
+    s.judge_coverage.some(c => 
+      c.panel_id === cov.panel_id &&
+      c.feis_day === cov.feis_day &&
+      c.start_time === cov.start_time &&
+      c.end_time === cov.end_time
+    )
+  ).sort((a, b) => a.sequence - b.sequence);
+  
+  const firstStage = coverageStages[0];
+  return !!firstStage && firstStage.id === stageId;
+};
+
+// Calculate how many columns a coverage block should span
+const getCoverageSpan = (cov: StageJudgeCoverage) => {
+  if (!cov.is_panel || !cov.panel_id) return 1;
+  
+  const count = stages.value.filter(s => 
+    s.judge_coverage.some(c => 
+      c.panel_id === cov.panel_id &&
+      c.feis_day === cov.feis_day &&
+      c.start_time === cov.start_time &&
+      c.end_time === cov.end_time
+    )
+  ).length;
+  
+  return count;
+};
+
+// Find if a competition is currently "merged" due to panel coverage
+const getCompetitionMergeInfo = (comp: ScheduledCompetition) => {
+  if (!comp.stage_id || !comp.scheduled_time) return { isMerged: false, span: 1, isPrimary: true };
+  
+  const stage = stages.value.find(s => s.id === comp.stage_id);
+  if (!stage) return { isMerged: false, span: 1, isPrimary: true };
+  
+  const compTime = new Date(comp.scheduled_time);
+  const timeStr = `${String(compTime.getHours()).padStart(2, '0')}:${String(compTime.getMinutes()).padStart(2, '0')}`;
+  
+  // Find coverage that includes this competition's time
+  const coverage = stage.judge_coverage.find(cov => {
+    return cov.is_panel && cov.panel_id &&
+           timeStr >= cov.start_time && timeStr < cov.end_time;
+  });
+  
+  if (!coverage) return { isMerged: false, span: 1, isPrimary: true };
+  
+  const span = getCoverageSpan(coverage);
+  const isPrimary = isPrimaryStageForCoverage(coverage, comp.stage_id);
+  
+  return { isMerged: span > 1, span, isPrimary, coverage };
+};
+
+// All visual coverage blocks across all stages (primary only)
+const allVisualCoverage = computed(() => {
+  const all: StageJudgeCoverage[] = [];
+  stages.value.forEach(stage => {
+    stage.judge_coverage.forEach(cov => {
+      if (isPrimaryStageForCoverage(cov, stage.id)) {
+        all.push(cov);
+      }
+    });
+  });
+  return all;
+});
+
+// All scheduled competitions across all stages
+const allVisualCompetitions = computed(() => {
+  return competitions.value.filter(c => c.stage_id && c.scheduled_time);
 });
 
 // Hour markers for timeline
@@ -513,18 +577,96 @@ const onDragEnd = () => {
 
 // Calculate block position and HEIGHT for a competition (Vertical)
 const getBlockStyle = (comp: ScheduledCompetition) => {
-  if (!comp.scheduled_time) return {};
+  if (!comp.scheduled_time || !comp.stage_id) return {};
   
   const compDate = new Date(comp.scheduled_time);
   const minutes = (compDate.getHours() - startHour.value) * 60 + compDate.getMinutes();
   const top = minutes * pixelsPerMinute.value;
   const height = comp.estimated_duration_minutes * pixelsPerMinute.value;
   
+  const mergeInfo = getCompetitionMergeInfo(comp);
+  const span = mergeInfo.span;
+  const width = span * columnWidth - 8;
+  
+  // Find the primary stage index for positioning
+  let stageIndex = stages.value.findIndex(s => s.id === comp.stage_id);
+  if (mergeInfo.isMerged && mergeInfo.coverage) {
+      const coverageStages = stages.value.filter(s => 
+          s.judge_coverage.some(c => 
+            c.panel_id === mergeInfo.coverage!.panel_id &&
+            c.feis_day === mergeInfo.coverage!.feis_day &&
+            c.start_time === mergeInfo.coverage!.start_time &&
+            c.end_time === mergeInfo.coverage!.end_time
+          )
+      ).sort((a, b) => a.sequence - b.sequence);
+      
+      const firstStage = coverageStages[0];
+      if (firstStage) {
+          stageIndex = stages.value.findIndex(s => s.id === firstStage.id);
+      }
+  }
+  
+  const left = stageIndex * columnWidth + 4;
+  
   return {
     top: `${top}px`,
-    height: `${Math.max(height, 20)}px`
+    left: `${left}px`,
+    height: `${Math.max(height, 20)}px`,
+    width: `${width}px`,
+    zIndex: span > 1 ? 15 : 10
   };
 };
+
+// Calculate style for the drag-and-drop preview block
+const getDropPreviewStyle = computed(() => {
+  if (!dragOverStage.value || dragOverTime.value === null) return {};
+  
+  const stage = stages.value.find(s => s.id === dragOverStage.value);
+  if (!stage) return {};
+  
+  // Hypothetical competition at this time to check for merged area
+  const totalMinutesAtDrag = startHour.value * 60 + dragOverTime.value;
+  const h = Math.floor(totalMinutesAtDrag / 60);
+  const m = totalMinutesAtDrag % 60;
+  const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  
+  const coverage = stage.judge_coverage.find(cov => {
+    return cov.is_panel && cov.panel_id &&
+           timeStr >= cov.start_time && timeStr < cov.end_time;
+  });
+  
+  let span = 1;
+  let stageIndex = stages.value.findIndex(s => s.id === dragOverStage.value);
+  
+  if (coverage) {
+    span = getCoverageSpan(coverage);
+    const coverageStages = stages.value.filter(s => 
+      s.judge_coverage.some(c => 
+        c.panel_id === coverage.panel_id &&
+        c.feis_day === coverage.feis_day &&
+        c.start_time === coverage.start_time &&
+        c.end_time === coverage.end_time
+      )
+    ).sort((a, b) => a.sequence - b.sequence);
+    
+    const firstStage = coverageStages[0];
+    if (firstStage) {
+      stageIndex = stages.value.findIndex(s => s.id === firstStage.id);
+    }
+  }
+  
+  const top = dragOverTime.value * pixelsPerMinute.value;
+  const height = (draggedComp.value?.estimated_duration_minutes || 30) * pixelsPerMinute.value;
+  const width = span * columnWidth - 8;
+  const left = stageIndex * columnWidth + 4;
+  
+  return {
+    top: `${top}px`,
+    left: `${left}px`,
+    height: `${height}px`,
+    width: `${width}px`
+  };
+});
 
 // Calculate coverage block position and height
 const getCoverageStyle = (cov: StageJudgeCoverage) => {
@@ -541,9 +683,28 @@ const getCoverageStyle = (cov: StageJudgeCoverage) => {
   const top = startMinutes * pixelsPerMinute.value;
   const height = (endMinutes - startMinutes) * pixelsPerMinute.value;
   
+  const span = getCoverageSpan(cov);
+  const width = span * columnWidth - 8;
+  
+  // Find primary stage index
+  const coverageStages = stages.value.filter(s => 
+    s.judge_coverage.some(c => 
+      c.panel_id === cov.panel_id &&
+      c.feis_day === cov.feis_day &&
+      c.start_time === cov.start_time &&
+      c.end_time === cov.end_time
+    )
+  ).sort((a, b) => a.sequence - b.sequence);
+  
+  const primaryIndex = stages.value.findIndex(s => s.id === (coverageStages[0]?.id || cov.stage_id));
+  const left = primaryIndex * columnWidth + 4;
+  
   return {
     top: `${Math.max(top, 0)}px`,
-    height: `${Math.max(height, 10)}px`
+    left: `${left}px`,
+    height: `${Math.max(height, 10)}px`,
+    width: `${width}px`,
+    zIndex: span > 1 ? 5 : 0
   };
 };
 
@@ -890,15 +1051,17 @@ watch(() => props.feisId, () => {
             </div>
 
             <!-- Stages Columns -->
-            <div class="flex" :style="{ minHeight: `${timelineHeight + 56}px` }">
+            <div class="flex relative" :style="{ minHeight: `${timelineHeight + 56}px` }">
+                
+                <!-- Background & Drop Zones -->
                 <div
                     v-for="stage in stages"
                     :key="stage.id"
-                    class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative"
+                    class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative z-0"
                 >
                     <!-- Stage Header (Sticky Top) -->
                     <div 
-                        class="h-14 sticky top-0 z-20 flex items-center justify-between px-3 border-b border-slate-200 shadow-sm"
+                        class="h-14 sticky top-0 z-30 flex items-center justify-between px-3 border-b border-slate-200 shadow-sm"
                         :style="{ backgroundColor: stage.color || '#6366f1' }"
                     >
                         <div class="text-white font-bold truncate">{{ stage.name }}</div>
@@ -933,7 +1096,7 @@ watch(() => props.feisId, () => {
                         </div>
                     </div>
 
-                    <!-- Stage Timeline Lane -->
+                    <!-- Stage Timeline Lane (Drop Target) -->
                     <div 
                         class="relative"
                         :style="{ height: `${timelineHeight}px` }"
@@ -949,121 +1112,131 @@ watch(() => props.feisId, () => {
                             class="absolute left-0 right-0 border-t border-slate-100"
                             :style="{ top: `${marker.position}px` }"
                         ></div>
+                    </div>
+                </div>
 
-                        <!-- Judge/Panel Coverage Background Blocks -->
-                        <div
-                            v-for="cov in stage.judge_coverage"
-                            :key="'cov-' + cov.id"
-                            :class="[
-                              cov.is_panel ? 'bg-purple-100/40 border-purple-200' : 'bg-emerald-100/40 border-emerald-200',
-                              getMultiStagePanelInfo(cov).length > 0 ? 'border-l-4' : ''
-                            ]"
-                            class="absolute left-1 right-1 border rounded-md z-0 group"
-                            :style="getCoverageStyle(cov)"
+                <!-- Shared Content Layer (Visuals) -->
+                <div class="absolute top-14 left-0 right-0 pointer-events-none z-10" :style="{ height: `${timelineHeight}px` }">
+                    
+                    <!-- Coverage Blocks -->
+                    <div
+                        v-for="cov in allVisualCoverage"
+                        :key="'cov-' + cov.id"
+                        :class="[
+                          cov.is_panel ? 'bg-purple-100 border-purple-200' : 'bg-emerald-100 border-emerald-200',
+                          getMultiStagePanelInfo(cov).length > 0 ? 'border-l-4' : '',
+                          { 'pointer-events-none opacity-50': draggedComp }
+                        ]"
+                        class="absolute border rounded-md group pointer-events-auto transition-opacity"
+                        :style="getCoverageStyle(cov)"
+                    >
+                        <!-- Multi-Stage Indicator Badge -->
+                        <div 
+                          v-if="getMultiStagePanelInfo(cov).length > 0"
+                          class="absolute -right-1 -top-1 bg-purple-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10"
+                          :title="'Also covers: ' + getMultiStagePanelInfo(cov).join(', ')"
                         >
-                            <!-- Multi-Stage Indicator Badge -->
-                            <div 
-                              v-if="getMultiStagePanelInfo(cov).length > 0"
-                              class="absolute -right-1 -top-1 bg-purple-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10"
-                              :title="'Also covers: ' + getMultiStagePanelInfo(cov).join(', ')"
-                            >
-                              {{ getMultiStagePanelInfo(cov).length + 1 }}
-                            </div>
-                            
-                            <div class="flex justify-between items-start">
-                                <div 
-                                  :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
-                                  class="text-[10px] font-semibold px-1 pt-1 truncate"
-                                >
-                                  {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
-                                  <span 
-                                    v-if="getMultiStagePanelInfo(cov).length > 0" 
-                                    class="text-[8px] opacity-60 ml-1"
-                                  >
-                                    (+ {{ getMultiStagePanelInfo(cov).length }})
-                                  </span>
-                                </div>
-                                <button
-                                    @click.stop="deleteCoverage(cov)"
-                                    :class="cov.is_panel ? 'text-purple-400 hover:text-red-500' : 'text-emerald-400 hover:text-red-500'"
-                                    class="p-0.5 mr-0.5 mt-0.5 transition-colors"
-                                    :title="cov.is_panel ? 'Remove Panel Coverage' : 'Remove Judge Coverage'"
-                                >
-                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <div 
-                              :class="cov.is_panel ? 'text-purple-600' : 'text-emerald-600'"
-                              class="text-[9px] px-1 truncate"
-                            >
-                              {{ cov.note }}
-                            </div>
+                          {{ getMultiStagePanelInfo(cov).length + 1 }}
                         </div>
-
-                        <!-- Competitions -->
-                        <div
-                            v-for="comp in scheduledByStage[stage.id]"
-                            :key="comp.id"
-                            class="absolute left-1 right-1 rounded-md shadow-sm border border-white/20 cursor-move z-10 text-xs text-white p-1 overflow-hidden hover:z-20 hover:shadow-lg transition-all group"
-                            :class="[getLevelColor(comp.level), { 'ring-2 ring-red-500': comp.has_conflicts }]"
-                            :style="getBlockStyle(comp)"
-                            draggable="true"
-                            @dragstart="onDragStart(comp, $event)"
-                            @dragend="onDragEnd"
-                            :title="`${comp.name} (${comp.estimated_duration_minutes}m)`"
-                        >
-                            <div class="flex justify-between items-start">
-                                <div class="font-semibold truncate flex-1">
-                                  {{ showCodes && comp.code ? comp.code : comp.name }}
-                                </div>
-                                <button 
-                                    @click.stop="openCompetitionEditor(comp)"
-                                    @mousedown.stop
-                                    class="p-0.5 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1 z-30 relative"
-                                    title="Edit"
-                                >
-                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                    </svg>
-                                </button>
+                        
+                        <div class="flex justify-between items-start">
+                            <div 
+                              :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
+                              class="text-[10px] font-semibold px-1 pt-1 truncate"
+                            >
+                              {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
+                              <span 
+                                v-if="getMultiStagePanelInfo(cov).length > 0" 
+                                class="text-[8px] opacity-60 ml-1"
+                              >
+                                (+ {{ getMultiStagePanelInfo(cov).length }})
+                              </span>
                             </div>
-                            <div class="flex items-center justify-between mt-0.5">
-                                <span class="opacity-80">{{ new Date(comp.scheduled_time!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }}</span>
-                                <div class="flex gap-0.5">
-                                    <svg v-if="comp.adjudicator_id" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                    </svg>
-                                </div>
-                                <button
-                                    @click.stop="unscheduleCompetition(comp)"
-                                    @mousedown.stop
-                                    class="text-white/70 hover:text-white hover:bg-red-500/50 rounded px-1 text-[10px] ml-1 transition-colors"
-                                    title="Unschedule"
-                                >
-                                    ✕
-                                </button>
-                            </div>
+                            <button
+                                @click.stop="deleteCoverage(cov)"
+                                :class="cov.is_panel ? 'text-purple-400 hover:text-red-500' : 'text-emerald-400 hover:text-red-500'"
+                                class="p-0.5 mr-0.5 mt-0.5 transition-colors"
+                                :title="cov.is_panel ? 'Remove Panel Coverage' : 'Remove Judge Coverage'"
+                            >
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
                         </div>
-
-                        <!-- Drop Preview -->
-                        <div
-                            v-if="dragOverStage === stage.id && dragOverTime !== null"
-                            class="absolute left-1 right-1 bg-indigo-500/20 border-2 border-dashed border-indigo-500 rounded-md z-20 pointer-events-none"
-                            :style="{ 
-                                top: `${dragOverTime * pixelsPerMinute}px`, 
-                                height: `${(draggedComp?.estimated_duration_minutes || 30) * pixelsPerMinute}px` 
-                            }"
+                        <div 
+                          :class="cov.is_panel ? 'text-purple-600' : 'text-emerald-600'"
+                          class="text-[9px] px-1 truncate"
                         >
-                            <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded shadow-xl whitespace-nowrap z-50">
-                                {{ dragTimeLabel }}
-                                <!-- Arrow -->
-                                <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 rotate-45"></div>
+                          {{ cov.note }}
+                        </div>
+                    </div>
+
+                    <!-- Competitions -->
+                    <div
+                        v-for="comp in allVisualCompetitions"
+                        :key="comp.id"
+                        class="absolute rounded-md shadow-sm border border-white/20 cursor-move text-xs text-white p-1 overflow-hidden hover:z-30 hover:shadow-lg transition-all group pointer-events-auto"
+                        :class="[
+                            getLevelColor(comp.level), 
+                            { 
+                                'ring-2 ring-red-500': comp.has_conflicts,
+                                'pointer-events-none opacity-40 grayscale': draggedComp && draggedComp.id !== comp.id,
+                                'ring-4 ring-indigo-400 z-50 scale-105 shadow-2xl': draggedComp && draggedComp.id === comp.id
+                            }
+                        ]"
+                        :style="getBlockStyle(comp)"
+                        draggable="true"
+                        @dragstart="onDragStart(comp, $event)"
+                        @dragend="onDragEnd"
+                        :title="`${comp.name} (${comp.estimated_duration_minutes}m)`"
+                    >
+                        <div class="flex justify-between items-start">
+                            <div class="font-semibold truncate flex-1">
+                              {{ showCodes && comp.code ? comp.code : comp.name }}
                             </div>
+                            <button 
+                                @click.stop="openCompetitionEditor(comp)"
+                                @mousedown.stop
+                                class="p-0.5 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1 z-30 relative"
+                                title="Edit"
+                            >
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between mt-0.5">
+                            <span class="opacity-80">{{ new Date(comp.scheduled_time!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }}</span>
+                            <div class="flex gap-0.5">
+                                <svg v-if="comp.adjudicator_id" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                </svg>
+                            </div>
+                            <button
+                                @click.stop="unscheduleCompetition(comp)"
+                                @mousedown.stop
+                                class="text-white/70 hover:text-white hover:bg-red-500/50 rounded px-1 text-[10px] ml-1 transition-colors"
+                                title="Unschedule"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Drop Preview -->
+                    <div
+                        v-if="dragOverStage && dragOverTime !== null"
+                        class="absolute bg-indigo-500/30 border-2 border-dashed border-indigo-500 rounded-md z-50 pointer-events-none transition-all duration-75"
+                        :style="getDropPreviewStyle"
+                    >
+                        <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded shadow-xl whitespace-nowrap z-50">
+                            {{ dragTimeLabel }}
+                            <!-- Arrow -->
+                            <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 rotate-45"></div>
                         </div>
                     </div>
                 </div>
+
             </div>
 
         </div>
