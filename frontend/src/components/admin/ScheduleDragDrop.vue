@@ -1072,8 +1072,8 @@ watch(() => props.feisId, () => {
         <div class="flex-1 overflow-auto bg-white flex relative">
             
             <!-- Time Column (Sticky) -->
-            <div class="sticky left-0 z-30 bg-white border-r border-slate-200 w-16 flex-shrink-0" :style="{ minHeight: `${timelineHeight + 56}px` }">
-                <div class="h-14 bg-white border-b border-slate-200 sticky top-0 z-40"></div> <!-- Header spacer -->
+            <div class="sticky left-0 z-50 bg-white border-r border-slate-200 w-16 flex-shrink-0" :style="{ minHeight: `${timelineHeight + 56}px` }">
+                <div class="h-14 bg-white border-b border-slate-200 sticky top-0 z-[70]"></div> <!-- Header spacer -->
                 <div class="relative" :style="{ height: `${timelineHeight}px` }">
                     <div
                         v-for="marker in hourMarkers"
@@ -1086,18 +1086,15 @@ watch(() => props.feisId, () => {
                 </div>
             </div>
 
-            <!-- Stages Columns -->
-            <div class="flex relative" :style="{ minHeight: `${timelineHeight + 56}px` }">
+            <!-- Stages Area -->
+            <div class="flex flex-col relative" :style="{ minHeight: `${timelineHeight + 56}px` }">
                 
-                <!-- Background & Drop Zones -->
-                <div
-                    v-for="stage in stages"
-                    :key="stage.id"
-                    class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative z-0"
-                >
-                    <!-- Stage Header (Sticky Top) -->
-                    <div 
-                        class="h-14 sticky top-0 z-30 flex items-center justify-between px-3 border-b border-slate-200 shadow-sm"
+                <!-- Sticky Stage Headers Row -->
+                <div class="flex sticky top-0 z-[60] bg-white border-b border-slate-200 shadow-sm h-14">
+                    <div
+                        v-for="stage in stages"
+                        :key="'header-' + stage.id"
+                        class="w-60 flex-shrink-0 flex items-center justify-between px-3 h-full"
                         :style="{ backgroundColor: stage.color || '#6366f1' }"
                     >
                         <div class="text-white font-bold truncate">{{ stage.name }}</div>
@@ -1131,128 +1128,138 @@ watch(() => props.feisId, () => {
                             </button>
                         </div>
                     </div>
-
-                    <!-- Stage Timeline Lane (Drop Target) -->
-                    <div 
-                        class="relative"
-                        :style="{ height: `${timelineHeight}px` }"
-                        :class="{ 'bg-indigo-50/80 ring-2 ring-indigo-300 inset-0': dragOverStage === stage.id }"
-                        @dragover="onDragOver(stage.id, $event)"
-                        @dragleave="onDragLeave"
-                        @drop="onDrop(stage.id, $event)"
-                    >
-                        <!-- Grid Lines -->
-                        <div
-                            v-for="marker in hourMarkers"
-                            :key="marker.hour"
-                            class="absolute left-0 right-0 border-t border-slate-100"
-                            :style="{ top: `${marker.position}px` }"
-                        ></div>
-                    </div>
                 </div>
 
-                <!-- Shared Content Layer (Visuals) -->
-                <div class="absolute top-14 left-0 right-0 pointer-events-none z-10" :style="{ height: `${timelineHeight}px` }">
-                    
-                    <!-- Coverage Blocks -->
+                <!-- Main Content Row -->
+                <div class="flex relative">
+                    <!-- Background & Drop Zones -->
                     <div
-                        v-for="cov in allVisualCoverage"
-                        :key="'cov-' + cov.id"
-                        :class="[
-                          cov.is_panel ? 'bg-purple-100 border-purple-200' : 'bg-emerald-100 border-emerald-200',
-                          { 'pointer-events-none opacity-50': draggedComp }
-                        ]"
-                        class="absolute border rounded-md group pointer-events-auto transition-opacity"
-                        :style="getCoverageStyle(cov)"
+                        v-for="stage in stages"
+                        :key="stage.id"
+                        class="w-60 flex-shrink-0 border-r border-slate-200 bg-white relative h-full"
                     >
-                        <div class="flex justify-between items-start">
-                            <div 
-                              :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
-                              class="text-[10px] font-semibold px-1 pt-1 truncate"
-                            >
-                              {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
-                            </div>
-                            <button
-                                @click.stop="deleteCoverage(cov)"
-                                :class="cov.is_panel ? 'text-purple-400 hover:text-red-500' : 'text-emerald-400 hover:text-red-500'"
-                                class="p-0.5 mr-0.5 mt-0.5 transition-colors"
-                                :title="cov.is_panel ? 'Remove Panel Coverage' : 'Remove Judge Coverage'"
-                            >
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
+                        <!-- Stage Timeline Lane (Drop Target) -->
                         <div 
-                          :class="cov.is_panel ? 'text-purple-600' : 'text-emerald-600'"
-                          class="text-[9px] px-1 truncate"
+                            class="relative"
+                            :style="{ height: `${timelineHeight}px` }"
+                            :class="{ 'bg-indigo-50/80 ring-2 ring-indigo-300 inset-0': dragOverStage === stage.id }"
+                            @dragover="onDragOver(stage.id, $event)"
+                            @dragleave="onDragLeave"
+                            @drop="onDrop(stage.id, $event)"
                         >
-                          {{ cov.note }}
+                            <!-- Grid Lines -->
+                            <div
+                                v-for="marker in hourMarkers"
+                                :key="marker.hour"
+                                class="absolute left-0 right-0 border-t border-slate-100"
+                                :style="{ top: `${marker.position}px` }"
+                            ></div>
                         </div>
                     </div>
 
-                    <!-- Competitions -->
-                    <div
-                        v-for="comp in allVisualCompetitions"
-                        :key="comp.id"
-                        class="absolute rounded-md shadow-sm border border-white/20 cursor-move text-xs text-white p-1 overflow-hidden hover:z-30 hover:shadow-lg transition-all group pointer-events-auto"
-                        :class="[
-                            getLevelColor(comp.level), 
-                            { 
-                                'ring-2 ring-red-500': comp.has_conflicts,
-                                'pointer-events-none opacity-40 grayscale': draggedComp && draggedComp.id !== comp.id,
-                                'ring-4 ring-indigo-400 z-50 scale-105 shadow-2xl': draggedComp && draggedComp.id === comp.id
-                            }
-                        ]"
-                        :style="getBlockStyle(comp)"
-                        draggable="true"
-                        @dragstart="onDragStart(comp, $event)"
-                        @dragend="onDragEnd"
-                        :title="`${comp.name} (${comp.estimated_duration_minutes}m)`"
-                    >
-                        <div class="flex justify-between items-start">
-                            <div class="font-semibold truncate flex-1">
-                              {{ showCodes && comp.code ? comp.code : comp.name }}
+                    <!-- Shared Content Layer (Visuals) -->
+                    <div class="absolute top-0 left-0 right-0 pointer-events-none z-10" :style="{ height: `${timelineHeight}px` }">
+                        
+                        <!-- Coverage Blocks -->
+                        <div
+                            v-for="cov in allVisualCoverage"
+                            :key="'cov-' + cov.id"
+                            :class="[
+                              cov.is_panel ? 'bg-purple-100 border-purple-200' : 'bg-emerald-100 border-emerald-200',
+                              { 'pointer-events-none opacity-50': draggedComp }
+                            ]"
+                            class="absolute border rounded-md group pointer-events-auto transition-opacity"
+                            :style="getCoverageStyle(cov)"
+                        >
+                            <div class="flex justify-between items-start">
+                                <div 
+                                  :class="cov.is_panel ? 'text-purple-800' : 'text-emerald-800'"
+                                  class="text-[10px] font-semibold px-1 pt-1 truncate"
+                                >
+                                  {{ cov.is_panel ? cov.panel_name : cov.adjudicator_name }}
+                                </div>
+                                <button
+                                    @click.stop="deleteCoverage(cov)"
+                                    :class="cov.is_panel ? 'text-purple-400 hover:text-red-500' : 'text-emerald-400 hover:text-red-500'"
+                                    class="p-0.5 mr-0.5 mt-0.5 transition-colors"
+                                    :title="cov.is_panel ? 'Remove Panel Coverage' : 'Remove Judge Coverage'"
+                                >
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
-                            <button 
-                                @click.stop="openCompetitionEditor(comp)"
-                                @mousedown.stop
-                                class="p-0.5 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1 z-30 relative"
-                                title="Edit"
+                            <div 
+                              :class="cov.is_panel ? 'text-purple-600' : 'text-emerald-600'"
+                              class="text-[9px] px-1 truncate"
                             >
-                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div class="flex items-center justify-between mt-0.5">
-                            <span class="opacity-80">{{ new Date(comp.scheduled_time!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }}</span>
-                            <div class="flex gap-0.5">
-                                <svg v-if="comp.adjudicator_id" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
+                              {{ cov.note }}
                             </div>
-                            <button
-                                @click.stop="unscheduleCompetition(comp)"
-                                @mousedown.stop
-                                class="text-white/70 hover:text-white hover:bg-red-500/50 rounded px-1 text-[10px] ml-1 transition-colors"
-                                title="Unschedule"
-                            >
-                                ✕
-                            </button>
                         </div>
-                    </div>
 
-                    <!-- Drop Preview -->
-                    <div
-                        v-if="dragOverStage && dragOverTime !== null"
-                        class="absolute bg-indigo-500/30 border-2 border-dashed border-indigo-500 rounded-md z-50 pointer-events-none transition-all duration-75"
-                        :style="getDropPreviewStyle"
-                    >
-                        <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded shadow-xl whitespace-nowrap z-50">
-                            {{ dragTimeLabel }}
-                            <!-- Arrow -->
-                            <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 rotate-45"></div>
+                        <!-- Competitions -->
+                        <div
+                            v-for="comp in allVisualCompetitions"
+                            :key="comp.id"
+                            class="absolute rounded-md shadow-sm border border-white/20 cursor-move text-xs text-white p-1 overflow-hidden hover:z-30 hover:shadow-lg transition-all group pointer-events-auto"
+                            :class="[
+                                getLevelColor(comp.level), 
+                                { 
+                                    'ring-2 ring-red-500': comp.has_conflicts,
+                                    'pointer-events-none opacity-40 grayscale': draggedComp && draggedComp.id !== comp.id,
+                                    'ring-4 ring-indigo-400 z-50 scale-105 shadow-2xl': draggedComp && draggedComp.id === comp.id
+                                }
+                            ]"
+                            :style="getBlockStyle(comp)"
+                            draggable="true"
+                            @dragstart="onDragStart(comp, $event)"
+                            @dragend="onDragEnd"
+                            :title="`${comp.name} (${comp.estimated_duration_minutes}m)`"
+                        >
+                            <div class="flex justify-between items-start">
+                                <div class="font-semibold truncate flex-1">
+                                  {{ showCodes && comp.code ? comp.code : comp.name }}
+                                </div>
+                                <button 
+                                    @click.stop="openCompetitionEditor(comp)"
+                                    @mousedown.stop
+                                    class="p-0.5 hover:bg-white/20 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1 z-30 relative"
+                                    title="Edit"
+                                >
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between mt-0.5">
+                                <span class="opacity-80">{{ new Date(comp.scheduled_time!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }}</span>
+                                <div class="flex gap-0.5">
+                                    <svg v-if="comp.adjudicator_id" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                </div>
+                                <button
+                                    @click.stop="unscheduleCompetition(comp)"
+                                    @mousedown.stop
+                                    class="text-white/70 hover:text-white hover:bg-red-500/50 rounded px-1 text-[10px] ml-1 transition-colors"
+                                    title="Unschedule"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Drop Preview -->
+                        <div
+                            v-if="dragOverStage && dragOverTime !== null"
+                            class="absolute bg-indigo-500/30 border-2 border-dashed border-indigo-500 rounded-md z-50 pointer-events-none transition-all duration-75"
+                            :style="getDropPreviewStyle"
+                        >
+                            <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded shadow-xl whitespace-nowrap z-50">
+                                {{ dragTimeLabel }}
+                                <!-- Arrow -->
+                                <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 rotate-45"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
