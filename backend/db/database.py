@@ -95,6 +95,9 @@ def run_migrations():
         
         # StageJudgeCoverage table - panel support (Judge Panel feature)
         ("stagejudgecoverage", "panel_id", "ALTER TABLE stagejudgecoverage ADD COLUMN panel_id VARCHAR"),
+        
+        # Competition table - panel support (Judge Assignment fix)
+        ("competition", "panel_id", "ALTER TABLE competition ADD COLUMN panel_id VARCHAR"),
     ]
     
     with engine.connect() as conn:
