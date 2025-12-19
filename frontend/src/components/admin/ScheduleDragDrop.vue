@@ -1272,7 +1272,7 @@ watch(() => props.feisId, () => {
   </div>
 
   <!-- Stage Modal -->
-  <div v-if="showStageModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showStageModal = false">
+  <div v-if="showStageModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" @click.self="showStageModal = false">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         <div class="bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4">
           <h3 class="text-lg font-bold text-white">{{ editingStage ? 'Edit Stage' : 'Create Stage' }}</h3>
@@ -1302,7 +1302,7 @@ watch(() => props.feisId, () => {
     <!-- Judge Coverage Modal (Updated for Multi-Select) -->
     <div
       v-if="showCoverageModal && coverageStage"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
       @click.self="showCoverageModal = false"
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
@@ -1452,7 +1452,7 @@ watch(() => props.feisId, () => {
     <!-- Instant Scheduler Config Modal -->
     <div
       v-if="showInstantSchedulerConfigModal"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
       @click.self="showInstantSchedulerConfigModal = false"
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
@@ -1648,7 +1648,7 @@ watch(() => props.feisId, () => {
     <!-- Instant Scheduler Results Modal -->
     <div
       v-if="showInstantSchedulerModal && instantSchedulerResult"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
       @click.self="closeInstantSchedulerSummary"
     >
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">

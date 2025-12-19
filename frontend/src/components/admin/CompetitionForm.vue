@@ -241,7 +241,7 @@ watch(() => form.value.category, (newCategory) => {
 
 <template>
   <div
-    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
     @click.self="handleCancel"
   >
     <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
