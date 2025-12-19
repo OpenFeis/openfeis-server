@@ -335,27 +335,10 @@ async def bulk_schedule_competitions(
             comp.stage_id = UUID(schedule.stage_id) if schedule.stage_id else None
             comp.scheduled_time = schedule.scheduled_time
             
-            # Auto-assign judge based on stage coverage
-            if comp.stage_id and comp.scheduled_time:
-                comp_start = comp.scheduled_time
-                comp_date = comp_start.date()
-                comp_time = comp_start.time()
-                
-                # Find judges with coverage on this stage during this time
-                coverages = session.exec(
-                    select(StageJudgeCoverage)
-                    .where(StageJudgeCoverage.stage_id == comp.stage_id)
-                    .where(StageJudgeCoverage.feis_day == comp_date)
-                ).all()
-                
-                # Find a coverage block that includes this time
-                for cov in coverages:
-                    if cov.start_time <= comp_time <= cov.end_time:
-                        # Get the FeisAdjudicator to find their user_id
-                        feis_adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
-                        if feis_adj and feis_adj.user_id:
-                            comp.adjudicator_id = feis_adj.user_id
-                            break
+            # Note: We do NOT auto-assign judges here.
+            # The JudgePad correctly looks up competitions via StageJudgeCoverage.
+            # Auto-assignment causes conflicts when judges have coverage on
+            # multiple stages (ping-pong judging).
             
             session.add(comp)
             scheduled_count += 1
@@ -380,6 +363,52 @@ async def bulk_schedule_competitions(
         conflicts=conflict_responses,
         message=f"Scheduled {scheduled_count} competitions. {len(conflicts)} conflicts detected."
     )
+
+
+@router.post("/feis/{feis_id}/schedule/reassign-judges")
+async def reassign_judges_from_coverage(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Clear all explicit judge/panel assignments from scheduled competitions.
+    
+    With coverage-based scheduling, competitions don't need explicit adjudicator_id
+    or panel_id - the JudgePad looks up competitions via StageJudgeCoverage.
+    
+    Use this to clean up after incorrect assignments or to reset to coverage-based mode.
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only modify your own feis")
+    
+    # Get all scheduled competitions for this feis that have explicit assignments
+    competitions = session.exec(
+        select(Competition)
+        .where(Competition.feis_id == feis.id)
+        .where(
+            (Competition.adjudicator_id.isnot(None)) | 
+            (Competition.panel_id.isnot(None))
+        )
+    ).all()
+    
+    cleared_count = 0
+    for comp in competitions:
+        comp.adjudicator_id = None
+        comp.panel_id = None
+        session.add(comp)
+        cleared_count += 1
+    
+    session.commit()
+    
+    return {
+        "message": f"Cleared explicit assignments from {cleared_count} competitions. Judges are now determined by stage coverage.",
+        "cleared_count": cleared_count
+    }
 
 
 @router.post("/feis/{feis_id}/schedule/instant", response_model=InstantSchedulerResponse)

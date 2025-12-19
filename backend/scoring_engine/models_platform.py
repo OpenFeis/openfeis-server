@@ -293,14 +293,19 @@ class Competition(SQLModel, table=True):
     scheduled_time: Optional[datetime] = None
     estimated_duration_minutes: Optional[int] = None
     
-    # Adjudicator assignment (for conflict detection)
+    # Adjudicator assignment - single judge for solo events
     adjudicator_id: Optional[UUID] = Field(default=None, foreign_key="user.id")
+    
+    # Panel assignment - for championship/panel events where multiple judges score
+    # When panel_id is set, ALL judges in the panel can score this competition
+    panel_id: Optional[UUID] = Field(default=None, foreign_key="judgepanel.id")
     
     # Relationships
     feis: Feis = Relationship(back_populates="competitions")
     entries: List["Entry"] = Relationship(back_populates="competition")
     stage: Optional["Stage"] = Relationship(back_populates="competitions")
     adjudicator: Optional["User"] = Relationship()
+    panel: Optional["JudgePanel"] = Relationship()
     # Note: 'rounds' relationship will be linked in the scoring models file or here if consolidated
 
 class Entry(SQLModel, table=True):

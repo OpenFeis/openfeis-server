@@ -207,6 +207,17 @@ const allVisualCoverage = computed(() => {
   return all;
 });
 
+// All coverage blocks (for CompetitionForm lookup)
+const allStageCoverage = computed(() => {
+  const all: StageJudgeCoverage[] = [];
+  stages.value.forEach(stage => {
+    stage.judge_coverage.forEach(cov => {
+      all.push(cov);
+    });
+  });
+  return all;
+});
+
 // All scheduled competitions across all stages
 const allVisualCompetitions = computed(() => {
   return competitions.value.filter(c => c.stage_id && c.scheduled_time);
@@ -1440,6 +1451,8 @@ watch(() => props.feisId, () => {
       :is-creating="false"
       :stages="stages"
       :adjudicators="adjudicators"
+      :panels="panels"
+      :stage-coverage="allStageCoverage"
       @save="saveCompetition"
       @cancel="closeCompetitionEditor"
     />

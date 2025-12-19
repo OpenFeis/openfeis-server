@@ -136,6 +136,14 @@ async def update_competition(
         competition.estimated_duration_minutes = comp_data.estimated_duration_minutes
     if comp_data.adjudicator_id is not None:
         competition.adjudicator_id = UUID(comp_data.adjudicator_id) if comp_data.adjudicator_id else None
+        if comp_data.adjudicator_id:
+            # Clear panel if setting an individual judge
+            competition.panel_id = None
+    if comp_data.panel_id is not None:
+        competition.panel_id = UUID(comp_data.panel_id) if comp_data.panel_id else None
+        if comp_data.panel_id:
+            # Clear individual judge if setting a panel
+            competition.adjudicator_id = None
     
     session.add(competition)
     session.commit()
@@ -167,6 +175,7 @@ async def update_competition(
         scheduled_time=competition.scheduled_time,
         estimated_duration_minutes=competition.estimated_duration_minutes,
         adjudicator_id=str(competition.adjudicator_id) if competition.adjudicator_id else None,
+        panel_id=str(competition.panel_id) if competition.panel_id else None,
         description=competition.description,
         allowed_levels=competition.allowed_levels.split(',') if competition.allowed_levels else None
     )
@@ -333,31 +342,30 @@ async def update_competition_schedule(
     if "estimated_duration_minutes" in schedule_update:
         competition.estimated_duration_minutes = schedule_update["estimated_duration_minutes"]
     
-    # Handle adjudicator assignment
+    # Handle adjudicator/panel assignment - only for EXPLICIT assignments
+    # Coverage-based judge lookup is handled by JudgePad, not stored on competition
     if "adjudicator_id" in schedule_update:
-        # Explicit assignment
-        competition.adjudicator_id = UUID(schedule_update["adjudicator_id"]) if schedule_update["adjudicator_id"] else None
-    elif competition.stage_id and competition.scheduled_time:
-        # Auto-assign based on stage coverage
-        comp_start = competition.scheduled_time
-        comp_date = comp_start.date()
-        comp_time = comp_start.time()
-        
-        # Find judges with coverage on this stage during this time
-        coverages = session.exec(
-            select(StageJudgeCoverage)
-            .where(StageJudgeCoverage.stage_id == competition.stage_id)
-            .where(StageJudgeCoverage.feis_day == comp_date)
-        ).all()
-        
-        # Find a coverage block that includes this time
-        for cov in coverages:
-            if cov.start_time <= comp_time <= cov.end_time:
-                # Get the FeisAdjudicator to find their user_id
-                feis_adj = session.get(FeisAdjudicator, cov.feis_adjudicator_id)
-                if feis_adj and feis_adj.user_id:
-                    competition.adjudicator_id = feis_adj.user_id
-                    break
+        if schedule_update["adjudicator_id"]:
+            # Explicit assignment with a specific judge (clears panel)
+            competition.adjudicator_id = UUID(schedule_update["adjudicator_id"])
+            competition.panel_id = None
+        else:
+            # Explicitly clearing the judge
+            competition.adjudicator_id = None
+    
+    if "panel_id" in schedule_update:
+        if schedule_update["panel_id"]:
+            # Explicit assignment with a panel (clears individual judge)
+            competition.panel_id = UUID(schedule_update["panel_id"])
+            competition.adjudicator_id = None
+        else:
+            # Explicitly clearing the panel
+            competition.panel_id = None
+    
+    # Note: We do NOT auto-assign judges based on coverage here.
+    # The JudgePad correctly looks up competitions via StageJudgeCoverage.
+    # Auto-assignment would cause conflicts when judges have coverage
+    # on multiple stages (ping-pong judging).
     
     session.add(competition)
     session.commit()
@@ -389,6 +397,7 @@ async def update_competition_schedule(
         scheduled_time=competition.scheduled_time,
         estimated_duration_minutes=competition.estimated_duration_minutes,
         adjudicator_id=str(competition.adjudicator_id) if competition.adjudicator_id else None,
+        panel_id=str(competition.panel_id) if competition.panel_id else None,
         description=competition.description,
         allowed_levels=competition.allowed_levels.split(',') if competition.allowed_levels else None
     )

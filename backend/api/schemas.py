@@ -107,6 +107,7 @@ class CompetitionUpdate(BaseModel):
     scheduled_time: Optional[DateTime] = None
     estimated_duration_minutes: Optional[int] = None
     adjudicator_id: Optional[str] = None
+    panel_id: Optional[str] = None
 
 class CompetitionResponse(BaseModel):
     id: str
@@ -131,7 +132,8 @@ class CompetitionResponse(BaseModel):
     stage_id: Optional[str] = None
     scheduled_time: Optional[DateTime] = None
     estimated_duration_minutes: Optional[int] = None
-    adjudicator_id: Optional[str] = None
+    adjudicator_id: Optional[str] = None  # Single judge for solo events
+    panel_id: Optional[str] = None  # Panel for championship events (all members score)
     description: Optional[str] = None
     allowed_levels: Optional[List[CompetitionLevel]] = None
 

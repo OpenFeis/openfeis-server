@@ -7,7 +7,7 @@ from backend.api.auth import get_current_user, require_adjudicator
 from backend.scoring_engine.models import JudgeScore, RoundResult, Round
 from backend.scoring_engine.models_platform import (
     User, Feis, Competition, Entry, Dancer, RoleType,
-    FeisAdjudicator, StageJudgeCoverage
+    FeisAdjudicator, StageJudgeCoverage, PanelMember, JudgePanel
 )
 from datetime import datetime
 from backend.scoring_engine.calculator import IrishPointsCalculator
@@ -75,45 +75,72 @@ async def list_judge_competitions(
     List competitions assigned to the current judge for a feis.
     
     Includes:
-    1. Direct assignments (Competition.adjudicator_id)
-    2. Coverage assignments (StageJudgeCoverage) - allows for panels/ping-pong judging
+    1. Direct single-judge assignments (Competition.adjudicator_id)
+    2. Direct panel assignments (Competition.panel_id where judge is a member)
+    3. Coverage-based assignments (StageJudgeCoverage) - time-based scheduling
     """
     feis = session.get(Feis, UUID(feis_id))
     if not feis:
         raise HTTPException(status_code=404, detail="Feis not found")
     
-    # 1. Get directly assigned competitions
+    # 1. Get directly assigned competitions (single judge)
     direct_competitions = session.exec(
         select(Competition)
         .where(Competition.feis_id == feis.id)
         .where(Competition.adjudicator_id == current_user.id)
     ).all()
     
-    # 2. Get competitions via stage coverage
-    # Find all coverage blocks for this judge on this feis
-    # We need to find the FeisAdjudicator record first to get the ID
+    # 2. Get competitions via direct panel assignment (Competition.panel_id)
+    # Find the FeisAdjudicator record for this judge
     feis_adjudicator = session.exec(
         select(FeisAdjudicator)
         .where(FeisAdjudicator.feis_id == feis.id)
         .where(FeisAdjudicator.user_id == current_user.id)
     ).first()
 
+    panel_direct_competitions = []
     coverage_competitions = []
+    panel_ids = []
+    
     if feis_adjudicator:
-        coverages = session.exec(
+        # Get all panels this judge is a member of
+        panel_memberships = session.exec(
+            select(PanelMember)
+            .where(PanelMember.feis_adjudicator_id == feis_adjudicator.id)
+        ).all()
+        
+        panel_ids = [pm.panel_id for pm in panel_memberships]
+        
+        # 2a. Get competitions with direct panel_id assignment
+        if panel_ids:
+            panel_direct_competitions = session.exec(
+                select(Competition)
+                .where(Competition.feis_id == feis.id)
+                .where(Competition.panel_id.in_(panel_ids))
+            ).all()
+    
+    # 3. Get competitions via stage coverage (time-based scheduling)
+    if feis_adjudicator:
+        # 3a. Get direct coverage blocks (individual judge assignments)
+        direct_coverages = session.exec(
             select(StageJudgeCoverage)
             .where(StageJudgeCoverage.feis_adjudicator_id == feis_adjudicator.id)
         ).all()
         
-        if coverages:
+        # 3b. Get coverage via panel membership (reuse panel_ids from above)
+        panel_coverages = []
+        if panel_ids:
+            panel_coverages = session.exec(
+                select(StageJudgeCoverage)
+                .where(StageJudgeCoverage.panel_id.in_(panel_ids))
+            ).all()
+        
+        # Combine all coverages
+        all_coverages = list(direct_coverages) + list(panel_coverages)
+        
+        if all_coverages:
             # For each coverage block, find overlapping competitions
-            for cov in coverages:
-                # Convert coverage times to full datetimes for comparison if needed, 
-                # but Competition.scheduled_time is a datetime.
-                # We'll filter by stage and date first.
-                
-                # Note: We catch competitions that start within the window
-                # or strictly overlap.
+            for cov in all_coverages:
                 stage_comps = session.exec(
                     select(Competition)
                     .where(Competition.feis_id == feis.id)
@@ -131,14 +158,14 @@ async def list_judge_competitions(
                         
                     comp_start_time = comp.scheduled_time.time()
                     
-                    # Simple check: does the competition start within the judge's block?
-                    # or is it running during the block?
-                    # Let's check if the Start Time is within the window [start, end)
+                    # Check if competition starts within the coverage window [start, end)
                     if cov.start_time <= comp_start_time < cov.end_time:
                         coverage_competitions.append(comp)
 
-    # Merge and deduplicate
+    # Merge and deduplicate all sources
     all_competitions_map = {c.id: c for c in direct_competitions}
+    for c in panel_direct_competitions:
+        all_competitions_map[c.id] = c
     for c in coverage_competitions:
         all_competitions_map[c.id] = c
         

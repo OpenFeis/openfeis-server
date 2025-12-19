@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import type { CompetitionLevel, Gender, CompetitionCategory, DanceType, Stage, FeisAdjudicator } from '../../models/types';
+import type { CompetitionLevel, Gender, CompetitionCategory, DanceType, Stage, FeisAdjudicator, JudgePanel, StageJudgeCoverage } from '../../models/types';
 import { DANCE_TYPE_INFO } from '../../models/types';
 
 interface Competition {
@@ -22,6 +22,7 @@ interface Competition {
   scheduled_time?: string | null;
   estimated_duration_minutes?: number;
   adjudicator_id?: string | null;
+  panel_id?: string | null;
 }
 
 const props = withDefaults(defineProps<{
@@ -30,10 +31,14 @@ const props = withDefaults(defineProps<{
   isCreating: boolean;
   stages?: Stage[];
   adjudicators?: FeisAdjudicator[];
+  panels?: JudgePanel[];
+  stageCoverage?: StageJudgeCoverage[];
 }>(), {
   competition: null,
   stages: () => [],
-  adjudicators: () => []
+  adjudicators: () => [],
+  panels: () => [],
+  stageCoverage: () => []
 });
 
 const emit = defineEmits<{
@@ -61,7 +66,49 @@ const form = ref<Competition>({
   estimated_duration_minutes: 15,
   stage_id: null,
   scheduled_time: null,
-  adjudicator_id: null
+  adjudicator_id: null,
+  panel_id: null
+});
+
+// Assignment mode: 'coverage' (default), 'judge', or 'panel'
+const assignmentMode = ref<'coverage' | 'judge' | 'panel'>('coverage');
+
+// Computed: Find the coverage block for the current stage and time
+const coverageForCompetition = computed<StageJudgeCoverage | null>(() => {
+  if (!form.value.stage_id || !form.value.scheduled_time || !props.stageCoverage) {
+    return null;
+  }
+  
+  // Parse the scheduled time to extract date and time
+  const scheduled = new Date(form.value.scheduled_time);
+  const scheduledDate = scheduled.toISOString().split('T')[0]; // YYYY-MM-DD
+  const scheduledTime = scheduled.toTimeString().slice(0, 5); // HH:MM
+  
+  // Find matching coverage
+  for (const cov of props.stageCoverage) {
+    if (cov.stage_id !== form.value.stage_id) continue;
+    if (cov.feis_day !== scheduledDate) continue;
+    
+    // Check if time is within coverage window
+    if (cov.start_time <= scheduledTime && scheduledTime < cov.end_time) {
+      return cov;
+    }
+  }
+  
+  return null;
+});
+
+// Computed: Display text for coverage-based assignment
+const coverageDisplayText = computed(() => {
+  const cov = coverageForCompetition.value;
+  if (!cov) return null;
+  
+  if (cov.is_panel || cov.panel_id) {
+    return `Panel: ${cov.panel_name || 'Unknown Panel'}`;
+  } else if (cov.adjudicator_name) {
+    return `Judge: ${cov.adjudicator_name}`;
+  }
+  return null;
 });
 
 // Options
@@ -182,6 +229,15 @@ const initializeForm = () => {
     // Enable multi-level mode if this competition has allowed_levels set
     useMultipleLevels.value = !!(props.competition.category === 'SPECIAL' || 
       (props.competition.allowed_levels && props.competition.allowed_levels.length > 0));
+    
+    // Set assignment mode based on what's explicitly assigned
+    if (props.competition.adjudicator_id) {
+      assignmentMode.value = 'judge';
+    } else if (props.competition.panel_id) {
+      assignmentMode.value = 'panel';
+    } else {
+      assignmentMode.value = 'coverage';
+    }
   }
 };
 
@@ -207,9 +263,23 @@ const handleSave = () => {
     payload.scheduled_time = null;
   }
   
+  // Handle assignment mode
+  if (assignmentMode.value === 'coverage') {
+    // Clear both explicit assignments - use coverage-based lookup
+    payload.adjudicator_id = null;
+    payload.panel_id = null;
+  } else if (assignmentMode.value === 'judge') {
+    // Explicit judge assignment
+    payload.adjudicator_id = form.value.adjudicator_id || null;
+    payload.panel_id = null;
+  } else if (assignmentMode.value === 'panel') {
+    // Explicit panel assignment
+    payload.panel_id = form.value.panel_id || null;
+    payload.adjudicator_id = null;
+  }
+  
   // Clean up null/empty values
   if (!payload.stage_id) payload.stage_id = null;
-  if (!payload.adjudicator_id) payload.adjudicator_id = null;
   if (!payload.gender) payload.gender = null;
   if (!payload.code) payload.code = effectiveCode.value;
   
@@ -473,24 +543,100 @@ watch(() => form.value.category, (newCategory) => {
             />
           </div>
 
-          <!-- Adjudicator Assignment -->
+          <!-- Judge/Panel Assignment -->
           <div v-if="adjudicators && adjudicators.length > 0">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Assigned Judge</label>
-            <select
-              v-model="form.adjudicator_id"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option :value="null">-- No judge assigned --</option>
-              <option 
-                v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
-                :key="adj.id" 
-                :value="adj.user_id || adj.id"
+            <label class="block text-sm font-medium text-slate-700 mb-2">Judge Assignment</label>
+            
+            <!-- Assignment Mode Toggle -->
+            <div class="flex gap-1 p-1 bg-slate-100 rounded-lg mb-3">
+              <button
+                type="button"
+                @click="assignmentMode = 'coverage'"
+                class="flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors"
+                :class="assignmentMode === 'coverage' 
+                  ? 'bg-white text-slate-900 shadow-sm' 
+                  : 'text-slate-600 hover:text-slate-900'"
               >
-                {{ adj.name }}
-                <template v-if="adj.credential"> ({{ adj.credential }})</template>
-              </option>
-            </select>
-            <p class="text-xs text-slate-500 mt-1">Judges are auto-assigned based on stage coverage when you drag competitions</p>
+                📍 Via Coverage
+              </button>
+              <button
+                type="button"
+                @click="assignmentMode = 'judge'"
+                class="flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors"
+                :class="assignmentMode === 'judge' 
+                  ? 'bg-white text-slate-900 shadow-sm' 
+                  : 'text-slate-600 hover:text-slate-900'"
+              >
+                👤 Single Judge
+              </button>
+              <button
+                type="button"
+                @click="assignmentMode = 'panel'"
+                class="flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors"
+                :class="assignmentMode === 'panel' 
+                  ? 'bg-white text-slate-900 shadow-sm' 
+                  : 'text-slate-600 hover:text-slate-900'"
+              >
+                👥 Panel
+              </button>
+            </div>
+
+            <!-- Coverage-based assignment info -->
+            <div v-if="assignmentMode === 'coverage'" class="p-3 rounded-lg border-2 border-dashed" :class="coverageDisplayText ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'">
+              <div v-if="coverageDisplayText" class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="font-medium text-emerald-800">{{ coverageDisplayText }}</span>
+              </div>
+              <div v-else class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span class="text-amber-800">No coverage for this stage/time. Set up coverage in Schedule Builder.</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-2">Judges see competitions based on their stage coverage schedule.</p>
+            </div>
+
+            <!-- Single Judge Selection -->
+            <div v-else-if="assignmentMode === 'judge'">
+              <select
+                v-model="form.adjudicator_id"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option :value="null">-- Select a judge --</option>
+                <option 
+                  v-for="adj in adjudicators.filter(a => a.status === 'confirmed' || a.status === 'active')" 
+                  :key="adj.id" 
+                  :value="adj.user_id || adj.id"
+                >
+                  {{ adj.name }}
+                  <template v-if="adj.credential"> ({{ adj.credential }})</template>
+                </option>
+              </select>
+              <p class="text-xs text-slate-500 mt-1">Override coverage with a specific judge.</p>
+            </div>
+
+            <!-- Panel Selection -->
+            <div v-else-if="assignmentMode === 'panel'">
+              <select
+                v-model="form.panel_id"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option :value="null">-- Select a panel --</option>
+                <option 
+                  v-for="panel in panels" 
+                  :key="panel.id" 
+                  :value="panel.id"
+                >
+                  {{ panel.name }} ({{ panel.member_count }} judges)
+                </option>
+              </select>
+              <p v-if="panels && panels.length === 0" class="text-xs text-amber-600 mt-1">
+                No panels created yet. Create panels in the Adjudicators section.
+              </p>
+              <p v-else class="text-xs text-slate-500 mt-1">All judges in the panel can score this competition.</p>
+            </div>
           </div>
 
         </div>
