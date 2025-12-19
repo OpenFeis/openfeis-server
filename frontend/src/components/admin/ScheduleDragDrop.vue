@@ -1049,7 +1049,7 @@ watch(() => props.feisId, () => {
         <button
           v-if="sidebarCollapsed"
           @click="sidebarCollapsed = false"
-          class="absolute left-4 top-4 z-40 bg-white border border-slate-200 rounded-full p-2 shadow-lg hover:bg-slate-50 text-indigo-600 transition-all hover:scale-110 flex items-center gap-2 pr-4"
+          class="absolute left-4 top-4 z-[80] bg-white border border-slate-200 rounded-full p-2 shadow-lg hover:bg-slate-50 text-indigo-600 transition-all hover:scale-110 flex items-center gap-2 pr-4"
           title="Show Unscheduled"
         >
           <div class="bg-indigo-600 text-white rounded-full p-1">
