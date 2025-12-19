@@ -34,15 +34,8 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const showCodes = ref(true);
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = ref(window.innerWidth < 768); // Start collapsed on mobile
 const pixelsPerMinute = ref(5); // Scale factor (Height in vertical view) - Default "M" size
-
-// Initialize sidebar state
-const initSidebar = () => {
-  const isMobile = window.innerWidth < 768;
-  const hasNoUnscheduled = unscheduledComps.value.length === 0;
-  sidebarCollapsed.value = isMobile || hasNoUnscheduled;
-};
 
 const getZoomLabel = (level: number): string => {
   const labels: Record<number, string> = {
@@ -260,9 +253,12 @@ const loadSchedulerData = async () => {
     conflicts.value = data.conflicts;
     feisDate.value = data.feis_date;
     
-    // Auto-collapse sidebar if no unscheduled competitions
-    if (competitions.value.filter(c => !c.stage_id || !c.scheduled_time).length === 0) {
+    // Auto-collapse sidebar if no unscheduled competitions on initial load
+    if (unscheduledComps.value.length === 0) {
       sidebarCollapsed.value = true;
+    } else if (window.innerWidth >= 768) {
+      // On desktop, if we have unscheduled comps, show the sidebar by default
+      sidebarCollapsed.value = false;
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load data';
@@ -827,7 +823,6 @@ onMounted(() => {
   loadSchedulerData();
   loadAdjudicators();
   loadPanels();
-  initSidebar();
 });
 
 watch(() => unscheduledComps.value.length, (newCount) => {
