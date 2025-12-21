@@ -14,6 +14,115 @@ from backend.services.scheduling import estimate_duration
 
 router = APIRouter()
 
+
+def sync_competitions_with_coverage(
+    session: Session,
+    stage_id: Optional[UUID] = None,
+    coverage_id: Optional[UUID] = None,
+    feis_id: Optional[UUID] = None
+) -> int:
+    """
+    Sync competition adjudicator/panel assignments based on stage coverage.
+    
+    Args:
+        session: Database session
+        stage_id: If provided, sync only competitions on this stage
+        coverage_id: If provided, sync only competitions overlapping this specific coverage block
+        feis_id: If provided, sync all competitions for this feis
+    
+    Returns:
+        Number of competitions updated
+    """
+    from backend.scoring_engine.models_platform import Competition
+    from datetime import datetime, timedelta
+    
+    # Build query for competitions to check
+    query = select(Competition).where(
+        Competition.stage_id.isnot(None),
+        Competition.scheduled_time.isnot(None)
+    )
+    
+    if stage_id:
+        query = query.where(Competition.stage_id == stage_id)
+    elif feis_id:
+        query = query.where(Competition.feis_id == feis_id)
+    
+    competitions = session.exec(query).all()
+    updated_count = 0
+    
+    for comp in competitions:
+        if not comp.scheduled_time or not comp.stage_id:
+            continue
+        
+        # Calculate competition end time
+        duration_minutes = comp.estimated_duration_minutes or 2
+        comp_start = comp.scheduled_time
+        comp_end = comp_start + timedelta(minutes=duration_minutes)
+        comp_date = comp_start.date()
+        comp_start_time = comp_start.time()
+        comp_end_time = comp_end.time()
+        
+        # Find coverage blocks that overlap with this competition
+        coverage_query = select(StageJudgeCoverage).where(
+            StageJudgeCoverage.stage_id == comp.stage_id,
+            StageJudgeCoverage.feis_day == comp_date
+        )
+        
+        if coverage_id:
+            coverage_query = coverage_query.where(StageJudgeCoverage.id == coverage_id)
+        
+        coverage_blocks = session.exec(coverage_query).all()
+        
+        # Find the best matching coverage (longest overlap)
+        best_coverage = None
+        best_overlap_minutes = 0
+        
+        for cov in coverage_blocks:
+            # Check if times overlap
+            if comp_start_time < cov.end_time and comp_end_time > cov.start_time:
+                # Calculate overlap duration
+                overlap_start = max(comp_start_time, cov.start_time)
+                overlap_end = min(comp_end_time, cov.end_time)
+                
+                # Convert to minutes for comparison
+                overlap_minutes = (
+                    datetime.combine(comp_date, overlap_end) - 
+                    datetime.combine(comp_date, overlap_start)
+                ).total_seconds() / 60
+                
+                if overlap_minutes > best_overlap_minutes:
+                    best_overlap_minutes = overlap_minutes
+                    best_coverage = cov
+        
+        # Update competition with coverage info
+        old_adj = comp.adjudicator_id
+        old_panel = comp.panel_id
+        
+        if best_coverage:
+            # Assign judge or panel from coverage
+            # Important: adjudicator_id on Competition should be the User.id, not FeisAdjudicator.id
+            if best_coverage.feis_adjudicator_id:
+                feis_adj = session.get(FeisAdjudicator, best_coverage.feis_adjudicator_id)
+                comp.adjudicator_id = feis_adj.user_id if feis_adj and feis_adj.user_id else None
+            else:
+                comp.adjudicator_id = None
+            
+            comp.panel_id = best_coverage.panel_id
+        else:
+            # No coverage found - clear assignments
+            comp.adjudicator_id = None
+            comp.panel_id = None
+        
+        # Track if we actually changed something
+        if old_adj != comp.adjudicator_id or old_panel != comp.panel_id:
+            session.add(comp)
+            updated_count += 1
+    
+    if updated_count > 0:
+        session.commit()
+    
+    return updated_count
+
 @router.post("/stages", response_model=StageResponse)
 async def create_stage(
     stage_data: StageCreate,
@@ -285,6 +394,10 @@ async def create_stage_coverage(
     session.commit()
     session.refresh(coverage)
     
+    # Auto-sync competitions on this stage with the new coverage
+    updated_count = sync_competitions_with_coverage(session, stage_id=stage.id)
+    print(f"INFO: Added coverage to {stage.name}, auto-synced {updated_count} competitions")
+    
     return StageJudgeCoverageResponse(
         id=str(coverage.id),
         stage_id=str(coverage.stage_id),
@@ -309,7 +422,7 @@ async def delete_stage_coverage(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_organizer_or_admin())
 ):
-    """Delete a judge coverage block."""
+    """Delete a judge coverage block and re-sync affected competitions."""
     coverage = session.get(StageJudgeCoverage, UUID(coverage_id))
     if not coverage:
         raise HTTPException(status_code=404, detail="Coverage block not found")
@@ -326,10 +439,47 @@ async def delete_stage_coverage(
     if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only modify stages for your own feis")
     
+    # Store stage_id before deleting
+    affected_stage_id = coverage.stage_id
+    
     session.delete(coverage)
     session.commit()
     
-    return {"message": "Coverage block deleted"}
+    # Re-sync competitions on this stage (they may now have no coverage or different coverage)
+    updated_count = sync_competitions_with_coverage(session, stage_id=affected_stage_id)
+    print(f"INFO: Deleted coverage from {stage.name}, re-synced {updated_count} competitions")
+    
+    return {"message": "Coverage block deleted", "competitions_updated": updated_count}
+
+
+@router.post("/feis/{feis_id}/sync-judge-coverage")
+async def sync_feis_judge_coverage(
+    feis_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_organizer_or_admin())
+):
+    """
+    Manually sync all competitions in a feis with current judge coverage.
+    This is useful when:
+    - Competitions were scheduled before judge coverage was added
+    - Judge assignments need to be refreshed after bulk changes
+    - Fixing any inconsistencies in judge assignments
+    """
+    feis = session.get(Feis, UUID(feis_id))
+    if not feis:
+        raise HTTPException(status_code=404, detail="Feis not found")
+    
+    # Check ownership
+    if current_user.role != RoleType.SUPER_ADMIN and feis.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only sync your own feis")
+    
+    # Sync all competitions in this feis
+    updated_count = sync_competitions_with_coverage(session, feis_id=feis.id)
+    
+    return {
+        "message": f"Successfully synced {updated_count} competitions with judge coverage",
+        "competitions_updated": updated_count
+    }
 
 
 @router.post("/scheduling/estimate-duration", response_model=DurationEstimateResponse)

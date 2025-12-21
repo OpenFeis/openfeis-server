@@ -63,7 +63,7 @@ const form = ref<Competition>({
   category: 'SPECIAL',
   description: '',
   allowed_levels: [],
-  estimated_duration_minutes: 15,
+  estimated_duration_minutes: 2,  // Default for short feis events
   stage_id: null,
   scheduled_time: null,
   adjudicator_id: null,
@@ -537,10 +537,11 @@ watch(() => form.value.category, (newCategory) => {
             <input
               v-model.number="form.estimated_duration_minutes"
               type="number"
-              min="5"
+              min="1"
               max="180"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             />
+            <p class="text-xs text-slate-500 mt-1">Typical feis events: 2-6 minutes</p>
           </div>
 
           <!-- Judge/Panel Assignment -->

@@ -342,30 +342,69 @@ async def update_competition_schedule(
     if "estimated_duration_minutes" in schedule_update:
         competition.estimated_duration_minutes = schedule_update["estimated_duration_minutes"]
     
-    # Handle adjudicator/panel assignment - only for EXPLICIT assignments
-    # Coverage-based judge lookup is handled by JudgePad, not stored on competition
-    if "adjudicator_id" in schedule_update:
-        if schedule_update["adjudicator_id"]:
-            # Explicit assignment with a specific judge (clears panel)
-            competition.adjudicator_id = UUID(schedule_update["adjudicator_id"])
-            competition.panel_id = None
-        else:
-            # Explicitly clearing the judge
-            competition.adjudicator_id = None
+    # Handle adjudicator/panel assignment
+    explicit_judge_assignment = "adjudicator_id" in schedule_update or "panel_id" in schedule_update
     
-    if "panel_id" in schedule_update:
-        if schedule_update["panel_id"]:
-            # Explicit assignment with a panel (clears individual judge)
-            competition.panel_id = UUID(schedule_update["panel_id"])
-            competition.adjudicator_id = None
-        else:
-            # Explicitly clearing the panel
-            competition.panel_id = None
-    
-    # Note: We do NOT auto-assign judges based on coverage here.
-    # The JudgePad correctly looks up competitions via StageJudgeCoverage.
-    # Auto-assignment would cause conflicts when judges have coverage
-    # on multiple stages (ping-pong judging).
+    if explicit_judge_assignment:
+        # User explicitly set a judge/panel - honor that
+        if "adjudicator_id" in schedule_update:
+            if schedule_update["adjudicator_id"]:
+                competition.adjudicator_id = UUID(schedule_update["adjudicator_id"])
+                competition.panel_id = None
+            else:
+                competition.adjudicator_id = None
+        
+        if "panel_id" in schedule_update:
+            if schedule_update["panel_id"]:
+                competition.panel_id = UUID(schedule_update["panel_id"])
+                competition.adjudicator_id = None
+            else:
+                competition.panel_id = None
+    else:
+        # Auto-assign judge based on coverage when stage/time changes
+        if competition.stage_id and competition.scheduled_time:
+            from datetime import timedelta
+            
+            comp_date = competition.scheduled_time.date()
+            comp_time = competition.scheduled_time.time()
+            duration = competition.estimated_duration_minutes or 2
+            comp_end = (competition.scheduled_time + timedelta(minutes=duration)).time()
+            
+            # Find coverage that overlaps this competition
+            coverage_query = select(StageJudgeCoverage).where(
+                StageJudgeCoverage.stage_id == competition.stage_id,
+                StageJudgeCoverage.feis_day == comp_date
+            )
+            coverage_blocks = session.exec(coverage_query).all()
+            
+            # Find best match (longest overlap)
+            best_coverage = None
+            best_overlap = timedelta(0)
+            
+            for cov in coverage_blocks:
+                if comp_time < cov.end_time and comp_end > cov.start_time:
+                    # Calculate overlap
+                    overlap_start = max(comp_time, cov.start_time)
+                    overlap_end = min(comp_end, cov.end_time)
+                    overlap = dt.combine(comp_date, overlap_end) - dt.combine(comp_date, overlap_start)
+                    
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_coverage = cov
+            
+            # Assign judge/panel from coverage
+            if best_coverage:
+                if best_coverage.feis_adjudicator_id:
+                    feis_adj = session.get(FeisAdjudicator, best_coverage.feis_adjudicator_id)
+                    competition.adjudicator_id = feis_adj.user_id if feis_adj and feis_adj.user_id else None
+                else:
+                    competition.adjudicator_id = None
+                
+                competition.panel_id = best_coverage.panel_id
+            else:
+                # No coverage found - clear assignments
+                competition.adjudicator_id = None
+                competition.panel_id = None
     
     session.add(competition)
     session.commit()

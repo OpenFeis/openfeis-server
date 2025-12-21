@@ -400,7 +400,8 @@ def detect_adjudicator_availability_conflicts(
         comp_time = comp.scheduled_time.time()
         
         # Calculate end time
-        duration = comp.estimated_duration_minutes or 30
+        # Use 2 minutes as default for short feis events
+        duration = comp.estimated_duration_minutes or 2
         comp_end = (comp.scheduled_time + timedelta(minutes=duration)).time()
         
         is_available = False
@@ -515,9 +516,9 @@ def _times_overlap(comp1: Competition, comp2: Competition) -> bool:
     if not comp1.scheduled_time or not comp2.scheduled_time:
         return False
     
-    # Get durations (default to 30 minutes if not set)
-    duration1 = comp1.estimated_duration_minutes or 30
-    duration2 = comp2.estimated_duration_minutes or 30
+    # Get durations (default to 2 minutes for typical short feis events)
+    duration1 = comp1.estimated_duration_minutes or 2
+    duration2 = comp2.estimated_duration_minutes or 2
     
     end1 = comp1.scheduled_time + timedelta(minutes=duration1)
     end2 = comp2.scheduled_time + timedelta(minutes=duration2)

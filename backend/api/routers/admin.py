@@ -190,7 +190,8 @@ async def generate_syllabus(
                         tempo_bpm=tempo,
                         bars=48,  # Standard
                         scoring_method=request.scoring_method,
-                        price_cents=request.price_cents
+                        price_cents=request.price_cents,
+                        estimated_duration_minutes=2  # Default for short feis events
                     )
                     session.add(comp)
                     count += 1
@@ -244,7 +245,8 @@ async def generate_syllabus(
                     tempo_bpm=113,  # Figure dances typically 113 bpm
                     bars=48,
                     scoring_method=ScoringMethod.SOLO,  # Figure dances use solo scoring
-                    price_cents=request.price_cents
+                    price_cents=request.price_cents,
+                    estimated_duration_minutes=2  # Default for short feis events
                 )
                 session.add(comp)
                 count += 1
@@ -278,7 +280,8 @@ async def generate_syllabus(
                         tempo_bpm=113,
                         bars=48,
                         scoring_method=ScoringMethod.SOLO,
-                        price_cents=request.price_cents
+                        price_cents=request.price_cents,
+                        estimated_duration_minutes=2  # Default for short feis events
                     )
                     session.add(comp)
                     count += 1
@@ -336,7 +339,8 @@ async def generate_syllabus(
                         tempo_bpm=None,
                         bars=48,
                         scoring_method=ScoringMethod.CHAMPIONSHIP,
-                        price_cents=request.price_cents * 2  # Championships typically cost more
+                        price_cents=request.price_cents * 2,  # Championships typically cost more
+                        estimated_duration_minutes=2  # Default for short feis events
                     )
                     session.add(comp)
                     count += 1
