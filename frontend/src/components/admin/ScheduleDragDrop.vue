@@ -707,16 +707,24 @@ const getCoverageStyle = (cov: StageJudgeCoverage) => {
   const width = span * columnWidth - 8;
   
   // Find primary stage index
-  const coverageStages = stages.value.filter(s => 
-    s.judge_coverage.some(c => 
-      c.panel_id === cov.panel_id &&
-      c.feis_day === cov.feis_day &&
-      c.start_time === cov.start_time &&
-      c.end_time === cov.end_time
-    )
-  ).sort((a, b) => a.sequence - b.sequence);
+  // Only merge coverage blocks for panels (not individual judges)
+  let primaryIndex;
+  if (cov.is_panel && cov.panel_id) {
+    const coverageStages = stages.value.filter(s => 
+      s.judge_coverage.some(c => 
+        c.panel_id === cov.panel_id &&
+        c.feis_day === cov.feis_day &&
+        c.start_time === cov.start_time &&
+        c.end_time === cov.end_time
+      )
+    ).sort((a, b) => a.sequence - b.sequence);
+    
+    primaryIndex = stages.value.findIndex(s => s.id === (coverageStages[0]?.id || cov.stage_id));
+  } else {
+    // Individual judge - use its own stage
+    primaryIndex = stages.value.findIndex(s => s.id === cov.stage_id);
+  }
   
-  const primaryIndex = stages.value.findIndex(s => s.id === (coverageStages[0]?.id || cov.stage_id));
   const left = primaryIndex * columnWidth + 4;
   
   return {
