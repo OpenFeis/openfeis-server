@@ -75,7 +75,8 @@ Replace fragile, expensive legacy systems with a **transparent, resilient, and u
 - **Judge Panels** — Define panels (e.g., "Championship Panel A" with 3 or 5 judges) as first-class entities in the Adjudicator Roster 🆕
 - **Panel Assignment** — Assign panels to one or more stages for flexible judging setups (e.g., single-stage championships, multi-stage "Ping Pong" judging) 🆕
 - **Judge Coverage Blocks** — Assign individual judges or panels to stages with specific time ranges, displayed with color-coded indicators
-- **Time Estimation** — Automatic duration estimates based on entry count and dance parameters
+- **Auto-Sync Judge Assignments** — Competitions automatically sync with judge coverage when dragged/dropped or when coverage changes 🆕
+- **Time Estimation** — Automatic duration estimates based on entry count and dance parameters (defaults to 2 minutes for typical short feis events)
 - **Conflict Detection** — Identify scheduling conflicts (sibling overlaps, adjudicator conflicts, judge double-booking)
 - **Feis Settings** — Configure pricing, fees, registration windows, and payments per feis
 - **Flexible Pricing** — Set base entry fee, per-competition fee, and family maximum cap
