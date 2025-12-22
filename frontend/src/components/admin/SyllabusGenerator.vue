@@ -29,7 +29,7 @@ const useGenderedCompetitions = ref(false);
 const selectedGenders = ref<Set<Gender>>(new Set(['other'])); // 'other' = open/all genders
 
 // Solo dance selection (multi-select)
-const availableSoloDances = ['Reel', 'Light Jig', 'Slip Jig', 'Single Jig', 'Treble Jig', 'Hornpipe', 'Traditional Set'];
+const availableSoloDances = ['Reel', 'Light Jig', 'Slip Jig', 'Single Jig', 'Treble Jig', 'Hornpipe', 'Traditional Set', 'Non-Traditional Set'];
 const selectedDances = ref<Set<string>>(new Set());
 
 // Figure dance selection (multi-select) - team dances
@@ -186,6 +186,7 @@ const danceIcons: Record<string, string> = {
   'Treble Jig': '🥁',
   'Hornpipe': '⚡',
   'Traditional Set': '🌟',
+  'Non-Traditional Set': '💃',
   // Figure dances
   '2-Hand': '👯',
   '3-Hand': '👯',
@@ -270,12 +271,15 @@ const previewMatrix = computed(() => {
   
   for (const age of ageGroups.value) {
     for (const gender of selectedGenders.value) {
-      // 1. SOLO DANCES (filter out champ levels)
-      const soloLevels = Array.from(selectedLevels.value).filter(l => 
-        l !== 'preliminary_championship' && l !== 'open_championship'
-      );
-      for (const level of soloLevels) {
+      // 1. SOLO DANCES & STANDALONE SETS
+      for (const level of Array.from(selectedLevels.value)) {
         for (const dance of selectedDances.value) {
+          // Skip championships for most dances, but allow them for set dances
+          const isChampLevel = level === 'preliminary_championship' || level === 'open_championship';
+          const isSetDance = dance === 'Traditional Set' || dance === 'Non-Traditional Set';
+          
+          if (isChampLevel && !isSetDance) continue;
+
           if (count >= maxPreview) break;
           matrix.push({
             age,

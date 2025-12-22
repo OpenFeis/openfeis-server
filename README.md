@@ -746,7 +746,7 @@ For local testing, you have two options:
    - Select their category (Girl/Boy)
    - Select their current level (First Feis, Beginner 1, Beginner 2, Novice, Prizewinner, Prelim Champ, Open Champ)
 5. **Select Competitions (Enhanced Dance-by-Dance Grid):** 🆕
-   - **Solo Dances:** See all 7 standard dances (Reel, Light Jig, Slip Jig, Single Jig, Treble Jig, Hornpipe, Traditional Set) in a grid
+    - **Solo Dances:** See all 8 standard dances (Reel, Light Jig, Slip Jig, Single Jig, Treble Jig, Hornpipe, Traditional Set, Non-Traditional Set) in a grid
    - **Per-Dance Levels:** Each dance has a dropdown — adjust levels individually if your dancer is at different levels for different dances
    - **Toggle Selection:** Click the checkbox next to each dance to add/remove it from your cart
    - **Figure Dances:** Team dances (2-hand through 8-hand) are shown by age group only — no level selection needed
@@ -974,6 +974,7 @@ class Dancer:
     level_treble_jig: Optional[CompetitionLevel]
     level_hornpipe: Optional[CompetitionLevel]
     level_traditional_set: Optional[CompetitionLevel]
+    level_non_traditional_set: Optional[CompetitionLevel]
     # Note: Figure dances are not leveled — they're matched by age only
 
 class Stage:

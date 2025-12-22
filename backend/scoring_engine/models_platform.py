@@ -41,6 +41,7 @@ class DanceType(str, Enum):
     TREBLE_JIG = "TREBLE_JIG"               # 73 bpm
     HORNPIPE = "HORNPIPE"                   # 138 bpm
     TRADITIONAL_SET = "TRADITIONAL_SET"     # Varies
+    NON_TRADITIONAL_SET = "NON_TRADITIONAL_SET" # Varies
     CONTEMPORARY_SET = "CONTEMPORARY_SET"   # Varies
     TREBLE_REEL = "TREBLE_REEL"             # 92 bpm
     
@@ -236,6 +237,7 @@ class Dancer(SQLModel, table=True):
     level_treble_jig: Optional[CompetitionLevel] = None
     level_hornpipe: Optional[CompetitionLevel] = None
     level_traditional_set: Optional[CompetitionLevel] = None
+    level_non_traditional_set: Optional[CompetitionLevel] = None
     level_figure: Optional[CompetitionLevel] = None  # For all figure/ceili dances
     
     # Adult dancer flag

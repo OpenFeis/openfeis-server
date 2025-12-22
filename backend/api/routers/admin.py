@@ -149,11 +149,17 @@ async def generate_syllabus(
         
         for gender in request.genders:
             for level in request.levels:
-                # Skip championship levels in solo loop - they are one event per age/gender
-                if level in (CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP):
-                    continue
-                    
                 for dance in request.dances:
+                    # Map dance name to DanceType enum
+                    dance_type = get_dance_type_from_name(dance)
+                    
+                    # Skip championship levels in solo loop UNLESS it's a set dance (which can be standalone trophies)
+                    is_champ_level = level in (CompetitionLevel.PRELIMINARY_CHAMPIONSHIP, CompetitionLevel.OPEN_CHAMPIONSHIP)
+                    is_set_dance = dance_type in (DanceType.TRADITIONAL_SET, DanceType.NON_TRADITIONAL_SET, DanceType.CONTEMPORARY_SET)
+                    
+                    if is_champ_level and not is_set_dance:
+                        continue
+                        
                     # Handle open (non-gendered) competitions - 'other' means open to all
                     is_open = gender.value == 'other'
                     if is_open:

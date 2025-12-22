@@ -28,6 +28,7 @@ DANCE_TEMPOS: Dict[DanceType, int] = {
     DanceType.TREBLE_JIG: 73,
     DanceType.HORNPIPE: 138,
     DanceType.TRADITIONAL_SET: 113,  # Varies, use reel tempo
+    DanceType.NON_TRADITIONAL_SET: 113, # Varies
     DanceType.CONTEMPORARY_SET: 113,  # Varies
     DanceType.TREBLE_REEL: 92,
 }
@@ -546,6 +547,9 @@ def get_dance_type_from_name(dance_name: str) -> Optional[DanceType]:
         "hornpipe": DanceType.HORNPIPE,
         "traditional set": DanceType.TRADITIONAL_SET,
         "traditional_set": DanceType.TRADITIONAL_SET,
+        "non-traditional set": DanceType.NON_TRADITIONAL_SET,
+        "non traditional set": DanceType.NON_TRADITIONAL_SET,
+        "non_traditional_set": DanceType.NON_TRADITIONAL_SET,
         "set dance": DanceType.TRADITIONAL_SET,
         "contemporary set": DanceType.CONTEMPORARY_SET,
         "contemporary_set": DanceType.CONTEMPORARY_SET,

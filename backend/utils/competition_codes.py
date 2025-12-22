@@ -66,6 +66,7 @@ DANCE_CODES = {
     "TREBLE_JIG": "TJ",
     "HORNPIPE": "HP",
     "TRADITIONAL_SET": "TS",
+    "NON_TRADITIONAL_SET": "SD",
     "CONTEMPORARY_SET": "CS",
     "TREBLE_REEL": "TR",
     # Figure/Ceili dances
@@ -118,8 +119,8 @@ def generate_competition_code(
         
     age_index = str(target_age).zfill(2)
     
-    # For championships, use round code instead of dance code
-    if level.lower() in ("preliminary_championship", "open_championship"):
+    # For championships, use round code instead of dance code unless a specific set dance is requested
+    if level.lower() in ("preliminary_championship", "open_championship") and dance_type not in ("TRADITIONAL_SET", "NON_TRADITIONAL_SET", "CONTEMPORARY_SET"):
         if level.lower() == "preliminary_championship":
             dance_code = "PC"
         else:
@@ -225,6 +226,7 @@ def get_dance_name(dance_code: str) -> str:
         "TJ": "Treble Jig",
         "HP": "Hornpipe",
         "TS": "Traditional Set",
+        "SD": "Non-Traditional Set",
         "CS": "Contemporary Set",
         "TR": "Treble Reel",
         # Figure/Ceili dances
