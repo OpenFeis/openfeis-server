@@ -86,6 +86,7 @@ def run_migrations():
         ("dancer", "level_treble_jig", "ALTER TABLE dancer ADD COLUMN level_treble_jig VARCHAR"),
         ("dancer", "level_hornpipe", "ALTER TABLE dancer ADD COLUMN level_hornpipe VARCHAR"),
         ("dancer", "level_traditional_set", "ALTER TABLE dancer ADD COLUMN level_traditional_set VARCHAR"),
+        ("dancer", "level_non_traditional_set", "ALTER TABLE dancer ADD COLUMN level_non_traditional_set VARCHAR"),
         ("dancer", "level_figure", "ALTER TABLE dancer ADD COLUMN level_figure VARCHAR"),
         ("dancer", "is_adult", "ALTER TABLE dancer ADD COLUMN is_adult BOOLEAN DEFAULT 0"),
         

@@ -51,6 +51,7 @@ const getZoomLabel = (level: number): string => {
 const stages = ref<Stage[]>([]);
 const competitions = ref<ScheduledCompetition[]>([]);
 const conflicts = ref<ScheduleConflict[]>([]);
+const dismissedConflicts = ref(false);
 const feisDate = ref<string>('');
 
 // Adjudicator and panel data
@@ -128,6 +129,15 @@ const endHour = ref(20); // 8 PM
 const unscheduledComps = computed(() => {
   return competitions.value.filter(c => !c.stage_id || !c.scheduled_time);
 });
+
+const dismissConflicts = () => {
+  dismissedConflicts.value = true;
+  // Clear the status indicators from all competitions
+  competitions.value = competitions.value.map(comp => ({
+    ...comp,
+    has_conflicts: false
+  }));
+};
 
 // Calculate total timeline height
 const timelineHeight = computed(() => {
@@ -489,26 +499,6 @@ const deleteCoverage = async (coverage: StageJudgeCoverage) => {
   }
 };
 
-// Remove a competition from the schedule
-const unscheduleCompetition = (comp: ScheduledCompetition) => {
-  const existing = competitions.value.find(c => c.id === comp.id);
-  if (existing) {
-    const index = competitions.value.indexOf(existing);
-    competitions.value[index] = {
-      id: existing.id,
-      name: existing.name,
-      estimated_duration_minutes: existing.estimated_duration_minutes,
-      entry_count: existing.entry_count,
-      level: existing.level,
-      has_conflicts: existing.has_conflicts,
-      dance_type: existing.dance_type,
-      stage_id: undefined,
-      stage_name: undefined,
-      scheduled_time: undefined,
-      code: existing.code
-    };
-  }
-};
 const onDragStart = (comp: ScheduledCompetition, event: DragEvent) => {
   draggedComp.value = comp;
   if (event.dataTransfer) {
@@ -955,7 +945,16 @@ watch(() => props.feisId, () => {
     </div>
 
     <!-- Conflicts Warning -->
-    <div v-if="conflicts.length > 0" class="mx-6 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex-shrink-0">
+    <div v-if="conflicts.length > 0 && !dismissedConflicts" class="mx-6 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex-shrink-0 relative group">
+      <button 
+        @click="dismissConflicts"
+        class="absolute top-4 right-4 text-amber-400 hover:text-amber-600 p-1 rounded-lg hover:bg-amber-100 transition-all opacity-0 group-hover:opacity-100"
+        title="Dismiss warnings"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
       <div class="flex items-center gap-2 text-amber-700 font-semibold mb-2">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -1042,7 +1041,7 @@ watch(() => props.feisId, () => {
                     v-for="comp in unscheduledComps"
                     :key="comp.id"
                     class="p-2 rounded-lg text-white text-sm font-medium cursor-move shadow-sm hover:shadow-md transition-shadow group relative"
-                    :class="[getLevelColor(comp.level), { 'ring-2 ring-red-500': comp.has_conflicts }]"
+                    :class="[getLevelColor(comp.level), { 'ring-2 ring-red-500': comp.has_conflicts && !dismissedConflicts }]"
                     draggable="true"
                     @dragstart="onDragStart(comp, $event)"
                     @dragend="onDragEnd"
@@ -1052,7 +1051,7 @@ watch(() => props.feisId, () => {
                         <span class="text-lg">{{ getDanceIcon(comp.dance_type) }}</span>
                         <div class="leading-tight">
                             <div class="truncate w-44" :title="comp.name">
-                              {{ showCodes && comp.code ? comp.code : comp.name }}
+                              {{ showCodes && comp.code ? `${comp.code} (${comp.entry_count || 0})` : comp.name }}
                             </div>
                             <div class="text-white/80 text-xs flex gap-1">
                               <span>{{ comp.estimated_duration_minutes }}m</span>
@@ -1219,7 +1218,7 @@ watch(() => props.feisId, () => {
                             :class="[
                                 getLevelColor(comp.level), 
                                 { 
-                                    'ring-2 ring-red-500': comp.has_conflicts,
+                                    'ring-2 ring-red-500': comp.has_conflicts && !dismissedConflicts,
                                     'pointer-events-none opacity-40 grayscale': draggedComp && draggedComp.id !== comp.id,
                                     'ring-4 ring-indigo-400 z-50 scale-105 shadow-2xl': draggedComp && draggedComp.id === comp.id
                                 }
@@ -1232,7 +1231,7 @@ watch(() => props.feisId, () => {
                         >
                             <div class="flex justify-between items-start">
                                 <div class="font-semibold truncate flex-1">
-                                  {{ showCodes && comp.code ? comp.code : comp.name }}
+                                  {{ showCodes && comp.code ? `${comp.code} (${comp.entry_count || 0})` : comp.name }}
                                 </div>
                                 <button 
                                     @click.stop="openCompetitionEditor(comp)"
@@ -1243,22 +1242,6 @@ watch(() => props.feisId, () => {
                                     <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                     </svg>
-                                </button>
-                            </div>
-                            <div class="flex items-center justify-between mt-0.5">
-                                <span class="opacity-80">{{ new Date(comp.scheduled_time!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }}</span>
-                                <div class="flex gap-0.5">
-                                    <svg v-if="comp.adjudicator_id" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                    </svg>
-                                </div>
-                                <button
-                                    @click.stop="unscheduleCompetition(comp)"
-                                    @mousedown.stop
-                                    class="text-white/70 hover:text-white hover:bg-red-500/50 rounded px-1 text-[10px] ml-1 transition-colors"
-                                    title="Unschedule"
-                                >
-                                    ✕
                                 </button>
                             </div>
                         </div>
