@@ -4,7 +4,7 @@
 
 Open Feis is an open-source alternative to legacy feis management systems. Built with resilience at its core, it guarantees data integrity and operational continuity—even during internet outages. No more "tabulation meltdowns."
 
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/OpenFeis/openfeis-server)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/OpenFeis/openfeis-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Vue 3](https://img.shields.io/badge/vue-3.x-brightgreen.svg)](https://vuejs.org/)
@@ -1399,3 +1399,6 @@ All scoring logic is derived **strictly** from the official [CLRG Rules & Regula
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+Open Feis v0.5.0 • Built with the shared efforts of the Irish Dance Community

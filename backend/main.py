@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Open Feis API",
     description="Scoring engine and management for Irish Dance competitions.",
-    version="0.3.0",
+    version="0.5.0",
     lifespan=lifespan
 )
 

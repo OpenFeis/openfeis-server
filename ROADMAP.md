@@ -10,17 +10,19 @@ OpenFeis is an open-source Irish Dance competition management platform designed 
 
 **Core Philosophy:** Local-first, offline-resilient, CLRG-compliant.
 
-### Current State (v0.3.0)
+### Current State (v0.5.0)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Scoring Engine | ✅ 85% | Irish Points, split ties, drop high/low, recall |
-| Registration | ✅ 70% | Dancer profiles, eligibility filtering, pay-at-door |
-| Judge Pad | ✅ 80% | Offline IndexedDB, sync on reconnect |
-| Tabulator | ✅ 80% | Local mode, WebSocket updates |
-| Admin | ✅ 75% | Feis/competition CRUD, syllabus generator |
-| Scheduling | ✅ 85% | Visual Gantt, Instant Scheduler, conflict detection |
-| Payments | ⚠️ 60% | Cart calculation, family max, Stripe stubbed |
+| Scoring Engine | ✅ 90% | Irish Points, split ties, drop high/low, recall |
+| Registration | ✅ 85% | Dancer profiles, eligibility filtering, pay-at-door |
+| Judge Pad | ✅ 90% | Offline IndexedDB, sync on reconnect |
+| Tabulator | ✅ 90% | Local mode, WebSocket updates |
+| Admin | ✅ 85% | Feis/competition CRUD, syllabus generator |
+| Scheduling | ✅ 90% | Visual Gantt, Instant Scheduler, conflict detection |
+| Payments | ✅ 80% | Cart calculation, family max, Stripe integration |
+| Check-In | ✅ 80% | QR scanning, stage-centric dashboard |
+| Teacher Portal | ✅ 70% | Roster management, student links |
 
 ---
 
@@ -953,9 +955,8 @@ Since we're using SQLite and SQLModel, migrations are handled by recreating tabl
 |---------|------|---------|
 | 0.1.0 | Initial | Basic scoring, registration |
 | 0.2.0 | - | Auth, email verification, number cards |
-| 0.3.0 | Current | Local-first resilience, scheduling engine, Instant Scheduler |
-| 0.4.0 | Phase 3 | Financial engine |
-| 0.5.0 | Phase 4 | Teacher portal |
-| 0.6.0 | Phase 5 | Check-in & stage management |
+| 0.3.0 | - | Local-first resilience, scheduling engine, Instant Scheduler |
+| 0.4.0 | - | Financial engine, check-in & stage management |
+| 0.5.0 | Current | Teacher portal, enhanced registration grid |
 | 1.0.0 | TBD | Production ready |
 
